@@ -1,0 +1,15 @@
+/target
+/dist
+/web/node_modules
+/web/dist
+/web/.vite
+/desktop/src-tauri/target
+/desktop/src-tauri/gen
+/desktop/src-tauri/agent-beacon
+/desktop/src-tauri/agent-beacon.exe
+/desktop/src-tauri/.bundle-resources.json
+/desktop/src-tauri/icon-source.png
+.DS_Store
+*.log
+.cargo-home/
+.tmp-hw/

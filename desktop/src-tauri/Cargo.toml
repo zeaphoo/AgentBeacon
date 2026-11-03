@@ -1,0 +1,29 @@
+[package]
+name = "agent-beacon-app"
+description = "AgentBeacon 桌面壳：启动并监控 agent-beacon，在 WebView 中打开控制台"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "AgentBeaconApp"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+agent-beacon-core = { path = "../../crates/agent-beacon-core" }
+dirs = "6"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

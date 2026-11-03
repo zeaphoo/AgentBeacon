@@ -1,0 +1,40 @@
+[package]
+name = "agent-beacon"
+description = "AgentBeacon 常驻服务与 CLI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+default-run = "agent-beacon"
+
+[lib]
+name = "agent_beacon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "agent-beacon"
+path = "src/main.rs"
+
+[dependencies]
+agent-beacon-core = { path = "../agent-beacon-core" }
+agent-beacon-lights = { path = "../agent-beacon-lights" }
+anyhow = { workspace = true }
+async-stream = "0.3"
+axum = "0.8"
+clap = { version = "4", features = ["derive"] }
+dirs = "6"
+futures-core = "0.3"
+mime_guess = "2"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json"] }
+rust-embed = "8"
+serde = { workspace = true }
+serde_json = { workspace = true }
+serialport = "4"
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+futures-util = "0.3"
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }

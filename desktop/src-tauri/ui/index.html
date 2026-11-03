@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>AgentBeacon</title>
+    <style>
+      :root {
+        --bg: #0b0f14;
+        --fg: #e6e8eb;
+        --muted: #8b949e;
+        --accent: #34d399;
+        --danger: #f87171;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: grid;
+        place-items: center;
+        background: radial-gradient(700px 400px at 30% 0%, rgba(52, 211, 153, 0.12), transparent 60%), var(--bg);
+        color: var(--fg);
+        font-family: ui-sans-serif, system-ui, "Segoe UI", "Noto Sans SC", sans-serif;
+      }
+      main { width: min(520px, 88vw); text-align: center; }
+      .mark { width: 56px; height: 56px; margin: 0 auto 18px; display: grid; place-items: center; border-radius: 16px; background: rgba(52, 211, 153, 0.12); color: var(--accent); }
+      h1 { font-size: 19px; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.01em; }
+      #status { margin: 0; color: var(--accent); font-size: 14px; }
+      #status.error { color: var(--danger); }
+      #hint { margin: 10px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; display: none; }
+      #hint.show { display: block; }
+      #detail {
+        margin: 16px 0 0;
+        padding: 12px 14px;
+        min-height: 0;
+        max-height: 38vh;
+        overflow: auto;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--muted);
+        font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+        text-align: left;
+        white-space: pre-wrap;
+        word-break: break-all;
+        display: none;
+      }
+      #detail.show { display: block; }
+      #actions { margin-top: 18px; display: none; gap: 8px; justify-content: center; }
+      #actions.show { display: flex; }
+      button {
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--fg);
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      button:hover { background: rgba(255, 255, 255, 0.1); }
+      button.primary { background: rgba(52, 211, 153, 0.16); border-color: rgba(52, 211, 153, 0.4); color: #a7f3d0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark" aria-hidden="true">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 3v3M12 18v3M3 12h3M18 12h3" stroke-linecap="round" />
+          <circle cx="12" cy="12" r="5" />
+        </svg>
+      </div>
+      <h1>AgentBeacon</h1>
+      <p id="status">正在启动 agent-beacon…</p>
+      <p id="hint"></p>
+      <pre id="detail"></pre>
+      <div id="actions">
+        <button class="primary" id="retry">重试</button>
+      </div>
+    </main>
+
+    <script>
+      // 仅由 Rust 侧通过 eval 调用；本页不发起任何网络请求。
+      window.agentBeaconSetStatus = function (text, hint, detail, failed) {
+        var status = document.getElementById('status')
+        status.textContent = text || ''
+        status.classList.toggle('error', Boolean(failed))
+
+        var hintBox = document.getElementById('hint')
+        if (hint) {
+          hintBox.textContent = hint
+          hintBox.classList.add('show')
+        } else {
+          hintBox.textContent = ''
+          hintBox.classList.remove('show')
+        }
+
+        var box = document.getElementById('detail')
+        if (detail) {
+          box.textContent = detail
+          box.classList.add('show')
+        } else {
+          box.textContent = ''
+          box.classList.remove('show')
+        }
+
+        document.getElementById('actions').classList.toggle('show', Boolean(failed))
+      }
+
+      document.getElementById('retry').addEventListener('click', function () {
+        if (window.__TAURI__ && window.__TAURI__.core) {
+          window.__TAURI__.core.invoke('retry_service')
+        }
+      })
+    </script>
+  </body>
+</html>

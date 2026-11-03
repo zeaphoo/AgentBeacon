@@ -1,0 +1,18 @@
+[package]
+name = "agent-beacon-lights"
+description = "AgentBeacon 串口灯控：设备发现、MLight / YH50 协议与设备 actor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+agent-beacon-core = { path = "../agent-beacon-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+serialport = "4"
+
+[target.'cfg(not(windows))'.dependencies]
+rusb = "0.9"

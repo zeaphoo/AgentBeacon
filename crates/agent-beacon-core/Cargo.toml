@@ -1,0 +1,11 @@
+[package]
+name = "agent-beacon-core"
+description = "AgentBeacon 纯领域模型：会话、聚合、灯效与配置"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

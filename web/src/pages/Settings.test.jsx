@@ -1,0 +1,69 @@
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('../lib/api', () => ({
+  api: {
+    saveConfig: vi.fn(),
+    getState: vi.fn(),
+  },
+}))
+
+import { api } from '../lib/api'
+import Settings from './Settings'
+import { useBeaconStore } from '../store/beacon'
+
+const config = {
+  version: 1,
+  server: { host: '127.0.0.1', port: 6980 },
+  mapping: {
+    none: 'off',
+    idle: 'calm',
+    working: 'busy',
+    waiting: 'attention',
+    error: 'alert',
+  },
+  manual_override_default_secs: 60,
+  shutdown: { turn_off_lights: true },
+  mlight: { brightness: 100 },
+  yh50: { buzzer_on_alert: false },
+  devices: [],
+  mock: { enabled: false },
+}
+
+const snapshot = {
+  aggregate: 'none',
+  effect: 'off',
+  sessions: [],
+  devices: [],
+  service: { version: '0.1.0', pid: 1, port: 6980, uptime_secs: 1 },
+  override: null,
+  config,
+}
+
+describe('Settings', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useBeaconStore.setState({ snapshot, loading: false, error: null })
+    api.saveConfig.mockResolvedValue(config)
+    api.getState.mockResolvedValue(snapshot)
+  })
+
+  it('saves numeric brightness and mapping values', async () => {
+    const user = userEvent.setup()
+    render(<Settings />)
+
+    const brightness = screen.getByLabelText('MLight 亮度')
+    await user.clear(brightness)
+    await user.type(brightness, '50')
+    await user.click(screen.getByRole('button', { name: /保存设置/ }))
+
+    await waitFor(() => {
+      expect(api.saveConfig).toHaveBeenCalled()
+    })
+    const saved = api.saveConfig.mock.calls[0][0]
+    expect(saved.mlight.brightness).toBe(50)
+    expect(saved.mapping.error).toBe('alert')
+    expect(await screen.findByText('设置已保存并生效')).toBeInTheDocument()
+  })
+})

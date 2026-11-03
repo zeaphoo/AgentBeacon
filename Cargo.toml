@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/agent-beacon-core",
+    "crates/agent-beacon-lights",
+    "crates/agent-beacon",
+    "desktop/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["AgentBeacon contributors"]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tokio = { version = "1", features = ["full", "test-util"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

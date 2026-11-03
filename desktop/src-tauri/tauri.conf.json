@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AgentBeacon",
+  "version": "0.1.0",
+  "identifier": "xyz.agentbeacon.desktop",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "windows": [],
+    "withGlobalTauri": true,
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Utility",
+    "shortDescription": "Agent 状态 USB 状态灯",
+    "longDescription": "AgentBeacon 桌面应用：启动本地 agent-beacon 服务，并把 agent 状态同步到 USB 状态灯。",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "mainBinaryName": "AgentBeaconApp"
+}

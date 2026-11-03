@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "AgentBeacon 桌面壳：仅 splash 与主窗口",
+  "windows": ["splash", "main"],
+  "permissions": ["core:default"]
+}
