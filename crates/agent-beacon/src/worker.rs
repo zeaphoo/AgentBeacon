@@ -32,7 +32,7 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
             let ports = match serialport::available_ports() {
                 Ok(ports) => ports,
                 Err(error) => {
-                    tracing::warn!(error = %error, "枚举串口失败");
+                    tracing::warn!(error = %error, "failed to enumerate serial ports");
                     Vec::new()
                 }
             };

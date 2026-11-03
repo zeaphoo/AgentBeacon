@@ -35,14 +35,14 @@ pub fn paths() -> Result<DshPaths, String> {
         PathBuf::from(dir)
     } else {
         dirs::home_dir()
-            .ok_or_else(|| "无法解析用户主目录".to_string())?
+            .ok_or_else(|| "cannot resolve user home directory".to_string())?
             .join(".dsh")
     };
     let plugin_dir = if let Some(dir) = std::env::var_os("AGENT_BEACON_DSH_DIR") {
         PathBuf::from(dir)
     } else {
         dirs::data_dir()
-            .ok_or_else(|| "无法解析用户数据目录".to_string())?
+            .ok_or_else(|| "cannot resolve user data directory".to_string())?
             .join("agent-beacon")
             .join("integrations")
     };
@@ -84,7 +84,7 @@ fn status_at(paths: &DshPaths) -> Result<Status, String> {
             }
         }
         Err(error) => {
-            return Err(format!("读取 {} 失败：{error}", paths.plugin.display()));
+            return Err(format!("failed to read {}: {error}", paths.plugin.display()));
         }
     };
     Ok(Status {
@@ -104,7 +104,7 @@ pub fn install() -> Result<(Outcome, PathBuf), String> {
 fn install_at(paths: &DshPaths) -> Result<(Outcome, PathBuf), String> {
     if !paths.home.exists() {
         return Err(format!(
-            "未找到 DSH home：{}。请先安装并运行 DeepSeek Harness。",
+            "DSH home not found: {}. Install and run DeepSeek Harness first.",
             paths.home.display()
         ));
     }
@@ -134,15 +134,15 @@ pub fn upgrade() -> Result<(Outcome, PathBuf), String> {
 fn upgrade_at(paths: &DshPaths) -> Result<(Outcome, PathBuf), String> {
     if !paths.plugin.exists() {
         return Err(format!(
-            "{} 尚未安装，请先执行 integrate install dsh",
+            "{} is not installed; run integrate install dsh first",
             paths.plugin.display()
         ));
     }
     let existing = fs::read_to_string(&paths.plugin)
-        .map_err(|error| format!("读取 {} 失败：{error}", paths.plugin.display()))?;
+        .map_err(|error| format!("failed to read {}: {error}", paths.plugin.display()))?;
     if !is_managed(&existing) {
         return Err(format!(
-            "{} 不是 agent-beacon 管理的文件，拒绝覆盖",
+            "{} is not managed by agent-beacon; refusing to overwrite",
             paths.plugin.display()
         ));
     }
@@ -167,19 +167,19 @@ fn uninstall_at(paths: &DshPaths) -> Result<PathBuf, String> {
     let plugin_managed = match fs::read_to_string(&paths.plugin) {
         Ok(content) if !is_managed(&content) => {
             return Err(format!(
-                "{} 不是 agent-beacon 管理的文件，拒绝删除",
+                "{} is not managed by agent-beacon; refusing to delete",
                 paths.plugin.display()
             ));
         }
         Ok(_) => true,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
         Err(error) => {
-            return Err(format!("读取 {} 失败：{error}", paths.plugin.display()));
+            return Err(format!("failed to read {}: {error}", paths.plugin.display()));
         }
     };
 
     if !plugin_managed && !had_patch {
-        return Err("DSH 集成尚未安装".to_string());
+        return Err("DSH integration is not installed".to_string());
     }
 
     if had_patch {
@@ -188,7 +188,7 @@ fn uninstall_at(paths: &DshPaths) -> Result<PathBuf, String> {
     }
     if paths.plugin.exists() {
         fs::remove_file(&paths.plugin)
-            .map_err(|error| format!("删除 {} 失败：{error}", paths.plugin.display()))?;
+            .map_err(|error| format!("failed to delete {}: {error}", paths.plugin.display()))?;
     }
     Ok(paths.plugin.clone())
 }
@@ -214,7 +214,7 @@ fn has_patch(content: &str) -> bool {
 
 fn patch_block(plugin: &Path) -> Result<String, String> {
     let url = url::Url::from_file_path(plugin)
-        .map_err(|_| format!("无法把 {} 转为 file URL", plugin.display()))?;
+        .map_err(|_| format!("cannot convert {} to a file URL", plugin.display()))?;
     // YAML 单引号字符串：内部单引号需要双写。
     let value = url.to_string().replace('\'', "''");
     Ok(format!(

@@ -498,7 +498,7 @@ fn open_console_now(app: &AppHandle, addr: &str) {
             let _ = window.set_focus();
         }
         Err(error) => {
-            eprintln!("打开控制台失败：{error}");
+            eprintln!("failed to open console: {error}");
         }
     }
 }

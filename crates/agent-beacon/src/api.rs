@@ -134,7 +134,7 @@ async fn stream(
                 }
                 changed = shutdown.changed() => {
                     if changed.is_err() || *shutdown.borrow() {
-                        tracing::info!("SSE 流因服务关停结束");
+                        tracing::info!("SSE stream closed during shutdown");
                         break;
                     }
                 }
@@ -184,7 +184,7 @@ async fn control(
         .duration_secs
         .unwrap_or_else(|| state.config().manual_override_default_secs);
     if !(1..=3600).contains(&duration) {
-        return Err(ApiError::bad_request("duration_secs 必须在 1 到 3600 之间"));
+        return Err(ApiError::bad_request("duration_secs must be between 1 and 3600"));
     }
     let device = request
         .device
@@ -239,7 +239,7 @@ fn asset_response(path: &str, data: Vec<u8>) -> Response {
 async fn static_handler(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     if path.starts_with("api/") {
-        return ApiError::not_found("接口不存在").into_response();
+        return ApiError::not_found("endpoint not found").into_response();
     }
     let requested = if path.is_empty() { "index.html" } else { path };
     if let Some(file) = Assets::get(requested) {
@@ -250,7 +250,7 @@ async fn static_handler(uri: Uri) -> Response {
         None => (
             StatusCode::OK,
             axum::response::Html(
-                "<!doctype html><title>AgentBeacon</title><p>前端资源尚未构建，请运行 pnpm build:web。</p>",
+                "<!doctype html><title>AgentBeacon</title><p>Frontend assets are not built. Run pnpm build:web.</p>",
             ),
         )
             .into_response(),

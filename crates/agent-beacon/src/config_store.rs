@@ -15,7 +15,7 @@ impl ConfigStore {
     }
 
     pub fn default_path() -> Result<PathBuf, String> {
-        let base = dirs::config_dir().ok_or_else(|| "无法解析用户配置目录".to_string())?;
+        let base = dirs::config_dir().ok_or_else(|| "cannot resolve user config directory".to_string())?;
         Ok(base.join("agent-beacon").join("config.json"))
     }
 
@@ -33,16 +33,16 @@ impl ConfigStore {
         }
 
         let text = fs::read_to_string(&self.path)
-            .map_err(|error| format!("读取配置 {} 失败：{error}", self.path.display()))?;
+            .map_err(|error| format!("failed to read config {}: {error}", self.path.display()))?;
         let config: Config = serde_json::from_str(&text).map_err(|error| {
             format!(
-                "解析配置 {} 失败（可删除该文件恢复默认）：{error}",
+                "failed to parse config {} (delete it to restore defaults): {error}",
                 self.path.display()
             )
         })?;
         config
             .validate()
-            .map_err(|error| format!("配置 {} 非法：{error}", self.path.display()))?;
+            .map_err(|error| format!("invalid config {}: {error}", self.path.display()))?;
         Ok(config)
     }
 
@@ -50,24 +50,24 @@ impl ConfigStore {
         config.validate().map_err(config_error)?;
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)
-                .map_err(|error| format!("创建配置目录 {} 失败：{error}", parent.display()))?;
+                .map_err(|error| format!("failed to create config directory {}: {error}", parent.display()))?;
         }
         let text = serde_json::to_string_pretty(config)
-            .map_err(|error| format!("序列化配置失败：{error}"))?;
+            .map_err(|error| format!("failed to serialize config: {error}"))?;
         let tmp = self
             .path
             .with_extension(format!("json.tmp-{}", std::process::id()));
         fs::write(&tmp, text.as_bytes())
-            .map_err(|error| format!("写入临时配置 {} 失败：{error}", tmp.display()))?;
+            .map_err(|error| format!("failed to write temporary config {}: {error}", tmp.display()))?;
         fs::rename(&tmp, &self.path).map_err(|error| {
             let _ = fs::remove_file(&tmp);
-            format!("替换配置 {} 失败：{error}", self.path.display())
+            format!("failed to replace config {}: {error}", self.path.display())
         })
     }
 }
 
 fn config_error(error: ConfigError) -> String {
-    format!("配置非法：{error}")
+    format!("invalid config: {error}")
 }
 
 #[cfg(test)]

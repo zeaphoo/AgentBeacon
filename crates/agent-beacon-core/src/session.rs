@@ -128,15 +128,15 @@ impl Event {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ValidationError {
-    #[error("agent 不能为空")]
+    #[error("agent must not be empty")]
     EmptyAgent,
-    #[error("agent 名称不能超过 64 个字符")]
+    #[error("agent name must not exceed 64 characters")]
     AgentTooLong,
-    #[error("session 标识不能超过 128 个字符")]
+    #[error("session id must not exceed 128 characters")]
     SessionTooLong,
-    #[error("message 不能超过 1024 个字符")]
+    #[error("message must not exceed 1024 characters")]
     MessageTooLong,
-    #[error("ttl_secs 必须在 30 到 86400 之间")]
+    #[error("ttl_secs must be between 30 and 86400")]
     TtlOutOfRange,
 }
 

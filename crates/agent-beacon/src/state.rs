@@ -122,7 +122,7 @@ impl BeaconState {
 
     /// 通知所有 SSE 流结束，让 graceful shutdown 不被长连接卡住。
     pub fn begin_shutdown(&self) {
-        tracing::info!("开始关停：通知 SSE 客户端");
+        tracing::info!("shutting down: notifying SSE clients");
         let _ = self.shutdown.send_replace(true);
     }
 

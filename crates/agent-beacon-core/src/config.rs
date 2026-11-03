@@ -112,17 +112,17 @@ pub struct DeviceBinding {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigError {
-    #[error("不支持的配置版本：{0}")]
+    #[error("unsupported config version: {0}")]
     UnsupportedVersion(u32),
-    #[error("server.host 不能为空")]
+    #[error("server.host must not be empty")]
     EmptyHost,
-    #[error("server.port 不能为 0")]
+    #[error("server.port must not be 0")]
     InvalidPort,
-    #[error("manual_override_default_secs 必须在 1 到 3600 之间")]
+    #[error("manual_override_default_secs must be between 1 and 3600")]
     InvalidOverrideSeconds,
-    #[error("mlight.brightness 必须在 0 到 100 之间")]
+    #[error("mlight.brightness must be between 0 and 100")]
     InvalidBrightness,
-    #[error("设备绑定必须提供 serial 或 port")]
+    #[error("device binding must provide serial or port")]
     MissingBindingKey,
 }
 

@@ -25,7 +25,7 @@ impl SerialTransport {
             .flow_control(serialport::FlowControl::None)
             .timeout(Duration::from_millis(1000))
             .open()
-            .map_err(|error| format!("打开串口 {path} 失败：{error}"))?;
+            .map_err(|error| format!("failed to open serial port {path}: {error}"))?;
         Ok(Self {
             port,
             name: path.to_string(),
@@ -37,10 +37,10 @@ impl Transport for SerialTransport {
     fn write(&mut self, bytes: &[u8]) -> Result<(), String> {
         self.port
             .write_all(bytes)
-            .map_err(|error| format!("写入串口 {} 失败：{error}", self.name))?;
+            .map_err(|error| format!("failed to write serial port {}: {error}", self.name))?;
         self.port
             .flush()
-            .map_err(|error| format!("刷新串口 {} 失败：{error}", self.name))
+            .map_err(|error| format!("failed to flush serial port {}: {error}", self.name))
     }
 
     fn describe(&self) -> String {
@@ -69,7 +69,7 @@ impl Yh50Transport {
                 }),
                 Err(usb_error) => {
                     let serial = SerialTransport::open(path, 9600).map_err(|serial_error| {
-                        format!("USB 直连失败（{usb_error}），串口回退也失败（{serial_error}）")
+                        format!("USB direct connection failed ({usb_error}); serial fallback also failed ({serial_error})")
                     })?;
                     Ok(Self {
                         inner: Inner::Serial(serial),
@@ -114,10 +114,10 @@ struct UsbBulk {
 impl UsbBulk {
     fn open() -> Result<Self, String> {
         let context =
-            rusb::Context::new().map_err(|error| format!("libusb 初始化失败：{error}"))?;
+            rusb::Context::new().map_err(|error| format!("libusb initialization failed: {error}"))?;
         let devices = context
             .devices()
-            .map_err(|error| format!("libusb 枚举设备失败：{error}"))?;
+            .map_err(|error| format!("libusb device enumeration failed: {error}"))?;
         for device in devices.iter() {
             let descriptor = match device.device_descriptor() {
                 Ok(descriptor) => descriptor,
@@ -127,26 +127,26 @@ impl UsbBulk {
                 continue;
             }
             let endpoint = find_bulk_out(&device)
-                .ok_or_else(|| "YH50 没有可用的 Bulk OUT 端点".to_string())?;
+                .ok_or_else(|| "YH50 has no available Bulk OUT endpoint".to_string())?;
             let handle = device
                 .open()
-                .map_err(|error| format!("打开 YH50 失败：{error}"))?;
+                .map_err(|error| format!("failed to open YH50: {error}"))?;
             let _ = handle.set_active_configuration(1);
             handle
                 .claim_interface(0)
-                .map_err(|error| format!("占用 YH50 接口失败：{error}"))?;
+                .map_err(|error| format!("failed to claim YH50 interface: {error}"))?;
             return Ok(Self { handle, endpoint });
         }
-        Err("未找到 YH50 设备（1A86:7523）".to_string())
+        Err("YH50 device not found (1A86:7523)".to_string())
     }
 
     fn write(&mut self, bytes: &[u8]) -> Result<(), String> {
         let written = self
             .handle
             .write_bulk(self.endpoint, bytes, Duration::from_millis(1000))
-            .map_err(|error| format!("YH50 Bulk 写入失败：{error}"))?;
+            .map_err(|error| format!("YH50 bulk write failed: {error}"))?;
         if written != bytes.len() {
-            return Err(format!("YH50 写入不完整：{written}/{} 字节", bytes.len()));
+            return Err(format!("incomplete YH50 write: {written}/{} bytes", bytes.len()));
         }
         Ok(())
     }

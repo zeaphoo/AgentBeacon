@@ -17,17 +17,17 @@ use crate::state::BeaconState;
 use crate::worker;
 
 #[derive(Debug, Parser)]
-#[command(name = "agent-beacon", version, about = "同步 agent 状态到 USB 状态灯")]
+#[command(name = "agent-beacon", version, about = "Sync agent status to USB status lights")]
 pub struct Cli {
-    /// 服务地址（report/status/devices 使用）。
+    /// Service URL (used by report/status/devices).
     #[arg(long, global = true, default_value = "http://127.0.0.1:6980")]
     pub url: String,
 
-    /// 日志级别（RUST_LOG 优先）。
+    /// Log level (RUST_LOG takes precedence).
     #[arg(long, global = true, default_value = "info")]
     pub log_level: String,
 
-    /// 集成插件目录（integrate 命令使用；单目标时可用）。
+    /// Integration plugin directory (for integrate; only with a single target).
     #[arg(long, global = true)]
     pub dir: Option<PathBuf>,
 
@@ -37,30 +37,30 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// 启动常驻服务（默认子命令）。
+    /// Start the long-running service (default subcommand).
     Serve(ServeArgs),
-    /// 上报一条 agent 状态事件。
+    /// Report an agent status event.
     Report(ReportArgs),
-    /// 输出服务健康状况与聚合状态。
+    /// Print service health and aggregate state.
     Status,
-    /// 输出设备列表。
+    /// List devices.
     Devices,
-    /// 安装/升级 agent 集成插件。
+    /// Install or upgrade agent integration plugins.
     Integrate(IntegrateArgs),
 }
 
 #[derive(Debug, Default, Args)]
 pub struct ServeArgs {
-    /// 覆盖配置中的监听端口。
+    /// Override the configured listen port.
     #[arg(long)]
     pub port: Option<u16>,
-    /// 覆盖配置中的监听地址。
+    /// Override the configured listen host.
     #[arg(long)]
     pub host: Option<String>,
-    /// 由桌面壳托管：stdin 关闭时退出。
+    /// Supervised by the desktop shell: exit when stdin closes.
     #[arg(long)]
     pub supervised: bool,
-    /// 指定配置文件路径。
+    /// Path to the config file.
     #[arg(long)]
     pub config: Option<PathBuf>,
 }
@@ -73,35 +73,43 @@ pub struct IntegrateArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum IntegrateAction {
-    /// 查看支持项与安装状态。
+    /// Show supported integrations and installation state.
     List,
-    /// 安装插件；不指定 target 时安装全部。
+    /// Install plugins; installs all targets when target is omitted.
     Install {
         /// pi | opencode | dsh | all
         target: Option<String>,
-        /// 覆盖非 agent-beacon 管理的同名文件。
+        /// Overwrite files not managed by agent-beacon.
         #[arg(long)]
         force: bool,
     },
-    /// 升级已安装插件；不指定 target 时升级全部。
+    /// Upgrade installed plugins; upgrades all targets when target is omitted.
     Upgrade {
         /// pi | opencode | dsh | all
         target: Option<String>,
     },
-    /// 卸载插件。
-    Uninstall { target: String },
+    /// Uninstall a plugin.
+    Uninstall {
+        /// pi | opencode | dsh
+        target: String,
+    },
 }
 
 #[derive(Debug, Args)]
 pub struct ReportArgs {
+    /// Agent name.
     #[arg(long)]
     pub agent: String,
+    /// Agent state: idle | working | waiting | error.
     #[arg(long)]
     pub state: String,
+    /// Session identifier (optional).
     #[arg(long)]
     pub session: Option<String>,
+    /// Status message (optional).
     #[arg(long)]
     pub message: Option<String>,
+    /// Session TTL in seconds (optional).
     #[arg(long)]
     pub ttl: Option<u64>,
 }
@@ -155,7 +163,7 @@ async fn serve(args: ServeArgs) -> i32 {
         config.server.host = host;
     }
     if let Err(error) = config.validate() {
-        eprintln!("配置非法：{error}");
+        eprintln!("invalid configuration: {error}");
         return 1;
     }
 
@@ -170,7 +178,7 @@ async fn serve(args: ServeArgs) -> i32 {
     if health_online(probe_host, port).await {
         println!("agent-beacon: listening addr={host}:{port}");
         flush_stdout();
-        eprintln!("已有 agent-beacon 实例在运行，复用现有实例并退出");
+        eprintln!("an agent-beacon instance is already running; reusing it and exiting");
         return 0;
     }
 
@@ -180,7 +188,7 @@ async fn serve(args: ServeArgs) -> i32 {
             let kind = bind_kind(&error);
             println!("agent-beacon: bind-failed addr={host}:{port} kind={kind}");
             flush_stdout();
-            eprintln!("无法监听 {host}:{port}（{error}）");
+            eprintln!("failed to listen on {host}:{port}: {error}");
             return 1;
         }
     };
@@ -191,17 +199,17 @@ async fn serve(args: ServeArgs) -> i32 {
 
     println!("agent-beacon: listening addr={host}:{actual_port}");
     flush_stdout();
-    tracing::info!(address = %format!("{host}:{actual_port}"), "agent-beacon 已启动");
+    tracing::info!(address = %format!("{host}:{actual_port}"), "agent-beacon started");
 
     // 已安装的受管插件随二进制版本自动升级；不主动安装新插件。
     for (target, result) in integrations::upgrade_installed() {
         match result {
             Ok(Outcome::Upgraded) => {
-                tracing::info!(agent = target.id(), "已自动升级 agent 集成插件");
+                tracing::info!(agent = target.id(), "auto-upgraded agent integration");
             }
             Ok(_) => {}
             Err(error) => {
-                tracing::warn!(agent = target.id(), %error, "自动升级 agent 集成插件失败");
+                tracing::warn!(agent = target.id(), %error, "failed to auto-upgrade agent integration");
             }
         }
     }
@@ -242,7 +250,7 @@ async fn serve(args: ServeArgs) -> i32 {
 
     ticker.abort();
     if let Err(error) = result {
-        eprintln!("服务异常退出：{error}");
+        eprintln!("service exited unexpectedly: {error}");
         return 1;
     }
 
@@ -330,7 +338,7 @@ fn parse_state(value: &str) -> Result<AgentState, String> {
         "waiting" => Ok(AgentState::Waiting),
         "error" => Ok(AgentState::Error),
         other => Err(format!(
-            "未知状态 {other}，合法值为 idle|working|waiting|error"
+            "unknown state {other}; expected idle|working|waiting|error"
         )),
     }
 }
@@ -347,7 +355,7 @@ async fn report(cli: &Cli, args: ReportArgs) -> i32 {
         .timeout(Duration::from_millis(900))
         .build()
     else {
-        eprintln!("无法创建 HTTP 客户端");
+        eprintln!("failed to create HTTP client");
         return 2;
     };
 
@@ -371,11 +379,11 @@ async fn report(cli: &Cli, args: ReportArgs) -> i32 {
         Ok(response) => {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            eprintln!("上报失败（HTTP {status}）：{text}");
+            eprintln!("report failed (HTTP {status}): {text}");
             2
         }
         Err(error) => {
-            eprintln!("无法连接 agent-beacon（{}）：{error}", cli.url);
+            eprintln!("cannot connect to agent-beacon ({}): {error}", cli.url);
             2
         }
     }
@@ -386,25 +394,25 @@ async fn status(cli: &Cli) -> i32 {
         .timeout(Duration::from_secs(2))
         .build()
     else {
-        eprintln!("无法创建 HTTP 客户端");
+        eprintln!("failed to create HTTP client");
         return 2;
     };
     let url = format!("{}/api/v1/state", cli.url.trim_end_matches('/'));
     let response = match client.get(url).send().await {
         Ok(response) if response.status().is_success() => response,
         Ok(response) => {
-            eprintln!("读取状态失败（HTTP {}）", response.status());
+            eprintln!("failed to read status (HTTP {})", response.status());
             return 2;
         }
         Err(error) => {
-            eprintln!("无法连接 agent-beacon（{}）：{error}", cli.url);
+            eprintln!("cannot connect to agent-beacon ({}): {error}", cli.url);
             return 2;
         }
     };
     let value: Value = match response.json().await {
         Ok(value) => value,
         Err(error) => {
-            eprintln!("解析状态失败：{error}");
+            eprintln!("failed to parse status: {error}");
             return 2;
         }
     };
@@ -415,18 +423,18 @@ async fn status(cli: &Cli) -> i32 {
 fn print_status(value: &Value, url: &str) {
     let service = &value["service"];
     println!(
-        "服务: {} (v{}, pid {}, 已运行 {} 秒)",
+        "Service: {} (v{}, pid {}, uptime {}s)",
         url,
         service["version"].as_str().unwrap_or("?"),
         service["pid"].as_u64().unwrap_or(0),
         service["uptime_secs"].as_u64().unwrap_or(0)
     );
     println!(
-        "聚合状态: {}",
+        "Aggregate state: {}",
         value["aggregate"].as_str().unwrap_or("none")
     );
     println!(
-        "活动会话: {}",
+        "Active sessions: {}",
         value["sessions"].as_array().map(Vec::len).unwrap_or(0)
     );
     let devices = value["devices"].as_array().cloned().unwrap_or_default();
@@ -434,7 +442,7 @@ fn print_status(value: &Value, url: &str) {
         .iter()
         .filter(|device| device["connected"].as_bool().unwrap_or(false))
         .count();
-    println!("设备: {}/{} 已连接", connected, devices.len());
+    println!("Devices: {}/{} connected", connected, devices.len());
 }
 
 async fn devices(cli: &Cli) -> i32 {
@@ -442,34 +450,34 @@ async fn devices(cli: &Cli) -> i32 {
         .timeout(Duration::from_secs(2))
         .build()
     else {
-        eprintln!("无法创建 HTTP 客户端");
+        eprintln!("failed to create HTTP client");
         return 2;
     };
     let url = format!("{}/api/v1/devices", cli.url.trim_end_matches('/'));
     let response = match client.get(url).send().await {
         Ok(response) if response.status().is_success() => response,
         Ok(response) => {
-            eprintln!("读取设备失败（HTTP {}）", response.status());
+            eprintln!("failed to read devices (HTTP {})", response.status());
             return 2;
         }
         Err(error) => {
-            eprintln!("无法连接 agent-beacon（{}）：{error}", cli.url);
+            eprintln!("cannot connect to agent-beacon ({}): {error}", cli.url);
             return 2;
         }
     };
     let value: Value = match response.json().await {
         Ok(value) => value,
         Err(error) => {
-            eprintln!("解析设备列表失败：{error}");
+            eprintln!("failed to parse device list: {error}");
             return 2;
         }
     };
     let devices = value.as_array().cloned().unwrap_or_default();
     if devices.is_empty() {
-        println!("没有发现受支持的设备");
+        println!("No supported devices found");
         return 0;
     }
-    println!("{:<28} {:<14} {:<10} {}", "ID", "PORT", "PROFILE", "状态");
+    println!("{:<28} {:<14} {:<10} {}", "ID", "PORT", "PROFILE", "STATUS");
     for device in devices {
         println!(
             "{:<28} {:<14} {:<10} {}",
@@ -477,9 +485,9 @@ async fn devices(cli: &Cli) -> i32 {
             device["port"].as_str().unwrap_or("?"),
             device["profile"].as_str().unwrap_or("?"),
             if device["connected"].as_bool().unwrap_or(false) {
-                format!("已连接 · {}", device["effect"].as_str().unwrap_or("off"))
+                format!("connected · {}", device["effect"].as_str().unwrap_or("off"))
             } else {
-                "未连接".to_string()
+                "disconnected".to_string()
             }
         );
     }
@@ -497,7 +505,7 @@ fn parse_targets(raw: Option<&str>) -> Result<Vec<Target>, String> {
         "pi" => Ok(vec![Target::Pi]),
         "opencode" => Ok(vec![Target::OpenCode]),
         "dsh" => Ok(vec![Target::Dsh]),
-        other => Err(format!("未知集成 {other}；可选：pi、opencode、dsh、all")),
+        other => Err(format!("unknown integration {other}; expected pi, opencode, dsh, all")),
     }
 }
 
@@ -538,7 +546,7 @@ fn integrate(args: IntegrateArgs, dir: Option<&std::path::Path>) -> i32 {
                 }
             };
             if dir.is_some() && targets.len() > 1 {
-                eprintln!("--dir 只能与单个 target 一起使用");
+                eprintln!("--dir can only be used with a single target");
                 return 2;
             }
             let mut code = 0;
@@ -569,7 +577,7 @@ fn integrate(args: IntegrateArgs, dir: Option<&std::path::Path>) -> i32 {
                 }
             };
             if dir.is_some() && targets.len() > 1 {
-                eprintln!("--dir 只能与单个 target 一起使用");
+                eprintln!("--dir can only be used with a single target");
                 return 2;
             }
             let mut code = 0;
@@ -595,13 +603,13 @@ fn integrate(args: IntegrateArgs, dir: Option<&std::path::Path>) -> i32 {
             let target = match Target::parse(target.trim()) {
                 Some(target) => target,
                 None => {
-                    eprintln!("未知集成 {target}；可选：pi、opencode、dsh");
+                    eprintln!("unknown integration {target}; expected pi, opencode, dsh");
                     return 2;
                 }
             };
             match integrations::uninstall(target, dir) {
                 Ok(path) => {
-                    println!("{}: 已卸载 {}", target.label(), path.display());
+                    println!("{}: uninstalled {}", target.label(), path.display());
                     0
                 }
                 Err(error) => {

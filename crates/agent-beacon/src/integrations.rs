@@ -101,9 +101,9 @@ pub enum Outcome {
 impl Outcome {
     pub fn label(self) -> &'static str {
         match self {
-            Outcome::Installed => "已安装",
-            Outcome::Upgraded => "已升级",
-            Outcome::UpToDate => "已是最新",
+            Outcome::Installed => "installed",
+            Outcome::Upgraded => "upgraded",
+            Outcome::UpToDate => "up to date",
         }
     }
 }
@@ -129,16 +129,16 @@ pub enum State {
 impl State {
     pub fn label(self) -> &'static str {
         match self {
-            State::NotInstalled => "未安装",
-            State::UpToDate => "已是最新",
-            State::UpgradeAvailable => "可升级",
-            State::Unmanaged => "非托管文件",
+            State::NotInstalled => "not installed",
+            State::UpToDate => "up to date",
+            State::UpgradeAvailable => "upgrade available",
+            State::Unmanaged => "unmanaged file",
         }
     }
 }
 
 fn home_dir() -> Result<PathBuf, String> {
-    dirs::home_dir().ok_or_else(|| "无法解析用户主目录".to_string())
+    dirs::home_dir().ok_or_else(|| "cannot resolve user home directory".to_string())
 }
 
 /// OpenCode 文档使用 `~/.config/opencode`（含 macOS）；Windows 使用 `%APPDATA%`。
@@ -146,7 +146,7 @@ fn opencode_config_dir() -> Result<PathBuf, String> {
     if cfg!(windows) {
         return dirs::config_dir()
             .map(|dir| dir.join("opencode"))
-            .ok_or_else(|| "无法解析配置目录".to_string());
+            .ok_or_else(|| "cannot resolve config directory".to_string());
     }
     if let Some(dir) = std::env::var_os("XDG_CONFIG_HOME") {
         return Ok(PathBuf::from(dir).join("opencode"));
@@ -208,7 +208,7 @@ pub fn status(target: Target, override_dir: Option<&Path>) -> Result<Status, Str
             }
         }
         Err(error) => {
-            return Err(format!("读取 {} 失败：{error}", path.display()));
+            return Err(format!("failed to read {}: {error}", path.display()));
         }
     };
     Ok(Status {
@@ -236,11 +236,11 @@ pub fn install(
 
     if path.exists() {
         let existing = fs::read_to_string(&path)
-            .map_err(|error| format!("读取 {} 失败：{error}", path.display()))?;
+            .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
         let managed = is_managed(&existing);
         if !managed && !force {
             return Err(format!(
-                "{} 已存在且不是 agent-beacon 管理的文件；如需覆盖请加 --force",
+                "{} already exists and is not managed by agent-beacon; use --force to overwrite",
                 path.display()
             ));
         }
@@ -282,13 +282,13 @@ pub fn upgrade(target: Target, override_dir: Option<&Path>) -> Result<(Outcome, 
     if !path.exists() {
         let legacy_content = fs::read_to_string(&legacy).map_err(|error| {
             format!(
-                "{} 尚未安装，请先执行 integrate install（{error}）",
+                "{} is not installed; run integrate install first ({error})",
                 path.display()
             )
         })?;
         if !is_managed(&legacy_content) {
             return Err(format!(
-                "{} 尚未安装，请先执行 integrate install",
+                "{} is not installed; run integrate install first",
                 path.display()
             ));
         }
@@ -298,10 +298,10 @@ pub fn upgrade(target: Target, override_dir: Option<&Path>) -> Result<(Outcome, 
     }
 
     let existing = fs::read_to_string(&path)
-        .map_err(|error| format!("读取 {} 失败：{error}", path.display()))?;
+        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
     if !is_managed(&existing) {
         return Err(format!(
-            "{} 不是 agent-beacon 管理的文件，拒绝覆盖",
+            "{} is not managed by agent-beacon; refusing to overwrite",
             path.display()
         ));
     }
@@ -325,28 +325,28 @@ pub fn uninstall(target: Target, override_dir: Option<&Path>) -> Result<PathBuf,
 
     if path.exists() {
         let existing = fs::read_to_string(&path)
-            .map_err(|error| format!("读取 {} 失败：{error}", path.display()))?;
+            .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
         if !is_managed(&existing) {
             return Err(format!(
-                "{} 不是 agent-beacon 管理的文件，拒绝删除",
+                "{} is not managed by agent-beacon; refusing to delete",
                 path.display()
             ));
         }
-        fs::remove_file(&path).map_err(|error| format!("删除 {} 失败：{error}", path.display()))?;
+        fs::remove_file(&path).map_err(|error| format!("failed to delete {}: {error}", path.display()))?;
         removed = Some(path);
     }
 
     if legacy.exists() {
         let existing = fs::read_to_string(&legacy)
-            .map_err(|error| format!("读取 {} 失败：{error}", legacy.display()))?;
+            .map_err(|error| format!("failed to read {}: {error}", legacy.display()))?;
         if is_managed(&existing) {
             fs::remove_file(&legacy)
-                .map_err(|error| format!("删除 {} 失败：{error}", legacy.display()))?;
+                .map_err(|error| format!("failed to delete {}: {error}", legacy.display()))?;
             removed = Some(legacy);
         }
     }
 
-    removed.ok_or_else(|| format!("{} 尚未安装", dir.display()))
+    removed.ok_or_else(|| format!("{} is not installed", dir.display()))
 }
 
 /// 服务启动时调用：只升级已安装且受管的插件，不主动安装。
@@ -381,10 +381,10 @@ fn remove_legacy_managed(dir: &Path) -> Result<(), String> {
         return Ok(());
     }
     let content = fs::read_to_string(&path)
-        .map_err(|error| format!("读取 {} 失败：{error}", path.display()))?;
+        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
     if is_managed(&content) {
         fs::remove_file(&path)
-            .map_err(|error| format!("删除旧版插件 {} 失败：{error}", path.display()))?;
+            .map_err(|error| format!("failed to delete legacy plugin {}: {error}", path.display()))?;
     }
     Ok(())
 }
@@ -392,14 +392,14 @@ fn remove_legacy_managed(dir: &Path) -> Result<(), String> {
 pub(crate) fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
     let parent = path
         .parent()
-        .ok_or_else(|| format!("非法路径 {}", path.display()))?;
+        .ok_or_else(|| format!("invalid path {}", path.display()))?;
     fs::create_dir_all(parent)
-        .map_err(|error| format!("创建目录 {} 失败：{error}", parent.display()))?;
+        .map_err(|error| format!("failed to create directory {}: {error}", parent.display()))?;
     let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
-    fs::write(&tmp, content).map_err(|error| format!("写入 {} 失败：{error}", tmp.display()))?;
+    fs::write(&tmp, content).map_err(|error| format!("failed to write {}: {error}", tmp.display()))?;
     fs::rename(&tmp, path).map_err(|error| {
         let _ = fs::remove_file(&tmp);
-        format!("替换 {} 失败：{error}", path.display())
+        format!("failed to replace {}: {error}", path.display())
     })
 }
 

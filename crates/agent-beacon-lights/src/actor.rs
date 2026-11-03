@@ -195,7 +195,7 @@ async fn run(mut config: ActorConfig) {
 }
 
 fn mark_error(registry: &DeviceRegistry, id: &str, error: String) {
-    tracing::warn!(device = id, error = %error, "设备不可用");
+    tracing::warn!(device = id, error = %error, "device unavailable");
     update(registry, id, |info| {
         info.connected = false;
         info.last_error = Some(error);
