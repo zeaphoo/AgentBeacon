@@ -12,7 +12,7 @@ use crate::integrations::{
 };
 use crate::VERSION;
 
-const SOURCE: &str = include_str!("../assets/integrations/dsh.js");
+const SOURCE: &str = include_str!("../assets/integrations/agent-beacon-hook-dsh.js");
 const BEGIN: &str = "# >>> agent-beacon-hook-dsh";
 const END: &str = "# <<< agent-beacon-hook-dsh";
 const PLUGIN_FILE: &str = "agent-beacon-hook-dsh.js";

@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 
 use crate::VERSION;
 
-const PI_SOURCE: &str = include_str!("../assets/integrations/pi.js");
-const OPENCODE_SOURCE: &str = include_str!("../assets/integrations/opencode.js");
+const PI_SOURCE: &str = include_str!("../assets/integrations/agent-beacon-hook-pi.js");
+const OPENCODE_SOURCE: &str = include_str!("../assets/integrations/agent-beacon-hook-opencode.js");
 
 /// 旧版本安装的通用文件名，升级时自动迁移到带目标名的文件。
 const LEGACY_FILE_NAME: &str = "agent-beacon.js";
