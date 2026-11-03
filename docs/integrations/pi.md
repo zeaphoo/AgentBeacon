@@ -9,7 +9,7 @@ agent-beacon integrate install pi
 agent-beacon integrate list
 ```
 
-安装位置是 `~/.pi/agent/extensions/agent-beacon.js`（项目级可手动放到 `.pi/extensions/`）。
+安装位置是 `~/.pi/agent/extensions/agent-beacon-hook-pi.js`（项目级可手动放到 `.pi/extensions/`）。旧版本安装的 `agent-beacon.js` 会在安装/升级时自动迁移并删除。
 
 服务升级后会随启动自动升级已安装的受管插件；也可以手动执行：
 
@@ -31,7 +31,7 @@ agent-beacon integrate uninstall pi
 验证：
 
 ```bash
-pi --extension ~/.pi/agent/extensions/agent-beacon.js
+pi --extension ~/.pi/agent/extensions/agent-beacon-hook-pi.js
 agent-beacon status
 ```
 

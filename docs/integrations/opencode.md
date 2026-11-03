@@ -7,7 +7,7 @@ agent-beacon integrate install opencode
 agent-beacon integrate list
 ```
 
-默认安装到 `~/.config/opencode/plugins/agent-beacon.js`（项目级可手动放到 `.opencode/plugins/`）。服务启动时会自动升级已安装的受管插件，也可手动执行：
+默认安装到 `~/.config/opencode/plugins/agent-beacon-hook-opencode.js`（项目级可手动放到 `.opencode/plugins/`）。旧版本安装的 `agent-beacon.js` 会自动迁移。服务启动时会自动升级已安装的受管插件，也可手动执行：
 
 ```bash
 agent-beacon integrate upgrade opencode

@@ -11,6 +11,9 @@ use crate::VERSION;
 const PI_SOURCE: &str = include_str!("../assets/integrations/pi.js");
 const OPENCODE_SOURCE: &str = include_str!("../assets/integrations/opencode.js");
 
+/// 旧版本安装的通用文件名，升级时自动迁移到带目标名的文件。
+const LEGACY_FILE_NAME: &str = "agent-beacon.js";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     Pi,
@@ -35,7 +38,10 @@ impl Target {
     }
 
     pub fn file_name(self) -> &'static str {
-        "agent-beacon.js"
+        match self {
+            Target::Pi => "agent-beacon-hook-pi.js",
+            Target::OpenCode => "agent-beacon-hook-opencode.js",
+        }
     }
 
     fn source(self) -> &'static str {
@@ -171,6 +177,8 @@ fn resolve_dir(target: Target, override_dir: Option<&Path>) -> Result<PathBuf, S
 pub fn status(target: Target, override_dir: Option<&Path>) -> Result<Status, String> {
     let dir = resolve_dir(target, override_dir)?;
     let path = dir.join(target.file_name());
+    let legacy = dir.join(LEGACY_FILE_NAME);
+
     let (installed_version, state) = match fs::read_to_string(&path) {
         Ok(content) if !is_managed(&content) => (managed_version(&content), State::Unmanaged),
         Ok(content) => {
@@ -182,7 +190,13 @@ pub fn status(target: Target, override_dir: Option<&Path>) -> Result<Status, Str
             };
             (version, state)
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (None, State::NotInstalled),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let legacy_content = fs::read_to_string(&legacy).ok();
+            match legacy_content.filter(|content| is_managed(content)) {
+                Some(content) => (managed_version(&content), State::UpgradeAvailable),
+                None => (None, State::NotInstalled),
+            }
+        }
         Err(error) => {
             return Err(format!("读取 {} 失败：{error}", path.display()));
         }
@@ -204,6 +218,7 @@ pub fn install(
 ) -> Result<(Outcome, PathBuf), String> {
     let dir = resolve_dir(target, override_dir)?;
     let path = dir.join(target.file_name());
+    let legacy = dir.join(LEGACY_FILE_NAME);
     let rendered = render(target);
 
     if path.exists() {
@@ -217,9 +232,11 @@ pub fn install(
             ));
         }
         if managed && managed_version(&existing).as_deref() == Some(VERSION) && !force {
+            let _ = remove_legacy_managed(&dir);
             return Ok((Outcome::UpToDate, path));
         }
         write_atomic(&path, &rendered)?;
+        let _ = remove_legacy_managed(&dir);
         let outcome = if managed {
             Outcome::Upgraded
         } else {
@@ -228,19 +245,42 @@ pub fn install(
         return Ok((outcome, path));
     }
 
+    let legacy_managed = fs::read_to_string(&legacy)
+        .map(|content| is_managed(&content))
+        .unwrap_or(false);
     write_atomic(&path, &rendered)?;
-    Ok((Outcome::Installed, path))
+    let _ = remove_legacy_managed(&dir);
+    let outcome = if legacy_managed {
+        Outcome::Upgraded
+    } else {
+        Outcome::Installed
+    };
+    Ok((outcome, path))
 }
 
 pub fn upgrade(target: Target, override_dir: Option<&Path>) -> Result<(Outcome, PathBuf), String> {
     let dir = resolve_dir(target, override_dir)?;
     let path = dir.join(target.file_name());
+    let legacy = dir.join(LEGACY_FILE_NAME);
+
     if !path.exists() {
-        return Err(format!(
-            "{} 尚未安装，请先执行 integrate install",
-            path.display()
-        ));
+        let legacy_content = fs::read_to_string(&legacy).map_err(|error| {
+            format!(
+                "{} 尚未安装，请先执行 integrate install（{error}）",
+                path.display()
+            )
+        })?;
+        if !is_managed(&legacy_content) {
+            return Err(format!(
+                "{} 尚未安装，请先执行 integrate install",
+                path.display()
+            ));
+        }
+        write_atomic(&path, &render(target))?;
+        remove_legacy_managed(&dir)?;
+        return Ok((Outcome::Upgraded, path));
     }
+
     let existing = fs::read_to_string(&path)
         .map_err(|error| format!("读取 {} 失败：{error}", path.display()))?;
     if !is_managed(&existing) {
@@ -250,28 +290,44 @@ pub fn upgrade(target: Target, override_dir: Option<&Path>) -> Result<(Outcome, 
         ));
     }
     if managed_version(&existing).as_deref() == Some(VERSION) {
+        let _ = remove_legacy_managed(&dir);
         return Ok((Outcome::UpToDate, path));
     }
     write_atomic(&path, &render(target))?;
+    let _ = remove_legacy_managed(&dir);
     Ok((Outcome::Upgraded, path))
 }
 
 pub fn uninstall(target: Target, override_dir: Option<&Path>) -> Result<PathBuf, String> {
     let dir = resolve_dir(target, override_dir)?;
     let path = dir.join(target.file_name());
-    if !path.exists() {
-        return Err(format!("{} 尚未安装", path.display()));
+    let legacy = dir.join(LEGACY_FILE_NAME);
+    let mut removed = None;
+
+    if path.exists() {
+        let existing = fs::read_to_string(&path)
+            .map_err(|error| format!("读取 {} 失败：{error}", path.display()))?;
+        if !is_managed(&existing) {
+            return Err(format!(
+                "{} 不是 agent-beacon 管理的文件，拒绝删除",
+                path.display()
+            ));
+        }
+        fs::remove_file(&path).map_err(|error| format!("删除 {} 失败：{error}", path.display()))?;
+        removed = Some(path);
     }
-    let existing = fs::read_to_string(&path)
-        .map_err(|error| format!("读取 {} 失败：{error}", path.display()))?;
-    if !is_managed(&existing) {
-        return Err(format!(
-            "{} 不是 agent-beacon 管理的文件，拒绝删除",
-            path.display()
-        ));
+
+    if legacy.exists() {
+        let existing = fs::read_to_string(&legacy)
+            .map_err(|error| format!("读取 {} 失败：{error}", legacy.display()))?;
+        if is_managed(&existing) {
+            fs::remove_file(&legacy)
+                .map_err(|error| format!("删除 {} 失败：{error}", legacy.display()))?;
+            removed = Some(legacy);
+        }
     }
-    fs::remove_file(&path).map_err(|error| format!("删除 {} 失败：{error}", path.display()))?;
-    Ok(path)
+
+    removed.ok_or_else(|| format!("{} 尚未安装", dir.display()))
 }
 
 /// 服务启动时调用：只升级已安装且受管的插件，不主动安装。
@@ -281,12 +337,34 @@ pub fn upgrade_installed() -> Vec<(Target, Result<Outcome, String>)> {
         let Ok(dir) = target.default_dir() else {
             continue;
         };
-        if !dir.join(target.file_name()).exists() {
+        let managed = [dir.join(target.file_name()), dir.join(LEGACY_FILE_NAME)]
+            .iter()
+            .any(|path| {
+                fs::read_to_string(path)
+                    .map(|content| is_managed(&content))
+                    .unwrap_or(false)
+            });
+        if !managed {
             continue;
         }
         results.push((target, upgrade(target, None).map(|(outcome, _)| outcome)));
     }
     results
+}
+
+/// 删除旧版本安装的受管文件；非受管文件保留。
+fn remove_legacy_managed(dir: &Path) -> Result<(), String> {
+    let path = dir.join(LEGACY_FILE_NAME);
+    if !path.exists() {
+        return Ok(());
+    }
+    let content = fs::read_to_string(&path)
+        .map_err(|error| format!("读取 {} 失败：{error}", path.display()))?;
+    if is_managed(&content) {
+        fs::remove_file(&path)
+            .map_err(|error| format!("删除旧版插件 {} 失败：{error}", path.display()))?;
+    }
+    Ok(())
 }
 
 fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
@@ -365,6 +443,28 @@ mod tests {
         assert_eq!(
             status(Target::Pi, Some(&dir)).unwrap().state,
             State::NotInstalled
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn migrates_legacy_managed_file() {
+        let dir = temp_dir("migrate");
+        let legacy = dir.join("agent-beacon.js");
+        fs::write(&legacy, render(Target::Pi)).unwrap();
+
+        let current = status(Target::Pi, Some(&dir)).unwrap();
+        assert_eq!(current.state, State::UpgradeAvailable);
+        assert_eq!(current.installed_version.as_deref(), Some(VERSION));
+
+        let (outcome, path) = install(Target::Pi, Some(&dir), false).unwrap();
+        assert_eq!(outcome, Outcome::Upgraded);
+        assert_eq!(path, dir.join("agent-beacon-hook-pi.js"));
+        assert!(path.exists());
+        assert!(!legacy.exists());
+        assert_eq!(
+            status(Target::Pi, Some(&dir)).unwrap().state,
+            State::UpToDate
         );
         let _ = fs::remove_dir_all(dir);
     }
