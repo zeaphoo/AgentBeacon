@@ -25,7 +25,7 @@ const config = {
   },
   manual_override_default_secs: 60,
   shutdown: { turn_off_lights: true },
-  mlight: { brightness: 100 },
+  mlight: { brightness: 50 },
   yh50: { buzzer_on_alert: false },
   devices: [],
   mock: { enabled: false },
@@ -53,17 +53,20 @@ describe('Settings', () => {
     const user = userEvent.setup()
     render(<Settings />)
 
+    expect(screen.queryByText('启用 mock 设备')).not.toBeInTheDocument()
+
     const brightness = screen.getByLabelText('MLight 亮度')
     await user.clear(brightness)
-    await user.type(brightness, '50')
-    await user.click(screen.getByRole('button', { name: /保存设置/ }))
-
-    await waitFor(() => {
-      expect(api.saveConfig).toHaveBeenCalled()
-    })
+    await user.type(brightness, '55')
+    await waitFor(
+      () => {
+        expect(api.saveConfig).toHaveBeenCalled()
+      },
+      { timeout: 2500 },
+    )
     const saved = api.saveConfig.mock.calls[0][0]
-    expect(saved.mlight.brightness).toBe(50)
+    expect(saved.mlight.brightness).toBe(55)
     expect(saved.mapping.error).toBe('alert')
-    expect(await screen.findByText('设置已保存并生效')).toBeInTheDocument()
+    expect(await screen.findByText('已保存', {}, { timeout: 2500 })).toBeInTheDocument()
   })
 })

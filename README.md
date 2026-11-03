@@ -54,7 +54,7 @@ pnpm dev:serve      # 终端 1
 pnpm dev:web        # 终端 2 → http://127.0.0.1:6973
 ```
 
-没有硬件时，在设置页开启「mock 设备」，或把配置里的 `mock.enabled` 设为 `true`。
+没有硬件时，可把配置里的 `mock.enabled` 设为 `true` 来启用 mock 设备。
 
 ## CLI
 

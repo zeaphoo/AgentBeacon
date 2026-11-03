@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react'
-import { RefreshCw, Save, Usb } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Usb } from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
 import { useI18n } from '../i18n'
 import { AGGREGATE_KEYS, EFFECTS, profileLabel } from '../lib/labels'
-import { Button } from '../components/ui/button'
 import {
   Card,
   CardContent,
@@ -21,7 +20,6 @@ import {
   SelectValue,
 } from '../components/ui/select'
 import { Switch } from '../components/ui/switch'
-import { cn } from '../lib/utils'
 
 const MAPPING_ROWS = ['none', 'idle', 'working', 'waiting', 'error']
 const PROFILES = ['mlight-single', 'mlight-3led', 'yh50-rgy-j']
@@ -38,12 +36,53 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
+  const savedRef = useRef(null)
+  const requestRef = useRef(0)
 
   useEffect(() => {
     if (snapshot?.config && form === null) {
       setForm(clone(snapshot.config))
     }
   }, [snapshot, form])
+
+  useEffect(() => {
+    if (!form) return
+
+    const payload = {
+      ...form,
+      manual_override_default_secs: Number(form.manual_override_default_secs),
+      mlight: { ...form.mlight, brightness: Number(form.mlight.brightness) },
+    }
+    const serialized = JSON.stringify(payload)
+
+    // The first form load is the baseline, not a change to save.
+    if (savedRef.current === null) {
+      savedRef.current = serialized
+      return
+    }
+    if (serialized === savedRef.current) return
+
+    const changeId = ++requestRef.current
+    setStatus(null)
+    setError(null)
+
+    const timer = setTimeout(async () => {
+      setSaving(true)
+      try {
+        await saveConfig(payload)
+        if (changeId === requestRef.current) {
+          savedRef.current = serialized
+          setStatus('saved')
+        }
+      } catch (err) {
+        if (changeId === requestRef.current) setError(err.message)
+      } finally {
+        if (changeId === requestRef.current) setSaving(false)
+      }
+    }, 500)
+
+    return () => clearTimeout(timer)
+  }, [form, saveConfig])
 
   if (!form) {
     return (
@@ -85,44 +124,11 @@ export default function Settings() {
     })
   }
 
-  async function handleSave() {
-    setSaving(true)
-    setError(null)
-    setStatus(null)
-    try {
-      const payload = {
-        ...form,
-        manual_override_default_secs: Number(form.manual_override_default_secs),
-        mlight: { ...form.mlight, brightness: Number(form.mlight.brightness) },
-      }
-      await saveConfig(payload)
-      setForm(clone(payload))
-      setStatus('saved')
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  function handleReload() {
-    if (snapshot?.config) {
-      setForm(clone(snapshot.config))
-      setStatus(null)
-      setError(null)
-    }
-  }
-
   return (
     <div className="space-y-6">
-      {(status || error) && (
-        <div
-          className={cn(
-            'rounded-lg border px-4 py-3 text-sm',
-            error ? 'alert-danger' : 'alert-success',
-          )}
-        >
-          {error || (status ? t('settings.saved') : null)}
+      {error && (
+        <div className="alert-danger rounded-lg border px-4 py-3 text-sm" role="alert">
+          {error}
         </div>
       )}
 
@@ -233,17 +239,6 @@ export default function Settings() {
                 }
               />
             </div>
-
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <Label>{t('settings.mock')}</Label>
-                <p className="mt-1 text-xs text-muted-foreground">{t('settings.mockHint')}</p>
-              </div>
-              <Switch
-                checked={form.mock.enabled}
-                onCheckedChange={(checked) => update({ mock: { ...form.mock, enabled: checked } })}
-              />
-            </div>
           </CardContent>
         </Card>
       </div>
@@ -292,16 +287,13 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={handleSave} disabled={saving}>
-          <Save className="mr-1.5 h-4 w-4" />
-          {saving ? t('settings.saving') : t('settings.save')}
-        </Button>
-        <Button variant="outline" onClick={handleReload}>
-          <RefreshCw className="mr-1.5 h-4 w-4" />
-          {t('settings.reload')}
-        </Button>
-      </div>
+      <p className="text-xs text-muted-foreground" aria-live="polite">
+        {saving
+          ? t('settings.saving')
+          : status
+            ? t('settings.saved')
+            : t('settings.autoSaveHint')}
+      </p>
     </div>
   )
 }

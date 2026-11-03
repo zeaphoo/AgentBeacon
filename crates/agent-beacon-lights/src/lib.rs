@@ -39,7 +39,7 @@ pub struct PlanOptions {
 impl Default for PlanOptions {
     fn default() -> Self {
         Self {
-            brightness: 100,
+            brightness: 50,
             buzzer_on_alert: false,
         }
     }
@@ -69,7 +69,7 @@ impl Default for DesiredState {
         Self {
             effect: Effect::Off,
             overrides: HashMap::new(),
-            brightness: 100,
+            brightness: 50,
             buzzer_on_alert: false,
         }
     }

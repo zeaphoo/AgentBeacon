@@ -72,7 +72,7 @@ pub struct MlightConfig {
 
 impl Default for MlightConfig {
     fn default() -> Self {
-        Self { brightness: 100 }
+        Self { brightness: 50 }
     }
 }
 
@@ -173,6 +173,7 @@ mod tests {
     fn default_config_is_valid_and_roundtrips() {
         let config = Config::default();
         config.validate().unwrap();
+        assert_eq!(config.mlight.brightness, 50);
         let text = serde_json::to_string_pretty(&config).unwrap();
         let parsed: Config = serde_json::from_str(&text).unwrap();
         assert_eq!(config, parsed);
