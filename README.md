@@ -64,6 +64,13 @@ agent-beacon report --agent claude-code --state waiting --message "等待确认"
 agent-beacon status
 agent-beacon devices
 agent-beacon serve --port 6980 --supervised
+
+# agent 集成插件（内置在二进制中）
+agent-beacon integrate list
+agent-beacon integrate install            # 安装全部（pi、opencode）
+agent-beacon integrate install pi
+agent-beacon integrate upgrade
+agent-beacon integrate uninstall pi
 ```
 
 `report` 成功退出码 0；服务不可达时在 1 秒内返回非 0。`--url` 可指定其他地址。
@@ -132,6 +139,8 @@ AgentBeacon 不限制 agent 名称：`agent` 是自由字符串，服务端没�
 | Pi | extension（`agent_start` / `agent_settled` / `tool_call`） | [pi.md](docs/integrations/pi.md) |
 | OpenCode | plugin（`session.idle` / `permission.asked` / `session.error`） | [opencode.md](docs/integrations/opencode.md) |
 | 其他 | CLI `agent-beacon report` 或 `POST /api/v1/events` | 见下方通用 HTTP 示例 |
+
+Pi/OpenCode 插件随 `agent-beacon` 二进制分发，用 `agent-beacon integrate install` 安装；服务启动时会自动升级已安装的受管插件。
 
 状态粒度取决于 agent 暴露的事件：有完整 hook 时能区分 `working` / `waiting` / `error`；只有 shell wrapper 时至少能上报 `working` / `idle` / `error`。
 

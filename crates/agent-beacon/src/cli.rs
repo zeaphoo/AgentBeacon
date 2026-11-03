@@ -12,6 +12,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::api;
 use crate::config_store::ConfigStore;
+use crate::integrations::{self, Outcome, Target};
 use crate::state::BeaconState;
 use crate::worker;
 
@@ -25,6 +26,10 @@ pub struct Cli {
     /// 日志级别（RUST_LOG 优先）。
     #[arg(long, global = true, default_value = "info")]
     pub log_level: String,
+
+    /// 集成插件目录（integrate 命令使用；单目标时可用）。
+    #[arg(long, global = true)]
+    pub dir: Option<PathBuf>,
 
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -40,6 +45,8 @@ pub enum Command {
     Status,
     /// 输出设备列表。
     Devices,
+    /// 安装/升级 agent 集成插件。
+    Integrate(IntegrateArgs),
 }
 
 #[derive(Debug, Default, Args)]
@@ -56,6 +63,33 @@ pub struct ServeArgs {
     /// 指定配置文件路径。
     #[arg(long)]
     pub config: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct IntegrateArgs {
+    #[command(subcommand)]
+    pub action: IntegrateAction,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum IntegrateAction {
+    /// 查看支持项与安装状态。
+    List,
+    /// 安装插件；不指定 target 时安装全部。
+    Install {
+        /// pi | opencode | all
+        target: Option<String>,
+        /// 覆盖非 agent-beacon 管理的同名文件。
+        #[arg(long)]
+        force: bool,
+    },
+    /// 升级已安装插件；不指定 target 时升级全部。
+    Upgrade {
+        /// pi | opencode | all
+        target: Option<String>,
+    },
+    /// 卸载插件。
+    Uninstall { target: String },
 }
 
 #[derive(Debug, Args)]
@@ -80,6 +114,7 @@ pub async fn run(mut cli: Cli) -> i32 {
         Some(Command::Report(args)) => report(&cli, args).await,
         Some(Command::Status) => status(&cli).await,
         Some(Command::Devices) => devices(&cli).await,
+        Some(Command::Integrate(args)) => integrate(args, cli.dir.as_deref()),
         None => serve(ServeArgs::default()).await,
     }
 }
@@ -157,6 +192,19 @@ async fn serve(args: ServeArgs) -> i32 {
     println!("agent-beacon: listening addr={host}:{actual_port}");
     flush_stdout();
     tracing::info!(address = %format!("{host}:{actual_port}"), "agent-beacon 已启动");
+
+    // 已安装的受管插件随二进制版本自动升级；不主动安装新插件。
+    for (target, result) in integrations::upgrade_installed() {
+        match result {
+            Ok(Outcome::Upgraded) => {
+                tracing::info!(agent = target.id(), "已自动升级 agent 集成插件");
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(agent = target.id(), %error, "自动升级 agent 集成插件失败");
+            }
+        }
+    }
 
     let state = BeaconState::new(config.clone(), store, actual_port);
     let app = api::router(state.clone());
@@ -434,4 +482,126 @@ async fn devices(cli: &Cli) -> i32 {
         );
     }
     0
+}
+
+fn parse_targets(raw: Option<&str>) -> Result<Vec<Target>, String> {
+    let value = raw.unwrap_or("all").trim();
+    match value {
+        "" | "all" => Ok(Target::ALL.to_vec()),
+        "pi" => Ok(vec![Target::Pi]),
+        "opencode" => Ok(vec![Target::OpenCode]),
+        other => Err(format!("未知集成 {other}；可选：pi、opencode、all")),
+    }
+}
+
+fn integrate(args: IntegrateArgs, dir: Option<&std::path::Path>) -> i32 {
+    match args.action {
+        IntegrateAction::List => {
+            println!(
+                "{:<9} {:<8} {:<8} {}",
+                "AGENT", "INSTALLED", "BUNDLED", "STATE"
+            );
+            let mut code = 0;
+            for target in Target::ALL {
+                match integrations::status(target, dir) {
+                    Ok(status) => {
+                        println!(
+                            "{:<9} {:<8} {:<8} {}",
+                            status.target.id(),
+                            status.installed_version.as_deref().unwrap_or("-"),
+                            status.embedded_version,
+                            status.state.label()
+                        );
+                        println!("          {}", status.dir.display());
+                    }
+                    Err(error) => {
+                        eprintln!("{}: {error}", target.id());
+                        code = 1;
+                    }
+                }
+            }
+            code
+        }
+        IntegrateAction::Install { target, force } => {
+            let targets = match parse_targets(target.as_deref()) {
+                Ok(targets) => targets,
+                Err(error) => {
+                    eprintln!("{error}");
+                    return 2;
+                }
+            };
+            if dir.is_some() && targets.len() > 1 {
+                eprintln!("--dir 只能与单个 target 一起使用");
+                return 2;
+            }
+            let mut code = 0;
+            for target in targets {
+                match integrations::install(target, dir, force) {
+                    Ok((outcome, path)) => {
+                        println!(
+                            "{}: {} -> {}",
+                            target.label(),
+                            outcome.label(),
+                            path.display()
+                        );
+                    }
+                    Err(error) => {
+                        eprintln!("{}: {error}", target.label());
+                        code = 1;
+                    }
+                }
+            }
+            code
+        }
+        IntegrateAction::Upgrade { target } => {
+            let targets = match parse_targets(target.as_deref()) {
+                Ok(targets) => targets,
+                Err(error) => {
+                    eprintln!("{error}");
+                    return 2;
+                }
+            };
+            if dir.is_some() && targets.len() > 1 {
+                eprintln!("--dir 只能与单个 target 一起使用");
+                return 2;
+            }
+            let mut code = 0;
+            for target in targets {
+                match integrations::upgrade(target, dir) {
+                    Ok((outcome, path)) => {
+                        println!(
+                            "{}: {} -> {}",
+                            target.label(),
+                            outcome.label(),
+                            path.display()
+                        );
+                    }
+                    Err(error) => {
+                        eprintln!("{}: {error}", target.label());
+                        code = 1;
+                    }
+                }
+            }
+            code
+        }
+        IntegrateAction::Uninstall { target } => {
+            let target = match Target::parse(target.trim()) {
+                Some(target) => target,
+                None => {
+                    eprintln!("未知集成 {target}；可选：pi、opencode");
+                    return 2;
+                }
+            };
+            match integrations::uninstall(target, dir) {
+                Ok(path) => {
+                    println!("{}: 已卸载 {}", target.label(), path.display());
+                    0
+                }
+                Err(error) => {
+                    eprintln!("{}: {error}", target.label());
+                    1
+                }
+            }
+        }
+    }
 }

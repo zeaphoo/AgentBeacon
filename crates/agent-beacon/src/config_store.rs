@@ -73,13 +73,17 @@ fn config_error(error: ConfigError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
 
     fn temp_store(tag: &str) -> ConfigStore {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_nanos();
+            .as_nanos()
+            + u128::from(COUNTER.fetch_add(1, Ordering::Relaxed));
         let dir = std::env::temp_dir().join(format!("agent-beacon-test-{tag}-{unique}"));
         ConfigStore::new(dir.join("config.json"))
     }

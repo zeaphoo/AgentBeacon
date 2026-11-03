@@ -254,14 +254,18 @@ mod tests {
     use axum::http::{header, Request, StatusCode};
     use futures_util::StreamExt;
     use http_body_util::BodyExt;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
     use tower::ServiceExt;
 
     fn test_state() -> Arc<BeaconState> {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_nanos();
+            .as_nanos()
+            + u128::from(COUNTER.fetch_add(1, Ordering::Relaxed));
         let dir = std::env::temp_dir().join(format!("beacon-api-{unique}"));
         let store = crate::config_store::ConfigStore::new(dir.join("config.json"));
         let config = Config::default();
