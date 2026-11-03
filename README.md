@@ -124,7 +124,16 @@ pnpm --dir web test
 
 ## 接入 agent
 
-见 [docs/integrations/claude-code.md](docs/integrations/claude-code.md)。任何能发 HTTP 的 agent 都可以直接 `POST /api/v1/events`。
+AgentBeacon 不限制 agent 名称：`agent` 是自由字符串，服务端没有白名单。任何能在生命周期节点执行命令或发 HTTP 的 agent 都能接入。
+
+| Agent | 接入方式 | 示例 |
+| --- | --- | --- |
+| Claude Code | hooks | [claude-code.md](docs/integrations/claude-code.md) |
+| Pi | extension（`agent_start` / `agent_settled` / `tool_call`） | [pi.md](docs/integrations/pi.md) |
+| OpenCode | plugin（`session.idle` / `permission.asked` / `session.error`） | [opencode.md](docs/integrations/opencode.md) |
+| 其他 | CLI `agent-beacon report` 或 `POST /api/v1/events` | 见下方通用 HTTP 示例 |
+
+状态粒度取决于 agent 暴露的事件：有完整 hook 时能区分 `working` / `waiting` / `error`；只有 shell wrapper 时至少能上报 `working` / `idle` / `error`。
 
 ## 协议与验收
 
