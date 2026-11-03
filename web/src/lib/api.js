@@ -1,3 +1,5 @@
+import { translateNow } from '../i18n'
+
 async function request(path, options = {}) {
   const response = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -13,7 +15,7 @@ async function request(path, options = {}) {
     }
   }
   if (!response.ok) {
-    throw new Error(data?.error || `请求失败（HTTP ${response.status}）`)
+    throw new Error(data?.error || translateNow('api.httpError', { status: response.status }))
   }
   return data
 }

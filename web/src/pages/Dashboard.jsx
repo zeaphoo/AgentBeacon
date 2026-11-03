@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import { Activity, Clock, Lightbulb, RefreshCw, Server, Trash2, Usb } from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
+import { useI18n } from '../i18n'
 import {
-  AGGREGATE_LABELS,
-  EFFECT_MAP,
-  PROFILE_LABELS,
-  STATE_LABELS,
   STATE_TONE,
   TONE_CLASSES,
+  aggregateLabel,
+  effectLabel,
   effectTone,
   formatAge,
+  profileLabel,
+  stateLabel,
 } from '../lib/labels'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -51,16 +52,17 @@ export default function Dashboard() {
   const scanDevices = useBeaconStore((state) => state.scanDevices)
   const [actionError, setActionError] = useState(null)
   const [scanning, setScanning] = useState(false)
+  const { t, language } = useI18n()
 
   if (!snapshot) {
     return (
       <Card>
         <CardContent className="py-10 text-center text-sm text-muted-foreground">
-          {loading ? '正在连接 agent-beacon…' : error || '暂无数据'}
+          {loading ? t('dashboard.connecting') : error || t('dashboard.noData')}
           {!loading && (
             <div className="mt-4">
               <Button variant="outline" size="sm" onClick={() => load()}>
-                重试
+                {t('dashboard.retry')}
               </Button>
             </div>
           )}
@@ -70,7 +72,6 @@ export default function Dashboard() {
   }
 
   const aggregate = snapshot.aggregate
-  const effect = EFFECT_MAP[snapshot.effect] ?? EFFECT_MAP.off
   const sessions = snapshot.sessions ?? []
   const devices = snapshot.devices ?? []
   const connectedDevices = devices.filter((device) => device.connected).length
@@ -98,7 +99,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       {actionError && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive-foreground">
+        <div className="alert-danger rounded-lg border px-4 py-3 text-sm">
           {actionError}
         </div>
       )}
@@ -107,35 +108,38 @@ export default function Dashboard() {
         <Card className="md:col-span-2">
           <CardHeader className="flex-row items-start justify-between space-y-0">
             <div>
-              <CardDescription>当前聚合状态</CardDescription>
+              <CardDescription>{t('dashboard.aggregateTitle')}</CardDescription>
               <CardTitle className="mt-2 text-3xl">
-                {AGGREGATE_LABELS[aggregate] ?? aggregate}
+                {aggregateLabel(aggregate, t)}
               </CardTitle>
             </div>
             <Badge className={cn('border', TONE_CLASSES[effectTone(snapshot.effect)])}>
               <Lightbulb className="mr-1.5 h-3.5 w-3.5" />
-              {effect.label}
+              {effectLabel(snapshot.effect, t)}
             </Badge>
           </CardHeader>
           <CardContent className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4" />
-              活动会话 {sessions.length}
+              {t('dashboard.activeSessions')} {sessions.length}
             </div>
             <div className="flex items-center gap-2">
               <Usb className="h-4 w-4" />
-              设备 {connectedDevices}/{devices.length}
+              {t('dashboard.devicesSummary', {
+                connected: connectedDevices,
+                total: devices.length,
+              })}
             </div>
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4" />
-              运行 {snapshot.service?.uptime_secs ?? 0} 秒
+              {t('dashboard.uptime', { n: snapshot.service?.uptime_secs ?? 0 })}
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardDescription>服务</CardDescription>
+            <CardDescription>{t('dashboard.service')}</CardDescription>
             <CardTitle className="text-lg">
               {snapshot.service?.version ? `v${snapshot.service.version}` : 'agent-beacon'}
             </CardTitle>
@@ -145,44 +149,44 @@ export default function Dashboard() {
               <Server className="h-3.5 w-3.5" />
               127.0.0.1:{snapshot.service?.port ?? 6980}
             </div>
-            <div>PID {snapshot.service?.pid ?? '-'}</div>
+            <div>{t('dashboard.pid', { pid: snapshot.service?.pid ?? '-' })}</div>
           </CardContent>
         </Card>
       </div>
 
       {snapshot.override && (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-          手动覆盖生效中：{EFFECT_MAP[snapshot.override.effect]?.label} · 到期后自动恢复
+        <div className="alert-warning rounded-lg border px-4 py-3 text-sm">
+          {t('dashboard.overrideActive', {
+            effect: effectLabel(snapshot.override.effect, t),
+          })}
         </div>
       )}
 
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0">
           <div>
-            <CardTitle className="text-base">活动会话</CardTitle>
-            <CardDescription>按最近更新时间排序</CardDescription>
+            <CardTitle className="text-base">{t('dashboard.sessionsTitle')}</CardTitle>
+            <CardDescription>{t('dashboard.sessionsDescription')}</CardDescription>
           </div>
           <Dialog>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm" disabled={sessions.length === 0}>
                 <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                清空会话
+                {t('dashboard.clearSessions')}
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>清空全部会话？</DialogTitle>
-                <DialogDescription>
-                  所有 agent 会话会被移除，聚合状态变为「无活动」，灯效按 off 处理。该操作不可撤销。
-                </DialogDescription>
+                <DialogTitle>{t('dashboard.clearTitle')}</DialogTitle>
+                <DialogDescription>{t('dashboard.clearDescription')}</DialogDescription>
               </DialogHeader>
               <DialogFooter>
                 <DialogClose asChild>
-                  <Button variant="ghost">取消</Button>
+                  <Button variant="ghost">{t('dashboard.cancel')}</Button>
                 </DialogClose>
                 <DialogClose asChild>
                   <Button variant="destructive" onClick={handleClear}>
-                    确认清空
+                    {t('dashboard.confirmClear')}
                   </Button>
                 </DialogClose>
               </DialogFooter>
@@ -193,8 +197,8 @@ export default function Dashboard() {
           {sessions.length === 0 ? (
             <EmptyState
               icon={Activity}
-              title="还没有 agent 上报状态"
-              description="在 agent 的 hook 中调用 `agent-beacon report`，或向 /api/v1/events 发送事件。"
+              title={t('dashboard.noSessionsTitle')}
+              description={t('dashboard.noSessionsDescription')}
             />
           ) : (
             <ul className="divide-y divide-border/70">
@@ -207,7 +211,7 @@ export default function Dashboard() {
                     variant="outline"
                     className={cn('border', TONE_CLASSES[STATE_TONE[session.state] ?? 'muted'])}
                   >
-                    {STATE_LABELS[session.state] ?? session.state}
+                    {stateLabel(session.state, t)}
                   </Badge>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{session.agent}</div>
@@ -217,7 +221,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <span className="text-xs text-muted-foreground">
-                    {formatAge(session.updated_at_ms)}
+                    {formatAge(session.updated_at_ms, language)}
                   </span>
                 </li>
               ))}
@@ -229,20 +233,20 @@ export default function Dashboard() {
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0">
           <div>
-            <CardTitle className="text-base">设备</CardTitle>
-            <CardDescription>USB 状态灯与 mock 设备</CardDescription>
+            <CardTitle className="text-base">{t('dashboard.devicesTitle')}</CardTitle>
+            <CardDescription>{t('dashboard.devicesDescription')}</CardDescription>
           </div>
           <Button variant="outline" size="sm" onClick={handleScan} disabled={scanning}>
             <RefreshCw className={cn('mr-1.5 h-3.5 w-3.5', scanning && 'animate-spin')} />
-            {scanning ? '扫描中…' : '重新扫描'}
+            {scanning ? t('dashboard.scanning') : t('dashboard.scan')}
           </Button>
         </CardHeader>
         <CardContent>
           {devices.length === 0 ? (
             <EmptyState
               icon={Usb}
-              title="未发现设备"
-              description="插入 MLight 或 YH50 状态灯；没有硬件时可在设置中开启 mock 设备。"
+              title={t('dashboard.noDevicesTitle')}
+              description={t('dashboard.noDevicesDescription')}
             />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -251,21 +255,31 @@ export default function Dashboard() {
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <Usb className="h-4 w-4" />
-                      {PROFILE_LABELS[device.profile] ?? device.profile}
+                      {profileLabel(device.profile, t)}
                     </div>
                     <Badge variant={device.connected ? 'default' : 'secondary'}>
-                      {device.connected ? '已连接' : '未连接'}
+                      {device.connected
+                        ? t('dashboard.connected')
+                        : t('dashboard.disconnected')}
                     </Badge>
                   </div>
                   <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                     <div className="truncate">{device.port}</div>
-                    <div>当前灯效：{EFFECT_MAP[device.effect]?.label ?? device.effect}</div>
+                    <div>
+                      {t('dashboard.currentEffect', {
+                        effect: effectLabel(device.effect, t),
+                      })}
+                    </div>
                     {device.last_error && (
-                      <div className="text-red-300">错误：{device.last_error}</div>
+                      <div className="text-danger">
+                        {t('dashboard.deviceError', { error: device.last_error })}
+                      </div>
                     )}
                     {device.mock_commands?.length > 0 && (
                       <div className="truncate font-mono">
-                        最近命令：{device.mock_commands[device.mock_commands.length - 1]}
+                        {t('dashboard.lastCommand', {
+                          command: device.mock_commands[device.mock_commands.length - 1],
+                        })}
                       </div>
                     )}
                   </div>

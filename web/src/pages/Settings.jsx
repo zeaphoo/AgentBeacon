@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Info, RefreshCw, Save, Usb } from 'lucide-react'
+import { RefreshCw, Save, Usb } from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
-import { EFFECTS, PROFILE_LABELS } from '../lib/labels'
+import { useI18n } from '../i18n'
+import { AGGREGATE_KEYS, EFFECTS, profileLabel } from '../lib/labels'
 import { Button } from '../components/ui/button'
 import {
   Card,
@@ -22,14 +23,7 @@ import {
 import { Switch } from '../components/ui/switch'
 import { cn } from '../lib/utils'
 
-const MAPPING_ROWS = [
-  ['none', '无活动'],
-  ['idle', '空闲'],
-  ['working', '运行中'],
-  ['waiting', '等待确认'],
-  ['error', '错误'],
-]
-
+const MAPPING_ROWS = ['none', 'idle', 'working', 'waiting', 'error']
 const PROFILES = ['mlight-single', 'mlight-3led', 'yh50-rgy-j']
 
 function clone(value) {
@@ -39,6 +33,7 @@ function clone(value) {
 export default function Settings() {
   const snapshot = useBeaconStore((state) => state.snapshot)
   const saveConfig = useBeaconStore((state) => state.saveConfig)
+  const { t } = useI18n()
   const [form, setForm] = useState(null)
   const [saving, setSaving] = useState(false)
   const [status, setStatus] = useState(null)
@@ -54,7 +49,7 @@ export default function Settings() {
     return (
       <Card>
         <CardContent className="py-10 text-center text-sm text-muted-foreground">
-          正在加载配置…
+          {t('settings.loading')}
         </CardContent>
       </Card>
     )
@@ -102,7 +97,7 @@ export default function Settings() {
       }
       await saveConfig(payload)
       setForm(clone(payload))
-      setStatus('设置已保存并生效')
+      setStatus('saved')
     } catch (err) {
       setError(err.message)
     } finally {
@@ -124,26 +119,24 @@ export default function Settings() {
         <div
           className={cn(
             'rounded-lg border px-4 py-3 text-sm',
-            error
-              ? 'border-destructive/40 bg-destructive/10 text-destructive-foreground'
-              : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
+            error ? 'alert-danger' : 'alert-success',
           )}
         >
-          {error || status}
+          {error || (status ? t('settings.saved') : null)}
         </div>
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">状态映射</CardTitle>
-            <CardDescription>聚合状态 → 语义灯效</CardDescription>
+            <CardTitle className="text-base">{t('settings.mappingTitle')}</CardTitle>
+            <CardDescription>{t('settings.mappingDescription')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {MAPPING_ROWS.map(([key, label]) => (
+            {MAPPING_ROWS.map((key) => (
               <div key={key} className="flex items-center justify-between gap-4">
-                <Label htmlFor={`mapping-${key}`} className="w-24 text-muted-foreground">
-                  {label}
+                <Label htmlFor={`mapping-${key}`} className="w-32 text-muted-foreground">
+                  {t(AGGREGATE_KEYS[key])}
                 </Label>
                 <Select
                   value={form.mapping[key]}
@@ -157,7 +150,7 @@ export default function Settings() {
                   <SelectContent>
                     {EFFECTS.map((effect) => (
                       <SelectItem key={effect.value} value={effect.value}>
-                        {effect.label} · {effect.description}
+                        {t(effect.labelKey)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -169,14 +162,14 @@ export default function Settings() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">行为</CardTitle>
-            <CardDescription>覆盖时长、亮度与退出策略</CardDescription>
+            <CardTitle className="text-base">{t('settings.behaviorTitle')}</CardTitle>
+            <CardDescription>{t('settings.behaviorDescription')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <Label htmlFor="override-default">手动覆盖默认时长（秒）</Label>
-                <p className="mt-1 text-xs text-muted-foreground">范围 1–3600</p>
+                <Label htmlFor="override-default">{t('settings.overrideDefault')}</Label>
+                <p className="mt-1 text-xs text-muted-foreground">{t('settings.range')}</p>
               </div>
               <Input
                 id="override-default"
@@ -193,8 +186,10 @@ export default function Settings() {
 
             <div className="flex items-center justify-between gap-4">
               <div>
-                <Label htmlFor="brightness">MLight 亮度</Label>
-                <p className="mt-1 text-xs text-muted-foreground">0–100%，重连时下发</p>
+                <Label htmlFor="brightness">{t('settings.brightness')}</Label>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t('settings.brightnessHint')}
+                </p>
               </div>
               <Input
                 id="brightness"
@@ -211,9 +206,9 @@ export default function Settings() {
 
             <div className="flex items-center justify-between gap-4">
               <div>
-                <Label>退出时关闭灯效</Label>
+                <Label>{t('settings.shutdownOff')}</Label>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  服务收到 SIGTERM 后发送 off
+                  {t('settings.shutdownOffHint')}
                 </p>
               </div>
               <Switch
@@ -226,9 +221,9 @@ export default function Settings() {
 
             <div className="flex items-center justify-between gap-4">
               <div>
-                <Label>YH50 告警蜂鸣</Label>
+                <Label>{t('settings.buzzer')}</Label>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  alert 灯效时同时打开蜂鸣器
+                  {t('settings.buzzerHint')}
                 </p>
               </div>
               <Switch
@@ -241,10 +236,8 @@ export default function Settings() {
 
             <div className="flex items-center justify-between gap-4">
               <div>
-                <Label>启用 mock 设备</Label>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  没有硬件时用于验证完整链路
-                </p>
+                <Label>{t('settings.mock')}</Label>
+                <p className="mt-1 text-xs text-muted-foreground">{t('settings.mockHint')}</p>
               </div>
               <Switch
                 checked={form.mock.enabled}
@@ -257,14 +250,14 @@ export default function Settings() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">设备绑定</CardTitle>
-          <CardDescription>为特定设备覆盖自动识别的型号</CardDescription>
+          <CardTitle className="text-base">{t('settings.devicesTitle')}</CardTitle>
+          <CardDescription>{t('settings.devicesDescription')}</CardDescription>
         </CardHeader>
         <CardContent>
           {realDevices.length === 0 ? (
             <div className="flex items-center gap-2 rounded-lg border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">
               <Usb className="h-4 w-4" />
-              未发现设备；插入状态灯后可在此绑定型号。
+              {t('settings.noDevices')}
             </div>
           ) : (
             <div className="space-y-3">
@@ -287,7 +280,7 @@ export default function Settings() {
                     <SelectContent>
                       {PROFILES.map((profile) => (
                         <SelectItem key={profile} value={profile}>
-                          {PROFILE_LABELS[profile]}
+                          {profileLabel(profile, t)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -299,26 +292,14 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Info className="h-4 w-4" />
-            桌面应用
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          开机自启动由桌面应用管理，请在 AgentBeacon 托盘的「开机自启动」中勾选；浏览器无法修改系统登录项。
-        </CardContent>
-      </Card>
-
       <div className="flex flex-wrap gap-2">
         <Button onClick={handleSave} disabled={saving}>
           <Save className="mr-1.5 h-4 w-4" />
-          {saving ? '保存中…' : '保存设置'}
+          {saving ? t('settings.saving') : t('settings.save')}
         </Button>
         <Button variant="outline" onClick={handleReload}>
           <RefreshCw className="mr-1.5 h-4 w-4" />
-          重新载入
+          {t('settings.reload')}
         </Button>
       </div>
     </div>

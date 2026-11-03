@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Clock, Lightbulb, RotateCcw } from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
-import { EFFECTS, EFFECT_MAP, TONE_CLASSES } from '../lib/labels'
+import { useI18n } from '../i18n'
+import {
+  EFFECTS,
+  TONE_CLASSES,
+  effectLabel,
+} from '../lib/labels'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import {
@@ -26,6 +31,7 @@ export default function Control() {
   const snapshot = useBeaconStore((state) => state.snapshot)
   const applyControl = useBeaconStore((state) => state.applyControl)
   const cancelControl = useBeaconStore((state) => state.cancelControl)
+  const { t } = useI18n()
   const [selected, setSelected] = useState('busy')
   const [duration, setDuration] = useState('60')
   const [device, setDevice] = useState('all')
@@ -50,6 +56,15 @@ export default function Control() {
     ? Math.max(0, Math.ceil((override.expires_at_ms - now) / 1000))
     : 0
 
+  const messageText = message
+    ? message.key === 'control.applied'
+      ? t(message.key, {
+          effect: effectLabel(message.effect, t),
+          n: message.n,
+        })
+      : t(message.key)
+    : null
+
   async function handleApply() {
     setError(null)
     setMessage(null)
@@ -59,7 +74,7 @@ export default function Control() {
         duration_secs: Number(duration),
         device: device === 'all' ? null : device,
       })
-      setMessage(`已应用 ${EFFECT_MAP[selected]?.label}，${duration} 秒后恢复自动`)
+      setMessage({ key: 'control.applied', effect: selected, n: duration })
     } catch (err) {
       setError(err.message)
     }
@@ -70,7 +85,7 @@ export default function Control() {
     setMessage(null)
     try {
       await cancelControl()
-      setMessage('已恢复自动灯效')
+      setMessage({ key: 'control.restored' })
     } catch (err) {
       setError(err.message)
     }
@@ -82,21 +97,19 @@ export default function Control() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Lightbulb className="h-4 w-4" />
-            手动灯光控制
+            {t('control.title')}
           </CardTitle>
-          <CardDescription>覆盖自动映射，到期后自动恢复</CardDescription>
+          <CardDescription>{t('control.description')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           {(message || error) && (
             <div
               className={cn(
                 'rounded-lg border px-4 py-3 text-sm',
-                error
-                  ? 'border-destructive/40 bg-destructive/10 text-destructive-foreground'
-                  : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
+                error ? 'alert-danger' : 'alert-success',
               )}
             >
-              {error || message}
+              {error || messageText}
             </div>
           )}
 
@@ -115,17 +128,19 @@ export default function Control() {
                 )}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold">{effect.label}</span>
-                  {selected === effect.value && <Badge variant="secondary">已选</Badge>}
+                  <span className="text-sm font-semibold">{t(effect.labelKey)}</span>
+                  {selected === effect.value && (
+                    <Badge variant="secondary">{t('control.effectSelected')}</Badge>
+                  )}
                 </div>
-                <div className="mt-1 text-xs opacity-80">{effect.description}</div>
+                <div className="mt-1 text-xs opacity-80">{t(effect.descriptionKey)}</div>
               </button>
             ))}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="duration">持续时长（秒）</Label>
+              <Label htmlFor="duration">{t('control.duration')}</Label>
               <Input
                 id="duration"
                 type="number"
@@ -136,13 +151,13 @@ export default function Control() {
               />
             </div>
             <div className="space-y-2">
-              <Label>作用设备</Label>
+              <Label>{t('control.target')}</Label>
               <Select value={device} onValueChange={setDevice}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">全部设备</SelectItem>
+                  <SelectItem value="all">{t('control.allDevices')}</SelectItem>
                   {devices.map((item) => (
                     <SelectItem key={item.id} value={item.id}>
                       {item.id} · {item.profile}
@@ -156,11 +171,11 @@ export default function Control() {
           <div className="flex flex-wrap gap-2">
             <Button onClick={handleApply}>
               <Lightbulb className="mr-1.5 h-4 w-4" />
-              应用灯效
+              {t('control.apply')}
             </Button>
             <Button variant="outline" onClick={handleCancel} disabled={!override}>
               <RotateCcw className="mr-1.5 h-4 w-4" />
-              恢复自动
+              {t('control.restore')}
             </Button>
           </div>
         </CardContent>
@@ -171,25 +186,31 @@ export default function Control() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Clock className="h-4 w-4" />
-              当前状态
+              {t('control.currentStatus')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">自动灯效</span>
+              <span className="text-muted-foreground">{t('control.autoEffect')}</span>
               <Badge variant="outline">
-                {EFFECT_MAP[snapshot?.effect]?.label ?? '—'}
+                {snapshot?.effect ? effectLabel(snapshot.effect, t) : '—'}
               </Badge>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">手动覆盖</span>
-              <span>{override ? `${EFFECT_MAP[override.effect]?.label}` : '未启用'}</span>
+              <span className="text-muted-foreground">{t('control.manualOverride')}</span>
+              <span>
+                {override ? effectLabel(override.effect, t) : t('control.notEnabled')}
+              </span>
             </div>
             {override && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
-                <div className="text-xs">剩余 {remaining} 秒后恢复自动</div>
+              <div className="alert-warning rounded-lg border p-3">
+                <div className="text-xs">
+                  {t('control.remaining', { n: remaining })}
+                </div>
                 <div className="mt-1 text-xs opacity-70">
-                  {override.device ? `仅作用于 ${override.device}` : '作用于全部设备'}
+                  {override.device
+                    ? t('control.onlyDevice', { device: override.device })
+                    : t('control.allTargets')}
                 </div>
               </div>
             )}
@@ -198,11 +219,11 @@ export default function Control() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">提示</CardTitle>
+            <CardTitle className="text-base">{t('control.tips')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-xs text-muted-foreground">
-            <p>手动覆盖不会修改或清空 agent 会话，覆盖期间聚合状态仍会继续更新。</p>
-            <p>同一设备重复应用相同灯效会被抑制，避免打断进行中的动画。</p>
+            <p>{t('control.tip1')}</p>
+            <p>{t('control.tip2')}</p>
           </CardContent>
         </Card>
       </div>

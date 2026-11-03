@@ -26,6 +26,7 @@
 }
 
 :root {
+  color-scheme: dark;
   --background: oklch(0.16 0.015 245);
   --foreground: oklch(0.95 0.01 240);
   --card: oklch(0.2 0.018 245);
@@ -46,18 +47,73 @@
   --input: oklch(0.32 0.02 245);
   --ring: oklch(0.7 0.12 160);
   --radius: 0.75rem;
+
+  --success: oklch(0.78 0.16 160);
+  --success-soft-bg: oklch(0.55 0.13 160 / 0.16);
+  --success-soft-border: oklch(0.6 0.12 160 / 0.32);
+  --success-soft-fg: oklch(0.9 0.08 160);
+  --warning: oklch(0.82 0.15 85);
+  --warning-soft-bg: oklch(0.6 0.12 85 / 0.16);
+  --warning-soft-border: oklch(0.65 0.12 85 / 0.32);
+  --warning-soft-fg: oklch(0.93 0.08 85);
+  --danger: oklch(0.68 0.2 25);
+  --danger-soft-bg: oklch(0.55 0.15 25 / 0.16);
+  --danger-soft-border: oklch(0.6 0.15 25 / 0.32);
+  --danger-soft-fg: oklch(0.92 0.08 25);
+
+  --bg-glow-1: oklch(0.32 0.06 170 / 0.28);
+  --bg-glow-2: oklch(0.3 0.05 250 / 0.22);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --background: oklch(0.985 0.004 240);
+  --foreground: oklch(0.24 0.02 245);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.24 0.02 245);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.24 0.02 245);
+  --primary: oklch(0.56 0.14 160);
+  --primary-foreground: oklch(0.99 0.005 160);
+  --secondary: oklch(0.95 0.01 245);
+  --secondary-foreground: oklch(0.26 0.02 245);
+  --muted: oklch(0.95 0.008 245);
+  --muted-foreground: oklch(0.48 0.02 245);
+  --accent: oklch(0.94 0.015 245);
+  --accent-foreground: oklch(0.24 0.02 245);
+  --destructive: oklch(0.55 0.2 25);
+  --destructive-foreground: oklch(0.99 0.005 240);
+  --border: oklch(0.9 0.01 245);
+  --input: oklch(0.9 0.01 245);
+  --ring: oklch(0.6 0.12 160);
+
+  --success: oklch(0.58 0.15 160);
+  --success-soft-bg: oklch(0.95 0.04 160);
+  --success-soft-border: oklch(0.86 0.08 160);
+  --success-soft-fg: oklch(0.38 0.1 160);
+  --warning: oklch(0.7 0.15 85);
+  --warning-soft-bg: oklch(0.96 0.05 85);
+  --warning-soft-border: oklch(0.88 0.1 85);
+  --warning-soft-fg: oklch(0.43 0.1 70);
+  --danger: oklch(0.56 0.2 25);
+  --danger-soft-bg: oklch(0.96 0.035 25);
+  --danger-soft-border: oklch(0.9 0.07 25);
+  --danger-soft-fg: oklch(0.46 0.16 25);
+
+  --bg-glow-1: oklch(0.8 0.09 170 / 0.2);
+  --bg-glow-2: oklch(0.85 0.06 250 / 0.16);
 }
 
 html {
-  color-scheme: dark;
+  min-height: 100%;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(1100px 600px at 15% -10%, oklch(0.32 0.06 170 / 0.28), transparent 60%),
-    radial-gradient(900px 500px at 90% 0%, oklch(0.3 0.05 250 / 0.22), transparent 55%),
+    radial-gradient(1100px 600px at 15% -10%, var(--bg-glow-1), transparent 60%),
+    radial-gradient(900px 500px at 90% 0%, var(--bg-glow-2), transparent 55%),
     var(--background);
   color: var(--foreground);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
@@ -68,5 +124,60 @@ body {
 }
 
 ::selection {
-  background: oklch(0.78 0.16 160 / 0.35);
+  background: color-mix(in oklch, var(--primary) 35%, transparent);
+}
+
+.tone-muted {
+  background-color: var(--muted);
+  color: var(--muted-foreground);
+  border-color: var(--border);
+}
+
+.tone-green {
+  background-color: var(--success-soft-bg);
+  color: var(--success-soft-fg);
+  border-color: var(--success-soft-border);
+}
+
+.tone-yellow,
+.tone-amber {
+  background-color: var(--warning-soft-bg);
+  color: var(--warning-soft-fg);
+  border-color: var(--warning-soft-border);
+}
+
+.tone-red {
+  background-color: var(--danger-soft-bg);
+  color: var(--danger-soft-fg);
+  border-color: var(--danger-soft-border);
+}
+
+.alert-success {
+  border-color: var(--success-soft-border);
+  background-color: var(--success-soft-bg);
+  color: var(--success-soft-fg);
+}
+
+.alert-warning {
+  border-color: var(--warning-soft-border);
+  background-color: var(--warning-soft-bg);
+  color: var(--warning-soft-fg);
+}
+
+.alert-danger {
+  border-color: var(--danger-soft-border);
+  background-color: var(--danger-soft-bg);
+  color: var(--danger-soft-fg);
+}
+
+.text-success {
+  color: var(--success);
+}
+
+.text-warning {
+  color: var(--warning);
+}
+
+.text-danger {
+  color: var(--danger);
 }

@@ -1,22 +1,35 @@
 import { useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { LayoutDashboard, Lightbulb, Settings, Usb } from 'lucide-react'
+import { Languages, LayoutDashboard, Lightbulb, Monitor, Moon, Settings, Sun, Usb } from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
+import { usePreferencesStore } from '../store/preferences'
 import { useBeaconStream } from '../hooks/useBeaconStream'
+import { useI18n } from '../i18n'
 import { cn } from '../lib/utils'
 import { Badge } from '../components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select'
 import BeaconLogo from '../components/BeaconLogo'
 
 const NAV = [
-  { to: '/', label: '仪表盘', icon: LayoutDashboard },
-  { to: '/control', label: '手动控制', icon: Lightbulb },
-  { to: '/settings', label: '设置', icon: Settings },
+  { to: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard },
+  { to: '/control', labelKey: 'nav.control', icon: Lightbulb },
+  { to: '/settings', labelKey: 'nav.settings', icon: Settings },
 ]
 
 export default function Layout() {
   const snapshot = useBeaconStore((state) => state.snapshot)
   const connected = useBeaconStore((state) => state.connected)
   const load = useBeaconStore((state) => state.load)
+  const theme = usePreferencesStore((state) => state.theme)
+  const setTheme = usePreferencesStore((state) => state.setTheme)
+  const setLanguage = usePreferencesStore((state) => state.setLanguage)
+  const { t, language } = useI18n()
 
   useBeaconStream()
 
@@ -30,14 +43,14 @@ export default function Layout() {
     !snapshot || devices.length === 0
       ? 'text-muted-foreground'
       : connectedDevices === devices.length
-        ? 'text-emerald-400'
+        ? 'text-success'
         : connectedDevices === 0
-          ? 'text-red-400'
-          : 'text-amber-400'
-  const deviceLabel = snapshot ? `设备 ${connectedDevices}/${devices.length}` : '设备 —'
-  const deviceTitle = connected
-    ? 'USB 状态灯与 mock 设备连接数，正在实时更新'
-    : '实时数据已中断，设备状态可能不是最新'
+          ? 'text-danger'
+          : 'text-warning'
+  const deviceLabel = snapshot
+    ? t('header.deviceCount', { connected: connectedDevices, total: devices.length })
+    : t('header.deviceNone')
+  const deviceTitle = connected ? t('header.deviceTitleLive') : t('header.deviceTitleStale')
 
   return (
     <div className="min-h-screen">
@@ -47,12 +60,12 @@ export default function Layout() {
             <BeaconLogo className="h-10 w-10 shrink-0" />
             <div className="leading-tight">
               <div className="text-sm font-semibold tracking-tight">AgentBeacon</div>
-              <div className="text-[11px] text-muted-foreground">agent 状态 · USB 状态灯</div>
+              <div className="text-[11px] text-muted-foreground">{t('app.tagline')}</div>
             </div>
           </div>
 
           <nav className="flex items-center gap-1 rounded-lg border border-border/70 bg-card/60 p-1">
-            {NAV.map(({ to, label, icon: Icon }) => (
+            {NAV.map(({ to, labelKey, icon: Icon }) => (
               <NavLink
                 key={to}
                 to={to}
@@ -67,7 +80,7 @@ export default function Layout() {
                 }
               >
                 <Icon className="h-4 w-4" />
-                {label}
+                {t(labelKey)}
               </NavLink>
             ))}
           </nav>
@@ -84,6 +97,41 @@ export default function Layout() {
             {snapshot?.service?.version && (
               <span className="text-xs text-muted-foreground">v{snapshot.service.version}</span>
             )}
+            <Select value={language} onValueChange={setLanguage}>
+              <SelectTrigger
+                className="h-8 w-auto gap-1.5 border-border/70 px-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                title={t('header.language')}
+                aria-label={t('header.language')}
+              >
+                <Languages className="h-3.5 w-3.5 shrink-0" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="min-w-[9rem]">
+                <SelectItem value="zh">{t('header.languageZh')}</SelectItem>
+                <SelectItem value="en">{t('header.languageEn')}</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={theme} onValueChange={setTheme}>
+              <SelectTrigger
+                className="h-8 w-auto gap-1.5 border-border/70 px-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                title={t('header.theme')}
+                aria-label={t('header.theme')}
+              >
+                {theme === 'system' ? (
+                  <Monitor className="h-3.5 w-3.5 shrink-0" />
+                ) : theme === 'light' ? (
+                  <Sun className="h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <Moon className="h-3.5 w-3.5 shrink-0" />
+                )}
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="min-w-[9rem]">
+                <SelectItem value="system">{t('header.themeSystem')}</SelectItem>
+                <SelectItem value="light">{t('header.themeLight')}</SelectItem>
+                <SelectItem value="dark">{t('header.themeDark')}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </header>
