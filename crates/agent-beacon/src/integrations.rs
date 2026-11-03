@@ -18,15 +18,17 @@ const LEGACY_FILE_NAME: &str = "agent-beacon.js";
 pub enum Target {
     Pi,
     OpenCode,
+    Dsh,
 }
 
 impl Target {
-    pub const ALL: [Target; 2] = [Target::Pi, Target::OpenCode];
+    pub const ALL: [Target; 3] = [Target::Pi, Target::OpenCode, Target::Dsh];
 
     pub fn id(self) -> &'static str {
         match self {
             Target::Pi => "pi",
             Target::OpenCode => "opencode",
+            Target::Dsh => "dsh",
         }
     }
 
@@ -34,6 +36,7 @@ impl Target {
         match self {
             Target::Pi => "Pi",
             Target::OpenCode => "OpenCode",
+            Target::Dsh => "DeepSeek Harness",
         }
     }
 
@@ -41,6 +44,7 @@ impl Target {
         match self {
             Target::Pi => "agent-beacon-hook-pi.js",
             Target::OpenCode => "agent-beacon-hook-opencode.js",
+            Target::Dsh => "agent-beacon-hook-dsh.js",
         }
     }
 
@@ -48,6 +52,7 @@ impl Target {
         match self {
             Target::Pi => PI_SOURCE,
             Target::OpenCode => OPENCODE_SOURCE,
+            Target::Dsh => "",
         }
     }
 
@@ -55,6 +60,7 @@ impl Target {
         match value {
             "pi" => Some(Target::Pi),
             "opencode" => Some(Target::OpenCode),
+            "dsh" => Some(Target::Dsh),
             _ => None,
         }
     }
@@ -67,6 +73,7 @@ impl Target {
                 }
                 Ok(home_dir()?.join(".pi").join("agent").join("extensions"))
             }
+            Target::Dsh => crate::dsh::paths().map(|paths| paths.home),
             Target::OpenCode => {
                 if let Some(dir) = std::env::var_os("AGENT_BEACON_OPENCODE_DIR") {
                     return Ok(PathBuf::from(dir));
@@ -151,14 +158,14 @@ fn render(target: Target) -> String {
     target.source().replace("__VERSION__", VERSION)
 }
 
-fn is_managed(content: &str) -> bool {
+pub(crate) fn is_managed(content: &str) -> bool {
     content
         .lines()
         .take(3)
         .any(|line| line.starts_with("// @agent-beacon-integration:"))
 }
 
-fn managed_version(content: &str) -> Option<String> {
+pub(crate) fn managed_version(content: &str) -> Option<String> {
     content.lines().find_map(|line| {
         line.strip_prefix("// @agent-beacon-version:")
             .map(str::trim)
@@ -175,6 +182,9 @@ fn resolve_dir(target: Target, override_dir: Option<&Path>) -> Result<PathBuf, S
 }
 
 pub fn status(target: Target, override_dir: Option<&Path>) -> Result<Status, String> {
+    if target == Target::Dsh {
+        return crate::dsh::status();
+    }
     let dir = resolve_dir(target, override_dir)?;
     let path = dir.join(target.file_name());
     let legacy = dir.join(LEGACY_FILE_NAME);
@@ -216,6 +226,9 @@ pub fn install(
     override_dir: Option<&Path>,
     force: bool,
 ) -> Result<(Outcome, PathBuf), String> {
+    if target == Target::Dsh {
+        return crate::dsh::install();
+    }
     let dir = resolve_dir(target, override_dir)?;
     let path = dir.join(target.file_name());
     let legacy = dir.join(LEGACY_FILE_NAME);
@@ -259,6 +272,9 @@ pub fn install(
 }
 
 pub fn upgrade(target: Target, override_dir: Option<&Path>) -> Result<(Outcome, PathBuf), String> {
+    if target == Target::Dsh {
+        return crate::dsh::upgrade();
+    }
     let dir = resolve_dir(target, override_dir)?;
     let path = dir.join(target.file_name());
     let legacy = dir.join(LEGACY_FILE_NAME);
@@ -299,6 +315,9 @@ pub fn upgrade(target: Target, override_dir: Option<&Path>) -> Result<(Outcome, 
 }
 
 pub fn uninstall(target: Target, override_dir: Option<&Path>) -> Result<PathBuf, String> {
+    if target == Target::Dsh {
+        return crate::dsh::uninstall();
+    }
     let dir = resolve_dir(target, override_dir)?;
     let path = dir.join(target.file_name());
     let legacy = dir.join(LEGACY_FILE_NAME);
@@ -333,7 +352,10 @@ pub fn uninstall(target: Target, override_dir: Option<&Path>) -> Result<PathBuf,
 /// 服务启动时调用：只升级已安装且受管的插件，不主动安装。
 pub fn upgrade_installed() -> Vec<(Target, Result<Outcome, String>)> {
     let mut results = Vec::new();
-    for target in Target::ALL {
+    if let Some(result) = crate::dsh::upgrade_installed() {
+        results.push((Target::Dsh, result));
+    }
+    for target in [Target::Pi, Target::OpenCode] {
         let Ok(dir) = target.default_dir() else {
             continue;
         };
@@ -367,7 +389,7 @@ fn remove_legacy_managed(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
+pub(crate) fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| format!("非法路径 {}", path.display()))?;

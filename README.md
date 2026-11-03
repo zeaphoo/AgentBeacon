@@ -67,7 +67,7 @@ agent-beacon serve --port 6980 --supervised
 
 # agent 集成插件（内置在二进制中）
 agent-beacon integrate list
-agent-beacon integrate install            # 安装全部（pi、opencode）
+agent-beacon integrate install            # 安装全部（pi、opencode、dsh）
 agent-beacon integrate install pi
 agent-beacon integrate upgrade
 agent-beacon integrate uninstall pi
@@ -138,9 +138,10 @@ AgentBeacon 不限制 agent 名称：`agent` 是自由字符串，服务端没�
 | Claude Code | hooks | [claude-code.md](docs/integrations/claude-code.md) |
 | Pi | extension（`agent_start` / `agent_settled` / `tool_call`） | [pi.md](docs/integrations/pi.md) |
 | OpenCode | plugin（`session.idle` / `permission.asked` / `session.error`） | [opencode.md](docs/integrations/opencode.md) |
+| DeepSeek Harness | Cordis plugin（`agent/status` / `approval/asked` / `agent/error`） | [dsh.md](docs/integrations/dsh.md) |
 | 其他 | CLI `agent-beacon report` 或 `POST /api/v1/events` | 见下方通用 HTTP 示例 |
 
-Pi/OpenCode 插件随 `agent-beacon` 二进制分发，用 `agent-beacon integrate install` 安装；服务启动时会自动升级已安装的受管插件。
+Pi/OpenCode/DSH 插件随 `agent-beacon` 二进制分发，用 `agent-beacon integrate install` 安装；服务启动时会自动升级已安装的受管插件。DSH 通过 `~/.dsh/cordis.patch.yml` 加载。
 
 状态粒度取决于 agent 暴露的事件：有完整 hook 时能区分 `working` / `waiting` / `error`；只有 shell wrapper 时至少能上报 `working` / `idle` / `error`。
 

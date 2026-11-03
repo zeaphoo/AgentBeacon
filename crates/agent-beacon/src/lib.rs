@@ -3,6 +3,7 @@
 pub mod api;
 pub mod cli;
 pub mod config_store;
+pub mod dsh;
 pub mod integrations;
 pub mod state;
 pub mod worker;

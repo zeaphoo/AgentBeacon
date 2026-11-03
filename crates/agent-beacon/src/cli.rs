@@ -77,7 +77,7 @@ pub enum IntegrateAction {
     List,
     /// 安装插件；不指定 target 时安装全部。
     Install {
-        /// pi | opencode | all
+        /// pi | opencode | dsh | all
         target: Option<String>,
         /// 覆盖非 agent-beacon 管理的同名文件。
         #[arg(long)]
@@ -85,7 +85,7 @@ pub enum IntegrateAction {
     },
     /// 升级已安装插件；不指定 target 时升级全部。
     Upgrade {
-        /// pi | opencode | all
+        /// pi | opencode | dsh | all
         target: Option<String>,
     },
     /// 卸载插件。
@@ -489,10 +489,15 @@ async fn devices(cli: &Cli) -> i32 {
 fn parse_targets(raw: Option<&str>) -> Result<Vec<Target>, String> {
     let value = raw.unwrap_or("all").trim();
     match value {
-        "" | "all" => Ok(Target::ALL.to_vec()),
+        "" | "all" => Ok(Target::ALL
+            .iter()
+            .copied()
+            .filter(|target| *target != Target::Dsh || crate::dsh::available())
+            .collect()),
         "pi" => Ok(vec![Target::Pi]),
         "opencode" => Ok(vec![Target::OpenCode]),
-        other => Err(format!("未知集成 {other}；可选：pi、opencode、all")),
+        "dsh" => Ok(vec![Target::Dsh]),
+        other => Err(format!("未知集成 {other}；可选：pi、opencode、dsh、all")),
     }
 }
 
@@ -590,7 +595,7 @@ fn integrate(args: IntegrateArgs, dir: Option<&std::path::Path>) -> i32 {
             let target = match Target::parse(target.trim()) {
                 Some(target) => target,
                 None => {
-                    eprintln!("未知集成 {target}；可选：pi、opencode");
+                    eprintln!("未知集成 {target}；可选：pi、opencode、dsh");
                     return 2;
                 }
             };
