@@ -226,12 +226,14 @@ async fn serve(args: ServeArgs) -> i32 {
     }
     spawn_signal_watchdog(shutdown_tx.clone());
 
+    let shutdown_state = state.clone();
     let shutdown = async move {
         while !*shutdown_rx.borrow() {
             if shutdown_rx.changed().await.is_err() {
                 break;
             }
         }
+        shutdown_state.begin_shutdown();
     };
 
     let result = axum::serve(listener, app)

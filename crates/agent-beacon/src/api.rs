@@ -115,6 +115,7 @@ async fn stream(
 ) -> Sse<impl futures_core::Stream<Item = Result<SseEvent, Infallible>>> {
     let initial = state.snapshot();
     let mut updates = state.subscribe_events();
+    let mut shutdown = state.subscribe_shutdown();
     let stream = async_stream::stream! {
         yield Ok(SseEvent::default()
             .event("snapshot")
@@ -124,9 +125,18 @@ async fn stream(
         let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
         heartbeat.tick().await;
         loop {
+            if *shutdown.borrow() {
+                break;
+            }
             tokio::select! {
                 _ = heartbeat.tick() => {
                     yield Ok(SseEvent::default().comment("ping"));
+                }
+                changed = shutdown.changed() => {
+                    if changed.is_err() || *shutdown.borrow() {
+                        tracing::info!("SSE 流因服务关停结束");
+                        break;
+                    }
                 }
                 result = updates.recv() => {
                     match result {
@@ -386,6 +396,30 @@ mod tests {
         let second = String::from_utf8_lossy(&second);
         assert!(second.contains("event: update"), "{second}");
         assert!(second.contains("\"error\""), "{second}");
+    }
+
+    #[tokio::test]
+    async fn sse_closes_when_shutdown_begins() {
+        let state = test_state();
+        let app = router(state.clone());
+        let response = app.oneshot(get("/api/v1/stream")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut stream = response.into_body().into_data_stream();
+        let _first = tokio::time::timeout(Duration::from_secs(1), stream.next())
+            .await
+            .expect("等待快照超时")
+            .expect("流已结束")
+            .unwrap();
+
+        state.begin_shutdown();
+        let closed = tokio::time::timeout(Duration::from_secs(1), async {
+            while stream.next().await.is_some() {}
+        })
+        .await;
+        assert!(
+            closed.is_ok(),
+            "关停后 SSE 没有结束，graceful shutdown 会卡住"
+        );
     }
 
     #[tokio::test]

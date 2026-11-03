@@ -63,12 +63,14 @@ pub struct BeaconState {
     port: u16,
     store: ConfigStore,
     scan: Notify,
+    shutdown: watch::Sender<bool>,
 }
 
 impl BeaconState {
     pub fn new(config: Config, store: ConfigStore, port: u16) -> Arc<Self> {
         let (desired_tx, _) = watch::channel(initial_desired(&config));
         let (events, _) = broadcast::channel(64);
+        let (shutdown, _) = watch::channel(false);
         Arc::new(Self {
             inner: Mutex::new(Inner {
                 config,
@@ -82,6 +84,7 @@ impl BeaconState {
             port,
             store,
             scan: Notify::new(),
+            shutdown,
         })
     }
 
@@ -113,6 +116,16 @@ impl BeaconState {
 
     pub fn subscribe_desired(&self) -> watch::Receiver<DesiredState> {
         self.desired_tx.subscribe()
+    }
+
+    /// 通知所有 SSE 流结束，让 graceful shutdown 不被长连接卡住。
+    pub fn begin_shutdown(&self) {
+        tracing::info!("开始关停：通知 SSE 客户端");
+        let _ = self.shutdown.send_replace(true);
+    }
+
+    pub fn subscribe_shutdown(&self) -> watch::Receiver<bool> {
+        self.shutdown.subscribe()
     }
 
     pub fn config(&self) -> Config {
