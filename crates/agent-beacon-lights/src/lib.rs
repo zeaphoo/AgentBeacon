@@ -12,7 +12,7 @@ pub mod yh50;
 
 use std::collections::HashMap;
 
-use agent_beacon_core::{DeviceProfile, Effect};
+use agent_beacon_core::{DeviceCapabilities, DeviceProfile, Effect};
 use serde::{Deserialize, Serialize};
 
 /// 一条待写入设备的具体命令，`delay_ms` 是写这条命令之前的等待。
@@ -87,6 +87,8 @@ pub struct DeviceInfo {
     pub id: String,
     pub port: String,
     pub profile: DeviceProfile,
+    #[serde(default)]
+    pub capabilities: DeviceCapabilities,
     pub connected: bool,
     pub effect: Effect,
     pub last_error: Option<String>,
@@ -100,6 +102,7 @@ impl DeviceInfo {
             id: id.into(),
             port: port.into(),
             profile,
+            capabilities: profile.capabilities(),
             connected: false,
             effect: Effect::Off,
             last_error: None,

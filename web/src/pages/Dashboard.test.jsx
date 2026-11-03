@@ -57,6 +57,32 @@ describe('Dashboard', () => {
     expect(screen.getByText(/PID 42/)).toBeInTheDocument()
   })
 
+  it('shows capabilities for devices that support them', () => {
+    useBeaconStore.setState({
+      snapshot: {
+        ...snapshot,
+        devices: [
+          {
+            ...snapshot.devices[0],
+            id: 'ml:0',
+            port: '/dev/ttyUSB0',
+            profile: 'mlight-3led',
+            capabilities: { brightness: true, buzzer: false },
+          },
+        ],
+      },
+      loading: false,
+    })
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByText('亮度可调')).toBeInTheDocument()
+    expect(screen.queryByText('蜂鸣器')).not.toBeInTheDocument()
+  })
+
   it('shows an empty state when there are no sessions', () => {
     useBeaconStore.setState({
       snapshot: { ...snapshot, sessions: [], devices: [] },

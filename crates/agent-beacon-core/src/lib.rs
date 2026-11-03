@@ -12,7 +12,7 @@ pub use config::{
     Yh50Config,
 };
 pub use effect::{Effect, Mapping};
-pub use profile::DeviceProfile;
+pub use profile::{DeviceCapabilities, DeviceProfile, DeviceProfileInfo};
 pub use session::{AgentState, Aggregate, Event, SessionRegistry, SessionView, ValidationError};
 
 /// 服务默认端口。

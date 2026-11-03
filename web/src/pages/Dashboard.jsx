@@ -6,12 +6,14 @@ import {
   STATE_TONE,
   TONE_CLASSES,
   aggregateLabel,
+  capabilitiesForProfile,
   effectLabel,
   effectTone,
   formatAge,
   profileLabel,
   stateLabel,
 } from '../lib/labels'
+import DeviceFeatures from '../components/DeviceFeatures'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import {
@@ -263,6 +265,13 @@ export default function Dashboard() {
                         : t('dashboard.disconnected')}
                     </Badge>
                   </div>
+                  <DeviceFeatures
+                    capabilities={
+                      device.capabilities ??
+                      capabilitiesForProfile(device.profile, snapshot.profiles)
+                    }
+                    className="mt-2"
+                  />
                   <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                     <div className="truncate">{device.port}</div>
                     <div>

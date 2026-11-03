@@ -35,6 +35,25 @@ export const PROFILE_KEYS = {
   mock: 'profile.mock',
 }
 
+
+export const PROFILE_CAPABILITIES = {
+  'mlight-single': { brightness: true, buzzer: false },
+  'mlight-3led': { brightness: true, buzzer: false },
+  'yh50-rgy-j': { brightness: false, buzzer: true },
+  mock: { brightness: false, buzzer: false },
+}
+
+export const SUPPORTED_LIGHT_PROFILES = [
+  'mlight-single',
+  'mlight-3led',
+  'yh50-rgy-j',
+]
+
+export function capabilitiesForProfile(profile, profiles = []) {
+  const info = profiles?.find((item) => item.profile === profile)
+  return info?.capabilities ?? PROFILE_CAPABILITIES[profile] ?? { brightness: false, buzzer: false }
+}
+
 export const TONE_CLASSES = {
   muted: 'tone-muted',
   green: 'tone-green',

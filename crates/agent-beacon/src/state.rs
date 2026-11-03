@@ -5,7 +5,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 use agent_beacon_core::{
-    now_ms, Aggregate, Config, Effect, Event, SessionRegistry, SessionView, ValidationError,
+    now_ms, Aggregate, Config, DeviceProfile, DeviceProfileInfo, Effect, Event, SessionRegistry,
+    SessionView, ValidationError,
 };
 use agent_beacon_lights::device::{new_registry, snapshot as device_snapshot, DeviceRegistry};
 use agent_beacon_lights::{DesiredState, DeviceInfo};
@@ -35,6 +36,7 @@ pub struct Snapshot {
     pub aggregate: Aggregate,
     pub sessions: Vec<SessionView>,
     pub devices: Vec<DeviceInfo>,
+    pub profiles: Vec<DeviceProfileInfo>,
     pub effect: Effect,
     #[serde(rename = "override")]
     pub manual_override: Option<OverrideView>,
@@ -154,6 +156,10 @@ impl BeaconState {
             aggregate,
             sessions,
             devices: device_snapshot(&self.devices),
+            profiles: DeviceProfile::ALL
+                .into_iter()
+                .map(|profile| profile.info())
+                .collect(),
             effect: effective_global(&inner, now),
             manual_override,
             service: ServiceInfo {

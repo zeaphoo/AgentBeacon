@@ -2,6 +2,20 @@
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct DeviceCapabilities {
+    #[serde(default)]
+    pub brightness: bool,
+    #[serde(default)]
+    pub buzzer: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceProfileInfo {
+    pub profile: DeviceProfile,
+    pub capabilities: DeviceCapabilities,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DeviceProfile {
     #[serde(rename = "mlight-single")]
@@ -47,6 +61,27 @@ impl DeviceProfile {
             DeviceProfile::MlightSingle | DeviceProfile::Mlight3Led
         )
     }
+
+    pub fn capabilities(self) -> DeviceCapabilities {
+        match self {
+            DeviceProfile::MlightSingle | DeviceProfile::Mlight3Led => DeviceCapabilities {
+                brightness: true,
+                buzzer: false,
+            },
+            DeviceProfile::Yh50 => DeviceCapabilities {
+                brightness: false,
+                buzzer: true,
+            },
+            DeviceProfile::Mock => DeviceCapabilities::default(),
+        }
+    }
+
+    pub fn info(self) -> DeviceProfileInfo {
+        DeviceProfileInfo {
+            profile: self,
+            capabilities: self.capabilities(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -65,5 +100,24 @@ mod tests {
             assert_eq!(DeviceProfile::parse(profile.as_str()), Some(profile));
         }
         assert_eq!(DeviceProfile::parse("unknown"), None);
+    }
+
+    #[test]
+    fn capabilities_describe_supported_features() {
+        let single = DeviceProfile::MlightSingle.capabilities();
+        assert!(single.brightness);
+        assert!(!single.buzzer);
+
+        let three = DeviceProfile::Mlight3Led.capabilities();
+        assert!(three.brightness);
+        assert!(!three.buzzer);
+
+        let yh50 = DeviceProfile::Yh50.capabilities();
+        assert!(!yh50.brightness);
+        assert!(yh50.buzzer);
+
+        let mock = DeviceProfile::Mock.capabilities();
+        assert!(!mock.brightness);
+        assert!(!mock.buzzer);
     }
 }

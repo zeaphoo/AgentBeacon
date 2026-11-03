@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Usb } from 'lucide-react'
+import { AlertTriangle, Lightbulb, Usb } from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
 import { useI18n } from '../i18n'
-import { AGGREGATE_KEYS, EFFECTS, profileLabel } from '../lib/labels'
+import {
+  AGGREGATE_KEYS,
+  EFFECTS,
+  SUPPORTED_LIGHT_PROFILES,
+  capabilitiesForProfile,
+  profileLabel,
+} from '../lib/labels'
+import DeviceFeatures from '../components/DeviceFeatures'
 import { Button } from '../components/ui/button'
 import {
   Card,
@@ -106,6 +113,14 @@ export default function Settings() {
   }
 
   const realDevices = (snapshot?.devices ?? []).filter((device) => device.profile !== 'mock')
+  const supportedProfiles = (
+    snapshot?.profiles?.length
+      ? snapshot.profiles
+      : SUPPORTED_LIGHT_PROFILES.map((profile) => ({
+          profile,
+          capabilities: capabilitiesForProfile(profile),
+        }))
+  ).filter((item) => item.profile !== 'mock')
 
   function update(patch) {
     setForm((current) => ({ ...current, ...patch }))
@@ -280,6 +295,13 @@ export default function Settings() {
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium">{device.id}</div>
                     <div className="truncate text-xs text-muted-foreground">{device.port}</div>
+                    <DeviceFeatures
+                      capabilities={capabilitiesForProfile(
+                        profileFor(device),
+                        snapshot?.profiles,
+                      )}
+                      className="mt-1.5"
+                    />
                   </div>
                   <Select
                     value={profileFor(device)}
@@ -300,6 +322,32 @@ export default function Settings() {
               ))}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Lightbulb className="h-4 w-4" />
+            {t('settings.supportedTitle')}
+          </CardTitle>
+          <CardDescription>{t('settings.supportedDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {supportedProfiles.map((item) => (
+              <div
+                key={item.profile}
+                className="rounded-lg border border-border/70 bg-background/40 p-4"
+              >
+                <div className="text-sm font-medium">{profileLabel(item.profile, t)}</div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t(`profile.${item.profile}.description`)}
+                </p>
+                <DeviceFeatures capabilities={item.capabilities} className="mt-2" />
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
 
