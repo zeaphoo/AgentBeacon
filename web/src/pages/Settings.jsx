@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Usb } from 'lucide-react'
+import { AlertTriangle, Usb } from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
 import { useI18n } from '../i18n'
 import { AGGREGATE_KEYS, EFFECTS, profileLabel } from '../lib/labels'
+import { Button } from '../components/ui/button'
 import {
   Card,
   CardContent,
@@ -20,6 +21,15 @@ import {
   SelectValue,
 } from '../components/ui/select'
 import { Switch } from '../components/ui/switch'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog'
 
 const MAPPING_ROWS = ['none', 'idle', 'working', 'waiting', 'error']
 const PROFILES = ['mlight-single', 'mlight-3led', 'yh50-rgy-j']
@@ -36,6 +46,7 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
+  const [buzzerDialogOpen, setBuzzerDialogOpen] = useState(false)
   const savedRef = useRef(null)
   const requestRef = useRef(0)
 
@@ -227,16 +238,21 @@ export default function Settings() {
 
             <div className="flex items-center justify-between gap-4">
               <div>
-                <Label>{t('settings.buzzer')}</Label>
+                <Label htmlFor="buzzer">{t('settings.buzzer')}</Label>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {t('settings.buzzerHint')}
                 </p>
               </div>
               <Switch
+                id="buzzer"
                 checked={form.yh50.buzzer_on_alert}
-                onCheckedChange={(checked) =>
-                  update({ yh50: { ...form.yh50, buzzer_on_alert: checked } })
-                }
+                onCheckedChange={(checked) => {
+                  if (checked && !form.yh50.buzzer_on_alert) {
+                    setBuzzerDialogOpen(true)
+                  } else {
+                    update({ yh50: { ...form.yh50, buzzer_on_alert: checked } })
+                  }
+                }}
               />
             </div>
           </CardContent>
@@ -286,6 +302,32 @@ export default function Settings() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={buzzerDialogOpen} onOpenChange={setBuzzerDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-warning" />
+              {t('settings.buzzerConfirmTitle')}
+            </DialogTitle>
+            <DialogDescription>{t('settings.buzzerConfirmDescription')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="ghost">{t('common.cancel')}</Button>
+            </DialogClose>
+            <DialogClose asChild>
+              <Button
+                onClick={() =>
+                  update({ yh50: { ...form.yh50, buzzer_on_alert: true } })
+                }
+              >
+                {t('settings.buzzerConfirm')}
+              </Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <p className="text-xs text-muted-foreground" aria-live="polite">
         {saving

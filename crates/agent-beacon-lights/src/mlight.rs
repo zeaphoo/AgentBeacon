@@ -48,33 +48,51 @@ fn command(label: &str, delay_ms: u64) -> PlannedCommand {
     }
 }
 
-/// 语义灯效 → MLight 命令计划。
-///
-/// 每次切换都以 `OFF` 清场，等待 350ms 再发新命令；组合命令间隔 300ms。
-pub fn plan(effect: Effect, three_led: bool) -> CommandPlan {
-    let profile = if three_led {
+fn profile_name(three_led: bool) -> &'static str {
+    if three_led {
         "mlight-3led"
     } else {
         "mlight-single"
-    };
-    let dedupe_key = format!("{profile}:{}", effect.as_str());
+    }
+}
 
-    let targets: Vec<&str> = match effect {
-        Effect::Off => {
-            return CommandPlan {
-                dedupe_key,
-                commands: vec![command("OFF", 0)],
-            };
-        }
+fn targets(effect: Effect, three_led: bool) -> Vec<&'static str> {
+    match effect {
+        Effect::Off => Vec::new(),
         Effect::Calm => vec!["GREEN_ON"],
         Effect::Attention => vec!["YELLOW_BLINK"],
         Effect::Alert => vec!["RED_BLINK"],
         Effect::Busy if three_led => vec!["GREEN_ON", "YELLOW_BREATH"],
         Effect::Busy => vec!["YELLOW_ON", "YELLOW_BREATH"],
-    };
+    }
+}
+
+fn target_delay(effect: Effect, three_led: bool, index: usize) -> u64 {
+    if index == 0 {
+        COMPOSITE_GAP_MS
+    } else if !three_led && effect == Effect::Busy && index == 1 {
+        SINGLE_PRELUDE_MS
+    } else {
+        COMPOSITE_GAP_MS
+    }
+}
+
+/// 语义灯效 → MLight 命令计划。
+///
+/// 每次切换都以 `OFF` 清场，等待 350ms 再发新命令；组合命令间隔 300ms。
+pub fn plan(effect: Effect, three_led: bool) -> CommandPlan {
+    let profile = profile_name(three_led);
+    let dedupe_key = format!("{profile}:{}", effect.as_str());
+
+    if effect == Effect::Off {
+        return CommandPlan {
+            dedupe_key,
+            commands: vec![command("OFF", 0)],
+        };
+    }
 
     let mut commands = vec![command("OFF", 0)];
-    for (index, target) in targets.iter().enumerate() {
+    for (index, target) in targets(effect, three_led).iter().enumerate() {
         let delay = if index == 0 {
             PRELUDE_MS
         } else if !three_led && effect == Effect::Busy && index == 1 {
@@ -85,6 +103,22 @@ pub fn plan(effect: Effect, three_led: bool) -> CommandPlan {
         commands.push(command(target, delay));
     }
 
+    CommandPlan {
+        dedupe_key,
+        commands,
+    }
+}
+
+/// 仅重放当前灯效状态，不带 `OFF` 清场。
+///
+/// 用于亮度调整：先下发 `BRIGHTNESS_n`，再重放当前状态，避免灯效被重置或闪烁。
+pub fn replay(effect: Effect, three_led: bool) -> CommandPlan {
+    let profile = profile_name(three_led);
+    let dedupe_key = format!("{profile}:{}:replay", effect.as_str());
+    let mut commands = Vec::new();
+    for (index, target) in targets(effect, three_led).iter().enumerate() {
+        commands.push(command(target, target_delay(effect, three_led, index)));
+    }
     CommandPlan {
         dedupe_key,
         commands,
@@ -119,6 +153,18 @@ mod tests {
             assert!(!validate_command(invalid), "{invalid} 不应通过");
             assert!(encode(invalid).is_none());
         }
+    }
+
+    #[test]
+    fn replay_keeps_current_state_without_off() {
+        let plan = replay(Effect::Busy, true);
+        let labels: Vec<&str> = plan.commands.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, vec!["GREEN_ON", "YELLOW_BREATH"]);
+        assert!(plan.commands.iter().all(|c| c.label != "OFF"));
+        assert_eq!(plan.commands[0].delay_ms, COMPOSITE_GAP_MS);
+
+        let off = replay(Effect::Off, true);
+        assert!(off.commands.is_empty());
     }
 
     #[test]

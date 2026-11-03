@@ -55,7 +55,7 @@ describe('Settings', () => {
 
     expect(screen.queryByText('启用 mock 设备')).not.toBeInTheDocument()
 
-    const brightness = screen.getByLabelText('MLight 亮度')
+    const brightness = screen.getByLabelText('灯光亮度')
     await user.clear(brightness)
     await user.type(brightness, '55')
     await waitFor(
@@ -68,5 +68,28 @@ describe('Settings', () => {
     expect(saved.mlight.brightness).toBe(55)
     expect(saved.mapping.error).toBe('alert')
     expect(await screen.findByText('已保存', {}, { timeout: 2500 })).toBeInTheDocument()
+  })
+
+  it('requires confirmation before enabling the alert buzzer', async () => {
+    const user = userEvent.setup()
+    render(<Settings />)
+
+    const buzzer = screen.getByRole('switch', { name: '告警蜂鸣' })
+    expect(buzzer).not.toBeChecked()
+
+    await user.click(buzzer)
+    expect(await screen.findByText('开启告警蜂鸣？')).toBeInTheDocument()
+    expect(buzzer).not.toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: '确认开启' }))
+    await waitFor(
+      () => {
+        expect(api.saveConfig).toHaveBeenCalled()
+      },
+      { timeout: 2500 },
+    )
+
+    const saved = api.saveConfig.mock.calls.at(-1)[0]
+    expect(saved.yh50.buzzer_on_alert).toBe(true)
   })
 })

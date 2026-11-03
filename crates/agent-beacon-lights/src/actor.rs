@@ -8,7 +8,7 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use crate::device::{update, DeviceRegistry};
-use crate::mlight::brightness_command;
+use crate::mlight::{brightness_command, replay};
 use crate::transport::Transport;
 use crate::{hex, plan_for, DesiredState, PlanOptions};
 
@@ -31,6 +31,7 @@ pub fn spawn(config: ActorConfig) -> JoinHandle<()> {
 async fn run(mut config: ActorConfig) {
     let mut transport: Option<Box<dyn Transport>> = None;
     let mut applied: Option<(Effect, bool)> = None;
+    let mut applied_brightness: Option<u8> = None;
     let mut backoff = 1u64;
     let _ = &config.port;
 
@@ -53,6 +54,9 @@ async fn run(mut config: ActorConfig) {
                         tokio::time::sleep(Duration::from_secs(1)).await;
                         continue;
                     }
+                    if config.profile.is_mlight() {
+                        applied_brightness = Some(desired.brightness);
+                    }
                     update(&config.registry, &config.id, |info| {
                         info.connected = true;
                         info.last_error = None;
@@ -71,11 +75,58 @@ async fn run(mut config: ActorConfig) {
         let desired = config.desired.borrow_and_update().clone();
         let effect = desired.for_device(&config.id);
         let key = (effect, desired.buzzer_on_alert);
-        if applied == Some(key) {
+        let brightness_changed =
+            config.profile.is_mlight() && applied_brightness != Some(desired.brightness);
+
+        if applied == Some(key) && !brightness_changed {
             if config.desired.changed().await.is_err() {
                 return;
             }
             continue;
+        }
+
+        if brightness_changed {
+            let Some(writer) = transport.as_mut() else {
+                applied_brightness = None;
+                continue;
+            };
+            if let Err(error) = writer.write(&brightness_command(desired.brightness)) {
+                mark_error(&config.registry, &config.id, error);
+                transport = None;
+                applied = None;
+                applied_brightness = None;
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                continue;
+            }
+            applied_brightness = Some(desired.brightness);
+
+            if applied == Some(key) {
+                // Brightness-only change: put the light back into its current
+                // state without the OFF prelude, so the effect does not flicker.
+                let replay_plan = replay(effect, config.profile == DeviceProfile::Mlight3Led);
+                let mut replay_failed = false;
+                for command in replay_plan.commands {
+                    if command.delay_ms > 0 {
+                        tokio::time::sleep(Duration::from_millis(command.delay_ms)).await;
+                    }
+                    let Some(writer) = transport.as_mut() else {
+                        replay_failed = true;
+                        break;
+                    };
+                    if let Err(error) = writer.write(&command.bytes) {
+                        mark_error(&config.registry, &config.id, error);
+                        transport = None;
+                        applied = None;
+                        applied_brightness = None;
+                        replay_failed = true;
+                        break;
+                    }
+                }
+                if replay_failed {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+                continue;
+            }
         }
 
         let plan = plan_for(
@@ -122,6 +173,7 @@ async fn run(mut config: ActorConfig) {
                     mark_error(&config.registry, &config.id, error);
                     transport = None;
                     applied = None;
+                    applied_brightness = None;
                     interrupted = true;
                     tokio::time::sleep(Duration::from_secs(1)).await;
                     break;
@@ -262,4 +314,71 @@ mod tests {
 
         actor.abort();
     }
+    #[tokio::test(start_paused = true)]
+    async fn brightness_change_replays_current_state_without_off() {
+        let registry = new_registry();
+        upsert(
+            &registry,
+            DeviceInfo::new("ml:0", "/dev/fake", DeviceProfile::Mlight3Led),
+        );
+        let log = MockLog::default();
+        let factory_log = log.clone();
+        let (desired_tx, desired_rx) = watch::channel(DesiredState {
+            effect: Effect::Busy,
+            brightness: 100,
+            ..DesiredState::default()
+        });
+
+        let actor = spawn(ActorConfig {
+            id: "ml:0".into(),
+            port: "/dev/fake".into(),
+            profile: DeviceProfile::Mlight3Led,
+            factory: Arc::new(move || Ok(Box::new(MockTransport::new(factory_log.clone())))),
+            desired: desired_rx,
+            registry,
+        });
+
+        // Let the initial effect plan finish.
+        tokio::time::sleep(Duration::from_millis(1_000)).await;
+
+        desired_tx
+            .send(DesiredState {
+                effect: Effect::Busy,
+                brightness: 50,
+                ..DesiredState::default()
+            })
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(1_000)).await;
+
+        let entries = log.entries();
+        let brightness = "42 52 49 47 48 54 4E 45 53 53 5F 35 30 0A";
+        let index = entries
+            .iter()
+            .rposition(|entry| entry == brightness)
+            .expect("应下发 BRIGHTNESS_50");
+
+        assert!(
+            entries[index + 1..]
+                .iter()
+                .any(|entry| entry == "47 52 45 45 4E 5F 4F 4E 0A"),
+            "亮度调整后应重放 GREEN_ON：{entries:?}"
+        );
+        assert!(
+            entries[index + 1..]
+                .iter()
+                .any(|entry| entry == "59 45 4C 4C 4F 57 5F 42 52 45 41 54 48 0A"),
+            "亮度调整后应重放 YELLOW_BREATH：{entries:?}"
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|entry| *entry == "4F 46 46 0A")
+                .count(),
+            1,
+            "亮度调整不应再次发送 OFF：{entries:?}"
+        );
+
+        actor.abort();
+    }
+
 }
