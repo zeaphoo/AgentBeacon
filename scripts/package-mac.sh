@@ -7,12 +7,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="${DIST_DIR:-$ROOT/dist/mac}"
 IDENTITY="${MAC_SIGN_IDENTITY:-}"
 
-[[ "$(uname -s)" == "Darwin" ]] || { echo "package-mac.sh 仅支持 macOS" >&2; exit 1; }
+[[ "$(uname -s)" == "Darwin" ]] || { echo "package-mac.sh only supports macOS" >&2; exit 1; }
 for command in cargo pnpm node codesign hdiutil; do
-    command -v "$command" >/dev/null 2>&1 || { echo "缺少命令: $command" >&2; exit 1; }
+    command -v "$command" >/dev/null 2>&1 || { echo "missing command: $command" >&2; exit 1; }
 done
 cargo tauri --version >/dev/null 2>&1 || {
-    echo "缺少 tauri-cli；请执行: cargo install tauri-cli --locked" >&2
+    echo "missing tauri-cli; run: cargo install tauri-cli --locked" >&2
     exit 1
 }
 
@@ -27,14 +27,14 @@ cargo build --release -p agent-beacon
 TARGET="$(cargo metadata --no-deps --format-version 1 |
     node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).target_directory))')"
 HELPER="$TARGET/release/agent-beacon"
-[[ -f "$HELPER" ]] || { echo "未找到 $HELPER" >&2; exit 1; }
+[[ -f "$HELPER" ]] || { echo "missing $HELPER" >&2; exit 1; }
 
 rm -rf "$TARGET/release/bundle/macos" "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 (cd "$ROOT/desktop/src-tauri" && cargo tauri build --bundles app)
 
 APP="$TARGET/release/bundle/macos/AgentBeacon.app"
-[[ -d "$APP" ]] || { echo "未找到 $APP" >&2; exit 1; }
+[[ -d "$APP" ]] || { echo "missing $APP" >&2; exit 1; }
 
 cp -f "$HELPER" "$APP/Contents/MacOS/agent-beacon"
 chmod +x "$APP/Contents/MacOS/agent-beacon"
@@ -44,10 +44,10 @@ if [[ -n "$IDENTITY" ]]; then
     codesign --force --options runtime -s "$IDENTITY" "$APP"
     codesign --verify --deep --strict "$APP"
 else
-    echo "未设置 MAC_SIGN_IDENTITY，产出未签名 .app（仅用于本地验证）" >&2
+    echo "MAC_SIGN_IDENTITY is not set; producing an unsigned .app (local validation only)" >&2
 fi
 
 ARCH="$(uname -m)"
 hdiutil create -volname AgentBeacon -srcfolder "$APP" -ov -format UDZO \
     "$DIST_DIR/AgentBeacon_${version}_macos_${ARCH}.dmg"
-echo "生成完成：$DIST_DIR"
+echo "Build complete: $DIST_DIR"

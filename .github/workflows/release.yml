@@ -1,0 +1,181 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10'
+
+jobs:
+  verify:
+    name: Verify version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Check manifests and tag
+        id: version
+        run: |
+          set -euo pipefail
+          version="$(./scripts/check-versions.sh)"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" != "v${version}" ]]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match manifest version v${version}"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "release version: ${version}"
+
+  linux:
+    name: Linux packages
+    needs: verify
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ubuntu-22.04
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install Tauri dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libgtk-3-dev \
+            libxdo-dev \
+            patchelf \
+            file \
+            libudev-dev \
+            libusb-1.0-0-dev
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --locked
+      - name: Build packages
+        run: bash scripts/package-linux-app.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/linux/*
+          if-no-files-found: error
+
+  macos:
+    name: macOS (${{ matrix.arch }})
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.runner }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --locked
+      - name: Build app
+        env:
+          MAC_SIGN_IDENTITY: ${{ secrets.MAC_SIGN_IDENTITY }}
+        run: bash scripts/package-mac.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: dist/mac/*.dmg
+          if-no-files-found: error
+
+  windows:
+    name: Windows packages
+    needs: verify
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-2022
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --locked
+      - name: Build packages
+        shell: bash
+        run: bash scripts/package-windows.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/windows/*.exe
+            dist/windows/*.msi
+            dist/windows/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [verify, linux, macos, windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Collect release files
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          find dist -type f \
+            \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \
+               -o -name '*.dmg' -o -name '*.exe' -o -name '*.msi' -o -name '*.zip' \) \
+            -exec cp -v {} release/ \;
+          ls -lh release
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: AgentBeacon v${{ needs.verify.outputs.version }}
+          generate_release_notes: true
+          prerelease: ${{ contains(needs.verify.outputs.version, '-') }}
+          fail_on_unmatched_files: true
+          files: release/*

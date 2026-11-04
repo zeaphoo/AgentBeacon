@@ -1,0 +1,15 @@
+# Shell scripts must be checked out with LF: CRLF breaks bash on Windows
+# (`$'\r': command not found`) and makes CI fail before the build starts.
+*.sh text eol=lf
+*.mjs text eol=lf
+
+# Binary artifacts keep their platform-native bytes.
+*.png binary
+*.ico binary
+*.icns binary
+*.dmg binary
+*.deb binary
+*.rpm binary
+*.AppImage binary
+*.msi binary
+*.exe binary

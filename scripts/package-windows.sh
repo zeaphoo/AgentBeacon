@@ -9,22 +9,22 @@ BUNDLES="${TAURI_BUNDLES:-nsis,msi}"
 
 case "$(uname -s)" in
     MINGW* | MSYS* | CYGWIN*) ;;
-    *) echo "package-windows.sh 仅在 Windows（Git Bash / MSYS）上运行" >&2; exit 1 ;;
+    *) echo "package-windows.sh must run on Windows (Git Bash / MSYS)" >&2; exit 1 ;;
 esac
 
 for command in cargo pnpm node; do
-    command -v "$command" >/dev/null 2>&1 || { echo "缺少命令: $command" >&2; exit 1; }
+    command -v "$command" >/dev/null 2>&1 || { echo "missing command: $command" >&2; exit 1; }
 done
 cargo tauri --version >/dev/null 2>&1 || {
-    echo "缺少 tauri-cli；请执行: cargo install tauri-cli --locked" >&2
+    echo "missing tauri-cli; run: cargo install tauri-cli --locked" >&2
     exit 1
 }
 
 version="$("$ROOT/scripts/check-versions.sh")"
 if [[ ! -d "$ROOT/web/node_modules" ]]; then
-    CI=true pnpm --dir "$ROOT/web" install --frozen-lockfile
+    (cd "$ROOT/web" && CI=true pnpm install --frozen-lockfile)
 fi
-pnpm --dir "$ROOT/web" build
+(cd "$ROOT/web" && pnpm build)
 
 cd "$ROOT"
 cargo build --release -p agent-beacon
@@ -32,8 +32,7 @@ TARGET="$(cargo metadata --no-deps --format-version 1 |
     node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).target_directory))')"
 HELPER="$TARGET/release/agent-beacon.exe"
 APP_EXE="$TARGET/release/AgentBeaconApp.exe"
-[[ -f "$HELPER" ]] || { echo "未找到 $HELPER" >&2; exit 1; }
-[[ -f "$APP_EXE" ]] || { echo "未找到 $APP_EXE" >&2; exit 1; }
+[[ -f "$HELPER" ]] || { echo "missing $HELPER" >&2; exit 1; }
 
 cp -f "$HELPER" "$ROOT/desktop/src-tauri/agent-beacon.exe"
 INJECT="$ROOT/desktop/src-tauri/.bundle-resources.json"
@@ -48,6 +47,10 @@ trap cleanup EXIT
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR/portable"
 (cd "$ROOT/desktop/src-tauri" && cargo tauri build --config "$(cygpath -w "$INJECT")" --bundles "$BUNDLES")
+
+# The desktop app executable is produced by `cargo tauri build`; it does not
+# exist after the service-only `cargo build -p agent-beacon` above.
+[[ -f "$APP_EXE" ]] || { echo "missing $APP_EXE" >&2; exit 1; }
 
 cp -f "$APP_EXE" "$DIST_DIR/portable/AgentBeaconApp.exe"
 cp -f "$HELPER" "$DIST_DIR/portable/agent-beacon.exe"
@@ -67,5 +70,5 @@ for file in "${installers[@]}"; do
     cp -f "$file" "$DIST_DIR/$(basename "$file")"
 done
 
-echo "生成完成："
+echo "Build complete:"
 ls -l "$DIST_DIR"

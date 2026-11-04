@@ -120,6 +120,18 @@ pnpm package:win      # 仅在 Windows Git Bash 上
 - 关闭窗口隐藏到托盘；只在退出时停止自己拉起的服务
 - 托盘提供「开机自启动」勾选项（持久化到 `desktop-prefs.json`）
 
+## 发布
+
+推送 `v*` 标签会触发 Release 工作流，构建并上传所有平台产物到 GitHub Release：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+产物包括 Linux `deb`/`AppImage`、macOS arm64/x86_64 `dmg`、Windows `NSIS`/`MSI` 与便携 `zip`。
+也可以在 Actions 中手动触发 Release 工作流：只构建并上传 artifacts，不创建 Release，便于先验证各平台打包。
+
 ## 测试
 
 ```bash

@@ -6,10 +6,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="${DIST_DIR:-$ROOT/dist/linux}"
 
 for command in cargo pnpm node; do
-    command -v "$command" >/dev/null 2>&1 || { echo "缺少命令: $command" >&2; exit 1; }
+    command -v "$command" >/dev/null 2>&1 || { echo "missing command: $command" >&2; exit 1; }
 done
 cargo tauri --version >/dev/null 2>&1 || {
-    echo "缺少 tauri-cli；请执行: cargo install tauri-cli --locked" >&2
+    echo "missing tauri-cli; run: cargo install tauri-cli --locked" >&2
     exit 1
 }
 
@@ -24,7 +24,7 @@ cargo build --release -p agent-beacon
 TARGET="$(cargo metadata --no-deps --format-version 1 |
     node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).target_directory))')"
 HELPER="$TARGET/release/agent-beacon"
-[[ -f "$HELPER" ]] || { echo "未找到 $HELPER" >&2; exit 1; }
+[[ -f "$HELPER" ]] || { echo "missing $HELPER" >&2; exit 1; }
 
 cp -f "$HELPER" "$ROOT/desktop/src-tauri/agent-beacon"
 INJECT="$ROOT/desktop/src-tauri/.bundle-resources.json"
@@ -45,7 +45,7 @@ mkdir -p "$DIST_DIR"
 shopt -s nullglob
 artifacts=("$TARGET"/release/bundle/deb/*.deb "$TARGET"/release/bundle/appimage/*.AppImage)
 shopt -u nullglob
-[[ ${#artifacts[@]} -gt 0 ]] || { echo "未产出 deb/AppImage" >&2; exit 1; }
+[[ ${#artifacts[@]} -gt 0 ]] || { echo "no deb/AppImage artifacts were produced" >&2; exit 1; }
 
 for file in "${artifacts[@]}"; do
     base="$(basename "$file")"
@@ -56,5 +56,5 @@ for file in "${artifacts[@]}"; do
     esac
 done
 
-echo "生成完成："
+echo "Build complete:"
 ls -l "$DIST_DIR"
