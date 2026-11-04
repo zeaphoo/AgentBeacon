@@ -181,3 +181,50 @@ body {
 .text-danger {
   color: var(--danger);
 }
+
+/* Aggregate state hero card: subtle tint + accent rail, not a fully saturated card. */
+.aggregate-card {
+  border-color: var(--state-border);
+  background:
+    radial-gradient(120% 120% at 0% 0%, var(--state-tint), transparent 62%),
+    var(--card);
+}
+
+.aggregate-icon {
+  background-color: var(--state-soft-bg);
+  border-color: var(--state-border);
+  color: var(--state-soft-fg);
+}
+
+.aggregate-none {
+  --state-accent: var(--muted-foreground);
+  --state-tint: color-mix(in oklch, var(--muted-foreground) 6%, transparent);
+  --state-border: var(--border);
+  --state-soft-bg: var(--muted);
+  --state-soft-fg: var(--muted-foreground);
+}
+
+.aggregate-idle {
+  --state-accent: var(--success);
+  --state-tint: color-mix(in oklch, var(--success) 8%, transparent);
+  --state-border: var(--success-soft-border);
+  --state-soft-bg: var(--success-soft-bg);
+  --state-soft-fg: var(--success-soft-fg);
+}
+
+.aggregate-working,
+.aggregate-waiting {
+  --state-accent: var(--warning);
+  --state-tint: color-mix(in oklch, var(--warning) 9%, transparent);
+  --state-border: var(--warning-soft-border);
+  --state-soft-bg: var(--warning-soft-bg);
+  --state-soft-fg: var(--warning-soft-fg);
+}
+
+.aggregate-error {
+  --state-accent: var(--danger);
+  --state-tint: color-mix(in oklch, var(--danger) 8%, transparent);
+  --state-border: var(--danger-soft-border);
+  --state-soft-bg: var(--danger-soft-bg);
+  --state-soft-fg: var(--danger-soft-fg);
+}

@@ -1,7 +1,7 @@
 export const messages = {
   zh: {
-    'app.tagline': 'agent 状态 · USB 状态灯',
-    'nav.dashboard': '仪表盘',
+    'app.tagline': 'Agent 状态灯',
+    'nav.dashboard': '状态',
     'nav.control': '手动控制',
     'nav.settings': '设置',
 
@@ -40,6 +40,7 @@ export const messages = {
     'settings.buzzerConfirm': '确认开启',
     'settings.serviceTitle': '服务',
     'settings.serviceDescription': '本地 agent-beacon 服务信息',
+    'settings.serviceUptime': '已运行 {duration}',
     'settings.supportedTitle': '支持的设备',
     'settings.supportedDescription': '已支持的灯型号与特性',
     'settings.devicesTitle': '设备绑定',
@@ -48,10 +49,14 @@ export const messages = {
     'settings.saving': '保存中…',
     'settings.autoSaveHint': '修改后自动保存',
 
+    'time.seconds': '{n} 秒',
+    'time.minutes': '{n} 分钟',
+    'time.hours': '{n} 小时',
+    'time.days': '{n} 天',
+
     'dashboard.aggregateTitle': '当前聚合状态',
     'dashboard.activeSessions': '活动会话',
     'dashboard.devicesSummary': '设备 {connected}/{total}',
-    'dashboard.uptime': '运行 {n} 秒',
     'dashboard.overrideActive': '手动覆盖生效中：{effect} · 到期后自动恢复',
     'dashboard.sessionsTitle': '活动会话',
     'dashboard.sessionsDescription': '按最近更新时间排序',
@@ -139,8 +144,8 @@ export const messages = {
   },
 
   en: {
-    'app.tagline': 'Agent status · USB status light',
-    'nav.dashboard': 'Dashboard',
+    'app.tagline': 'Agent status light',
+    'nav.dashboard': 'Status',
     'nav.control': 'Manual control',
     'nav.settings': 'Settings',
 
@@ -178,6 +183,7 @@ export const messages = {
     'settings.buzzerConfirm': 'Enable',
     'settings.serviceTitle': 'Service',
     'settings.serviceDescription': 'Local agent-beacon service information',
+    'settings.serviceUptime': 'Uptime {duration}',
     'settings.supportedTitle': 'Supported devices',
     'settings.supportedDescription': 'Supported light profiles and features',
     'settings.devicesTitle': 'Device bindings',
@@ -186,10 +192,14 @@ export const messages = {
     'settings.saving': 'Saving…',
     'settings.autoSaveHint': 'Changes are saved automatically',
 
+    'time.seconds': '{n}s',
+    'time.minutes': '{n}m',
+    'time.hours': '{n}h',
+    'time.days': '{n}d',
+
     'dashboard.aggregateTitle': 'Current aggregate state',
     'dashboard.activeSessions': 'Active sessions',
     'dashboard.devicesSummary': 'Devices {connected}/{total}',
-    'dashboard.uptime': 'Uptime {n}s',
     'dashboard.overrideActive':
       'Manual override active: {effect} · restores automatically when it expires',
     'dashboard.sessionsTitle': 'Active sessions',

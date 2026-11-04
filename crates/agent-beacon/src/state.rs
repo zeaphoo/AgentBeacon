@@ -21,6 +21,7 @@ pub struct ServiceInfo {
     pub version: &'static str,
     pub pid: u32,
     pub port: u16,
+    pub started_at_ms: u64,
     pub uptime_secs: u64,
 }
 
@@ -62,6 +63,7 @@ pub struct BeaconState {
     desired_tx: watch::Sender<DesiredState>,
     events: broadcast::Sender<Snapshot>,
     started: Instant,
+    started_at_ms: u64,
     port: u16,
     store: ConfigStore,
     scan: Notify,
@@ -73,6 +75,7 @@ impl BeaconState {
         let (desired_tx, _) = watch::channel(initial_desired(&config));
         let (events, _) = broadcast::channel(64);
         let (shutdown, _) = watch::channel(false);
+        let started_at_ms = now_ms();
         Arc::new(Self {
             inner: Mutex::new(Inner {
                 config,
@@ -83,6 +86,7 @@ impl BeaconState {
             desired_tx,
             events,
             started: Instant::now(),
+            started_at_ms,
             port,
             store,
             scan: Notify::new(),
@@ -166,6 +170,7 @@ impl BeaconState {
                 version: VERSION,
                 pid: std::process::id(),
                 port: self.port,
+                started_at_ms: self.started_at_ms,
                 uptime_secs: self.started.elapsed().as_secs(),
             },
             config: inner.config.clone(),

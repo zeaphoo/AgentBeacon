@@ -73,6 +73,11 @@ export function effectTone(effect) {
   return EFFECT_MAP[effect]?.tone ?? 'muted'
 }
 
+export function stateTone(state, mapping = {}) {
+  const effect = mapping?.[state]
+  return effect ? effectTone(effect) : (STATE_TONE[state] ?? 'muted')
+}
+
 export function effectLabel(effect, t) {
   const key = EFFECT_MAP[effect]?.labelKey
   return key ? t(key) : effect
@@ -109,4 +114,26 @@ export function formatAge(timestampMs, language = 'zh', now = Date.now()) {
   if (minutes < 60) return formatter.format(-minutes, 'minute')
   const hours = Math.round(minutes / 60)
   return formatter.format(-hours, 'hour')
+}
+
+export function formatUptime(seconds, t) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0))
+  if (total < 60) return t('time.seconds', { n: total })
+
+  const minutes = Math.floor(total / 60)
+  if (minutes < 60) return t('time.minutes', { n: minutes })
+
+  const hours = Math.floor(minutes / 60)
+  const restMinutes = minutes % 60
+  if (hours < 24) {
+    return restMinutes > 0
+      ? `${t('time.hours', { n: hours })} ${t('time.minutes', { n: restMinutes })}`
+      : t('time.hours', { n: hours })
+  }
+
+  const days = Math.floor(hours / 24)
+  const restHours = hours % 24
+  return restHours > 0
+    ? `${t('time.days', { n: days })} ${t('time.hours', { n: restHours })}`
+    : t('time.days', { n: days })
 }

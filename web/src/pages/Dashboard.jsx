@@ -1,9 +1,18 @@
 import { useState } from 'react'
-import { Activity, Clock, Lightbulb, RefreshCw, Trash2, Usb } from 'lucide-react'
+import {
+  Activity,
+  AlertTriangle,
+  CircleSlash,
+  Clock,
+  Lightbulb,
+  Moon,
+  RefreshCw,
+  Trash2,
+  Usb,
+} from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
 import { useI18n } from '../i18n'
 import {
-  STATE_TONE,
   TONE_CLASSES,
   aggregateLabel,
   capabilitiesForProfile,
@@ -12,6 +21,7 @@ import {
   formatAge,
   profileLabel,
   stateLabel,
+  stateTone,
 } from '../lib/labels'
 import DeviceFeatures from '../components/DeviceFeatures'
 import { Badge } from '../components/ui/badge'
@@ -34,6 +44,14 @@ import {
   DialogTrigger,
 } from '../components/ui/dialog'
 import { cn } from '../lib/utils'
+
+const AGGREGATE_ICONS = {
+  none: CircleSlash,
+  idle: Moon,
+  working: Activity,
+  waiting: Clock,
+  error: AlertTriangle,
+}
 
 function EmptyState({ icon: Icon, title, description }) {
   return (
@@ -74,6 +92,8 @@ export default function Dashboard() {
   }
 
   const aggregate = snapshot.aggregate
+  const aggregateState = AGGREGATE_ICONS[aggregate] ? aggregate : 'none'
+  const AggregateIcon = AGGREGATE_ICONS[aggregateState]
   const sessions = snapshot.sessions ?? []
   const devices = snapshot.devices ?? []
   const connectedDevices = devices.filter((device) => device.connected).length
@@ -106,20 +126,30 @@ export default function Dashboard() {
         </div>
       )}
 
-      <Card>
-        <CardHeader className="flex-row items-start justify-between space-y-0">
-          <div>
-            <CardDescription>{t('dashboard.aggregateTitle')}</CardDescription>
-            <CardTitle className="mt-2 text-3xl">
-              {aggregateLabel(aggregate, t)}
-            </CardTitle>
+      <Card
+        className={cn(
+          'aggregate-card',
+          `aggregate-${aggregateState}`,
+        )}
+      >
+        <CardHeader className="flex-row flex-wrap items-start justify-between gap-3 space-y-0">
+          <div className="flex items-start gap-4">
+            <div className="aggregate-icon flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border">
+              <AggregateIcon className="h-7 w-7" />
+            </div>
+            <div>
+              <CardDescription>{t('dashboard.aggregateTitle')}</CardDescription>
+              <CardTitle className="mt-1 text-3xl">
+                {aggregateLabel(aggregate, t)}
+              </CardTitle>
+            </div>
           </div>
           <Badge className={cn('border', TONE_CLASSES[effectTone(snapshot.effect)])}>
             <Lightbulb className="mr-1.5 h-3.5 w-3.5" />
             {effectLabel(snapshot.effect, t)}
           </Badge>
         </CardHeader>
-        <CardContent className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
+        <CardContent className="grid gap-3 pt-4 text-sm text-muted-foreground sm:grid-cols-2">
           <div className="flex items-center gap-2">
             <Activity className="h-4 w-4" />
             {t('dashboard.activeSessions')} {sessions.length}
@@ -130,10 +160,6 @@ export default function Dashboard() {
               connected: connectedDevices,
               total: devices.length,
             })}
-          </div>
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4" />
-            {t('dashboard.uptime', { n: snapshot.service?.uptime_secs ?? 0 })}
           </div>
         </CardContent>
       </Card>
@@ -193,7 +219,10 @@ export default function Dashboard() {
                 >
                   <Badge
                     variant="outline"
-                    className={cn('border', TONE_CLASSES[STATE_TONE[session.state] ?? 'muted'])}
+                    className={cn(
+                      'border',
+                      TONE_CLASSES[stateTone(session.state, snapshot.config?.mapping)],
+                    )}
                   >
                     {stateLabel(session.state, t)}
                   </Badge>

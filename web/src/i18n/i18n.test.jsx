@@ -17,10 +17,10 @@ describe('i18n', () => {
   it('uses the selected language immediately', () => {
     usePreferencesStore.setState({ language: 'zh' })
     render(<Probe />)
-    expect(screen.getByText('zh:仪表盘')).toBeInTheDocument()
+    expect(screen.getByText('zh:状态')).toBeInTheDocument()
 
     act(() => usePreferencesStore.getState().setLanguage('en'))
-    expect(screen.getByText('en:Dashboard')).toBeInTheDocument()
+    expect(screen.getByText('en:Status')).toBeInTheDocument()
   })
 
   it('keeps zh and en message keys in sync', () => {
