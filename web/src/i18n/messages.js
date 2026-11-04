@@ -40,7 +40,6 @@ export const messages = {
     'settings.buzzerConfirm': '确认开启',
     'settings.serviceTitle': '服务',
     'settings.serviceDescription': '本地 agent-beacon 服务信息',
-    'settings.serviceUptime': '已运行 {duration}',
     'settings.supportedTitle': '支持的设备',
     'settings.supportedDescription': '已支持的灯型号与特性',
     'settings.devicesTitle': '设备绑定',
@@ -54,6 +53,7 @@ export const messages = {
     'time.hours': '{n} 小时',
     'time.days': '{n} 天',
 
+    'dashboard.uptime': '运行 {duration}',
     'dashboard.aggregateTitle': '当前聚合状态',
     'dashboard.activeSessions': '活动会话',
     'dashboard.devicesSummary': '设备 {connected}/{total}',
@@ -183,7 +183,6 @@ export const messages = {
     'settings.buzzerConfirm': 'Enable',
     'settings.serviceTitle': 'Service',
     'settings.serviceDescription': 'Local agent-beacon service information',
-    'settings.serviceUptime': 'Uptime {duration}',
     'settings.supportedTitle': 'Supported devices',
     'settings.supportedDescription': 'Supported light profiles and features',
     'settings.devicesTitle': 'Device bindings',
@@ -197,6 +196,7 @@ export const messages = {
     'time.hours': '{n}h',
     'time.days': '{n}d',
 
+    'dashboard.uptime': 'Uptime {duration}',
     'dashboard.aggregateTitle': 'Current aggregate state',
     'dashboard.activeSessions': 'Active sessions',
     'dashboard.devicesSummary': 'Devices {connected}/{total}',

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Clock, Lightbulb, Server, Usb } from 'lucide-react'
+import { AlertTriangle, Lightbulb, Server, Usb } from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
 import { useI18n } from '../i18n'
 import {
@@ -7,7 +7,6 @@ import {
   EFFECTS,
   SUPPORTED_LIGHT_PROFILES,
   capabilitiesForProfile,
-  formatUptime,
   profileLabel,
 } from '../lib/labels'
 import DeviceFeatures from '../components/DeviceFeatures'
@@ -55,7 +54,6 @@ export default function Settings() {
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
   const [buzzerDialogOpen, setBuzzerDialogOpen] = useState(false)
-  const [now, setNow] = useState(Date.now())
   const savedRef = useRef(null)
   const requestRef = useRef(0)
 
@@ -64,11 +62,6 @@ export default function Settings() {
       setForm(clone(snapshot.config))
     }
   }, [snapshot, form])
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 30_000)
-    return () => clearInterval(timer)
-  }, [])
 
   useEffect(() => {
     if (!form) return
@@ -119,9 +112,6 @@ export default function Settings() {
     )
   }
 
-  const uptimeSeconds = snapshot?.service?.started_at_ms
-    ? Math.max(0, Math.floor((now - snapshot.service.started_at_ms) / 1000))
-    : (snapshot?.service?.uptime_secs ?? 0)
   const realDevices = (snapshot?.devices ?? []).filter((device) => device.profile !== 'mock')
   const supportedProfiles = (
     snapshot?.profiles?.length
@@ -373,12 +363,6 @@ export default function Settings() {
           <div>127.0.0.1:{snapshot?.service?.port ?? 6980}</div>
           <div>
             {snapshot?.service?.version ? `v${snapshot.service.version}` : 'agent-beacon'}
-          </div>
-          <div className="flex items-center gap-2">
-            <Clock className="h-3.5 w-3.5" />
-            {t('settings.serviceUptime', {
-              duration: formatUptime(uptimeSeconds, t),
-            })}
           </div>
         </CardContent>
       </Card>

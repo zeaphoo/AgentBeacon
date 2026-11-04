@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Activity,
   AlertTriangle,
@@ -19,6 +19,7 @@ import {
   effectLabel,
   effectTone,
   formatAge,
+  formatUptime,
   profileLabel,
   stateLabel,
   stateTone,
@@ -72,7 +73,13 @@ export default function Dashboard() {
   const scanDevices = useBeaconStore((state) => state.scanDevices)
   const [actionError, setActionError] = useState(null)
   const [scanning, setScanning] = useState(false)
+  const [now, setNow] = useState(Date.now())
   const { t, language } = useI18n()
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(timer)
+  }, [])
 
   if (!snapshot) {
     return (
@@ -91,6 +98,9 @@ export default function Dashboard() {
     )
   }
 
+  const uptimeSeconds = snapshot.service?.started_at_ms
+    ? Math.max(0, Math.floor((now - snapshot.service.started_at_ms) / 1000))
+    : (snapshot.service?.uptime_secs ?? 0)
   const aggregate = snapshot.aggregate
   const aggregateState = AGGREGATE_ICONS[aggregate] ? aggregate : 'none'
   const AggregateIcon = AGGREGATE_ICONS[aggregateState]
@@ -149,7 +159,7 @@ export default function Dashboard() {
             {effectLabel(snapshot.effect, t)}
           </Badge>
         </CardHeader>
-        <CardContent className="grid gap-3 pt-4 text-sm text-muted-foreground sm:grid-cols-2">
+        <CardContent className="grid gap-3 pt-4 text-sm text-muted-foreground sm:grid-cols-3">
           <div className="flex items-center gap-2">
             <Activity className="h-4 w-4" />
             {t('dashboard.activeSessions')} {sessions.length}
@@ -159,6 +169,12 @@ export default function Dashboard() {
             {t('dashboard.devicesSummary', {
               connected: connectedDevices,
               total: devices.length,
+            })}
+          </div>
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            {t('dashboard.uptime', {
+              duration: formatUptime(uptimeSeconds, t),
             })}
           </div>
         </CardContent>
