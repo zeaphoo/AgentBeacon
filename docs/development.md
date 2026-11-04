@@ -190,7 +190,7 @@ A manual `workflow_dispatch` run builds and uploads artifacts without creating a
 ### Releasing
 
 1. Update versions in `Cargo.toml`, `package.json`, `web/package.json`, and `desktop/src-tauri/tauri.conf.json`.
-2. Add the release entry to `CHANGELOG.md`.
+2. Add the release entry to both `CHANGELOG.md` and `CHANGELOG.zh-CN.md`.
 3. Commit the release changes.
 4. Create and push an annotated tag:
 
@@ -199,7 +199,7 @@ A manual `workflow_dispatch` run builds and uploads artifacts without creating a
    git push origin v0.1.0-rc.1
    ```
 
-The Release workflow verifies that the tag matches the manifests and publishes a GitHub Release. macOS signing/notarization uses repository secrets (`MAC_CERT_P12_BASE64`, `MAC_CERT_PASSWORD`, `MAC_SIGN_IDENTITY`, `MAC_NOTARY_API_KEY_ID`, `MAC_NOTARY_API_ISSUER_ID`, `MAC_NOTARY_API_KEY_P8_BASE64`). Windows MSI uses a numeric ProductVersion even for prerelease versions.
+The Release workflow verifies that the tag matches the manifests, extracts the bilingual changelog entry, and publishes a GitHub Release. macOS signing/notarization uses repository secrets (`MAC_CERT_P12_BASE64`, `MAC_CERT_PASSWORD`, `MAC_SIGN_IDENTITY`, `MAC_NOTARY_API_KEY_ID`, `MAC_NOTARY_API_ISSUER_ID`, `MAC_NOTARY_API_KEY_P8_BASE64`). Windows MSI uses a numeric ProductVersion even for prerelease versions.
 
 ## Contributing
 

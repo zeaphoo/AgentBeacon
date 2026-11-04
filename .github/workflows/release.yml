@@ -39,6 +39,8 @@ jobs:
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "release version: ${version}"
+      - name: Check changelog entry
+        run: ./scripts/release-notes.sh "${{ steps.version.outputs.version }}" > /dev/null
 
   linux:
     name: Linux packages
@@ -259,12 +261,14 @@ jobs:
                -o -name '*.dmg' -o -name '*.exe' -o -name '*.msi' -o -name '*.zip' \) \
             -exec cp -v {} release/ \;
           ls -lh release
+      - name: Generate release notes
+        run: ./scripts/release-notes.sh "${{ needs.verify.outputs.version }}" > release-notes.md
       - name: Publish
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: AgentBeacon v${{ needs.verify.outputs.version }}
-          generate_release_notes: true
+          body_path: release-notes.md
           prerelease: ${{ contains(needs.verify.outputs.version, '-') }}
           fail_on_unmatched_files: true
           files: release/*

@@ -88,7 +88,7 @@ Web 控制台会在每个已连接设备上显示对应的能力徽章。
 
 - [开发文档](docs/development.zh-CN.md) — 架构、环境准备、构建、测试、发布与贡献
 - [English documentation](README.md)
-- [更新日志](CHANGELOG.md)
+- [更新日志](CHANGELOG.zh-CN.md) · [English changelog](CHANGELOG.md)
 - [MLight 协议](docs/MLight-serial-protocol.md)
 - [YH50-RGY-J 协议](docs/YH50-RGY-J-serial-protocol.md)
 - [硬件验收清单](docs/hardware-checklist.md)

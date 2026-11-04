@@ -88,7 +88,7 @@ The built-in integrations are shipped with the service and can be installed or u
 
 - [Development guide](docs/development.md) — architecture, prerequisites, build, test, release, contributing
 - [中文文档](README.zh-CN.md)
-- [Changelog](CHANGELOG.md)
+- [Changelog](CHANGELOG.md) · [中文更新日志](CHANGELOG.zh-CN.md)
 - [MLight protocol](docs/MLight-serial-protocol.md)
 - [YH50-RGY-J protocol](docs/YH50-RGY-J-serial-protocol.md)
 - [Hardware checklist](docs/hardware-checklist.md)
