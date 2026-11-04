@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Lightbulb, Usb } from 'lucide-react'
+import { AlertTriangle, Lightbulb, Server, Usb } from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
 import { useI18n } from '../i18n'
 import {
@@ -347,6 +347,22 @@ export default function Settings() {
                 <DeviceFeatures capabilities={item.capabilities} className="mt-2" />
               </div>
             ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Server className="h-4 w-4" />
+            {t('settings.serviceTitle')}
+          </CardTitle>
+          <CardDescription>{t('settings.serviceDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-1 text-xs text-muted-foreground">
+          <div>127.0.0.1:{snapshot?.service?.port ?? 6980}</div>
+          <div>
+            {snapshot?.service?.version ? `v${snapshot.service.version}` : 'agent-beacon'}
           </div>
         </CardContent>
       </Card>

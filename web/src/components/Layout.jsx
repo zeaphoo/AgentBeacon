@@ -94,9 +94,6 @@ export default function Layout() {
               <Usb className="h-3.5 w-3.5" />
               {deviceLabel}
             </Badge>
-            {snapshot?.service?.version && (
-              <span className="text-xs text-muted-foreground">v{snapshot.service.version}</span>
-            )}
             <Select value={language} onValueChange={setLanguage}>
               <SelectTrigger
                 className="h-8 w-auto gap-1.5 border-border/70 px-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground"

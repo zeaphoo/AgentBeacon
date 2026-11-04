@@ -54,7 +54,7 @@ describe('Dashboard', () => {
     expect(screen.getByText('claude-code')).toBeInTheDocument()
     expect(screen.getByText('Mock 设备')).toBeInTheDocument()
     expect(screen.getByText('已连接')).toBeInTheDocument()
-    expect(screen.getByText(/PID 42/)).toBeInTheDocument()
+    expect(screen.queryByText(/PID/)).not.toBeInTheDocument()
   })
 
   it('shows capabilities for devices that support them', () => {

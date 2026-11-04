@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Activity, Clock, Lightbulb, RefreshCw, Server, Trash2, Usb } from 'lucide-react'
+import { Activity, Clock, Lightbulb, RefreshCw, Trash2, Usb } from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
 import { useI18n } from '../i18n'
 import {
@@ -106,55 +106,37 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="md:col-span-2">
-          <CardHeader className="flex-row items-start justify-between space-y-0">
-            <div>
-              <CardDescription>{t('dashboard.aggregateTitle')}</CardDescription>
-              <CardTitle className="mt-2 text-3xl">
-                {aggregateLabel(aggregate, t)}
-              </CardTitle>
-            </div>
-            <Badge className={cn('border', TONE_CLASSES[effectTone(snapshot.effect)])}>
-              <Lightbulb className="mr-1.5 h-3.5 w-3.5" />
-              {effectLabel(snapshot.effect, t)}
-            </Badge>
-          </CardHeader>
-          <CardContent className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
-            <div className="flex items-center gap-2">
-              <Activity className="h-4 w-4" />
-              {t('dashboard.activeSessions')} {sessions.length}
-            </div>
-            <div className="flex items-center gap-2">
-              <Usb className="h-4 w-4" />
-              {t('dashboard.devicesSummary', {
-                connected: connectedDevices,
-                total: devices.length,
-              })}
-            </div>
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4" />
-              {t('dashboard.uptime', { n: snapshot.service?.uptime_secs ?? 0 })}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardDescription>{t('dashboard.service')}</CardDescription>
-            <CardTitle className="text-lg">
-              {snapshot.service?.version ? `v${snapshot.service.version}` : 'agent-beacon'}
+      <Card>
+        <CardHeader className="flex-row items-start justify-between space-y-0">
+          <div>
+            <CardDescription>{t('dashboard.aggregateTitle')}</CardDescription>
+            <CardTitle className="mt-2 text-3xl">
+              {aggregateLabel(aggregate, t)}
             </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1 text-xs text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <Server className="h-3.5 w-3.5" />
-              127.0.0.1:{snapshot.service?.port ?? 6980}
-            </div>
-            <div>{t('dashboard.pid', { pid: snapshot.service?.pid ?? '-' })}</div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+          <Badge className={cn('border', TONE_CLASSES[effectTone(snapshot.effect)])}>
+            <Lightbulb className="mr-1.5 h-3.5 w-3.5" />
+            {effectLabel(snapshot.effect, t)}
+          </Badge>
+        </CardHeader>
+        <CardContent className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4" />
+            {t('dashboard.activeSessions')} {sessions.length}
+          </div>
+          <div className="flex items-center gap-2">
+            <Usb className="h-4 w-4" />
+            {t('dashboard.devicesSummary', {
+              connected: connectedDevices,
+              total: devices.length,
+            })}
+          </div>
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            {t('dashboard.uptime', { n: snapshot.service?.uptime_secs ?? 0 })}
+          </div>
+        </CardContent>
+      </Card>
 
       {snapshot.override && (
         <div className="alert-warning rounded-lg border px-4 py-3 text-sm">
