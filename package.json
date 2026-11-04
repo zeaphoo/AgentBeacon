@@ -14,5 +14,6 @@
     "package:linux": "bash scripts/package-linux-app.sh",
     "package:mac": "bash scripts/package-mac.sh",
     "package:win": "bash scripts/package-windows.sh"
-  }
+  },
+  "license": "Apache-2.0"
 }

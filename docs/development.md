@@ -1,0 +1,216 @@
+# Development Guide
+
+[Product README](../README.md) · [中文](development.zh-CN.md)
+
+This guide covers the architecture, local development, testing, packaging, and contribution workflow for AgentBeacon.
+
+## Architecture
+
+```text
+agent hooks / CLI
+        │ HTTP
+        ▼
+  agent-beacon service
+  ├─ session registry / aggregation
+  ├─ semantic effect mapping
+  ├─ device discovery + per-device actors
+  ├─ HTTP API + SSE
+  └─ embedded web console (127.0.0.1:6980)
+        │
+        ├─ USB status lights (MLight / YH50)
+        └─ SSE ──▶ React web console / Tauri desktop app
+```
+
+### Repository layout
+
+```text
+crates/
+  agent-beacon-core/     # domain models, config, sessions, effects
+  agent-beacon-lights/   # discovery, protocols, transports, device actors, mock
+  agent-beacon/          # axum API, SSE, embedded web assets, CLI, worker
+web/                     # React + Vite + Tailwind + Zustand console
+desktop/src-tauri/       # Tauri desktop shell (splash, tray, service supervision)
+docs/                    # protocols, integration guides, hardware checklist
+scripts/                 # platform packaging and version helpers
+.github/workflows/       # CI and tag-driven release
+```
+
+### Data flow
+
+1. An agent hook or CLI sends an event to `POST /api/v1/events`.
+2. The service updates the session registry and computes the aggregate state.
+3. The configured mapping turns the aggregate state into a semantic light effect.
+4. Each device actor expands the effect into protocol commands and writes to the device.
+5. The web console receives snapshots over SSE and renders the current state.
+
+## Prerequisites
+
+- Rust 1.85+ and Cargo
+- Node.js 22+ and pnpm 10+
+- Platform dependencies:
+  - **Linux**: `libwebkit2gtk-4.1-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, `libgtk-3-dev`, `libxdo-dev`, `patchelf`, `libudev-dev`, `libusb-1.0-0-dev`, `file`
+  - **macOS**: Xcode Command Line Tools; no CH340 driver is required on macOS 10.14+
+  - **Windows**: WebView2 and the WCH CH340 driver for YH50 serial fallback
+
+## Local development
+
+```bash
+pnpm --dir web install
+
+# terminal 1: service on 127.0.0.1:6980
+pnpm dev:serve
+
+# terminal 2: Vite dev server on 127.0.0.1:6973
+pnpm dev:web
+```
+
+The Vite server proxies `/api` to the service. Open `http://127.0.0.1:6973`.
+
+To run the desktop shell in development:
+
+```bash
+pnpm tauri:dev
+```
+
+## Build
+
+```bash
+pnpm build:web                 # build web assets
+cargo build -p agent-beacon    # embed web/dist into the service
+cargo run -p agent-beacon      # run the service
+```
+
+The service serves the embedded console at `http://127.0.0.1:6980`.
+
+For the desktop app:
+
+```bash
+pnpm tauri:build
+```
+
+Or use the platform packaging scripts:
+
+```bash
+pnpm package:linux   # deb + AppImage
+pnpm package:mac     # macOS dmg (macOS only)
+pnpm package:win     # NSIS/MSI + portable zip (Windows Git Bash only)
+```
+
+## Tests
+
+```bash
+cargo test --workspace
+pnpm --dir web test
+```
+
+Useful manual checks:
+
+- `cargo run -p agent-beacon` starts the service.
+- `agent-beacon status` and `agent-beacon devices` print English diagnostics.
+- Enable mock device in the config (`mock.enabled = true`) when no hardware is available.
+- `agent-beacon integrate list` shows managed agent integrations.
+
+## Configuration and API
+
+The service owns its config file:
+
+- Linux: `~/.config/agent-beacon/config.json`
+- macOS: `~/Library/Application Support/agent-beacon/config.json`
+- Windows: `%APPDATA%\agent-beacon\config.json`
+
+The default listen address is `127.0.0.1:6980`. Configuration can be updated through the console or `PUT /api/v1/config`.
+
+### HTTP API
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/v1/health` | Service health |
+| `GET` | `/api/v1/state` | Full state snapshot |
+| `GET` | `/api/v1/stream` | SSE snapshots and updates |
+| `GET` | `/api/v1/agents` | Known agents |
+| `GET` | `/api/v1/devices` | Devices |
+| `POST` | `/api/v1/devices/scan` | Trigger discovery |
+| `POST` | `/api/v1/events` | Report an agent event |
+| `DELETE` | `/api/v1/sessions` | Clear sessions |
+| `POST` | `/api/v1/control` | Apply a manual light effect |
+| `POST` | `/api/v1/control/auto` | Restore automatic control |
+| `GET/PUT` | `/api/v1/config` | Read or update configuration |
+
+### CLI
+
+```bash
+agent-beacon serve
+agent-beacon report --agent pi --state working --session default
+agent-beacon status
+agent-beacon devices
+agent-beacon integrate list
+agent-beacon integrate install pi
+agent-beacon integrate upgrade
+agent-beacon integrate uninstall pi
+```
+
+The CLI help and diagnostics are English.
+
+### State model
+
+- Agent states: `idle`, `working`, `waiting`, `error`
+- Session key: `(agent, session)`; when `session` is omitted it defaults to `{agent}:default`
+- Default TTL: 900 seconds; an event can override it with `ttl_secs` (30–86400)
+- Aggregate priority: `error > waiting > working > idle`; no sessions = `none`
+- Default mapping: `none → off`, `idle → calm`, `working → busy`, `waiting → attention`, `error → alert`
+
+## Hardware protocols
+
+- [MLight serial protocol](MLight-serial-protocol.md)
+- [YH50-RGY-J serial protocol](YH50-RGY-J-serial-protocol.md)
+- [Hardware acceptance checklist](hardware-checklist.md)
+
+Device discovery prefers USB serial numbers over port names, so bindings survive reconnects. Per-device profile overrides are available in Settings.
+
+## Agent integrations
+
+Integration assets live in `crates/agent-beacon/assets/integrations/`. The service can install, upgrade, and migrate managed plugin files for Pi, OpenCode, and DeepSeek Harness. See the [integration guides](integrations/) for agent-specific setup.
+
+## CI and release
+
+CI runs on pushes to `main` and pull requests:
+
+- Rust workspace tests
+- Web tests and production build
+- Desktop compile check on Ubuntu, macOS, and Windows
+
+The Release workflow is triggered by `v*` tags. It builds:
+
+- Linux: `deb` and `AppImage`
+- macOS: arm64 and x86_64 `dmg`
+- Windows: NSIS, en-US/zh-CN MSI, and portable zip
+
+A manual `workflow_dispatch` run builds and uploads artifacts without creating a GitHub Release.
+
+### Releasing
+
+1. Update versions in `Cargo.toml`, `package.json`, `web/package.json`, and `desktop/src-tauri/tauri.conf.json`.
+2. Add the release entry to `CHANGELOG.md`.
+3. Commit the release changes.
+4. Create and push an annotated tag:
+
+   ```bash
+   git tag -a v0.1.0-rc.1 -m "AgentBeacon v0.1.0-rc.1"
+   git push origin v0.1.0-rc.1
+   ```
+
+The Release workflow verifies that the tag matches the manifests and publishes a GitHub Release. macOS signing/notarization uses repository secrets (`MAC_CERT_P12_BASE64`, `MAC_CERT_PASSWORD`, `MAC_SIGN_IDENTITY`, `MAC_NOTARY_API_KEY_ID`, `MAC_NOTARY_API_ISSUER_ID`, `MAC_NOTARY_API_KEY_P8_BASE64`). Windows MSI uses a numeric ProductVersion even for prerelease versions.
+
+## Contributing
+
+1. Fork the repository and create a focused branch.
+2. Keep changes scoped; add or update tests.
+3. Run `cargo test --workspace` and `pnpm --dir web test`.
+4. Use clear Conventional Commit-style messages where practical.
+5. Open a pull request describing the behavior change and verification.
+
+Before submitting, check that logs and CLI output remain English and that the UI still supports both Chinese and English and light/dark themes.
+
+## License
+
+Apache License 2.0. See [LICENSE](../LICENSE).

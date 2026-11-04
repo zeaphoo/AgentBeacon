@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Light/dark themes with system-following mode, persisted preferences and theme-aware status colors.
 - Linux (deb/AppImage), macOS (arm64/x86_64 dmg) and Windows (NSIS, en-US/zh-CN MSI, portable zip) release packaging.
 - GitHub Actions CI and tag-driven Release workflow with generated GitHub Release notes.
+- Signed and notarized macOS release artifacts when signing secrets are configured.
 
 ### Changed
 
@@ -34,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Service information moved to Settings; PID and navbar version display were removed.
 - Navigation label changed to “状态” / “Status” and the tagline to “Agent 状态灯” / “Agent status light”.
 - Service and CLI logs, CLI help and command output are now English.
+- The project license changed from MIT to Apache-2.0.
+- Documentation was split into a product-focused README and a development guide, with English and Chinese versions.
 
 ### Fixed
 
