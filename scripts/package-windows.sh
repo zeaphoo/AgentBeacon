@@ -21,6 +21,19 @@ cargo tauri --version >/dev/null 2>&1 || {
 }
 
 version="$("$ROOT/scripts/check-versions.sh")"
+# MSI (WiX) requires a numeric ProductVersion. Map the first number in a
+# prerelease suffix to the build segment: 0.1.0-rc.1 -> 0.1.0.1.
+msi_version=""
+if [[ "$version" == *-* ]]; then
+    core="${version%%-*}"
+    pre="${version#*-}"
+    build=1
+    if [[ "$pre" =~ [0-9]+ ]]; then
+        build="$((10#${BASH_REMATCH[0]}))"
+    fi
+    (( build > 65535 )) && build=65535
+    msi_version="${core}.${build}"
+fi
 if [[ ! -d "$ROOT/web/node_modules" ]]; then
     (cd "$ROOT/web" && CI=true pnpm install --frozen-lockfile)
 fi
@@ -38,9 +51,16 @@ cp -f "$HELPER" "$ROOT/desktop/src-tauri/agent-beacon.exe"
 INJECT="$ROOT/desktop/src-tauri/.bundle-resources.json"
 node -e '
 const fs = require("fs")
-const [src, out] = process.argv.slice(1)
-fs.writeFileSync(out, JSON.stringify({ bundle: { resources: { [src]: "agent-beacon.exe" } } }))
-' "$(cygpath -w "$ROOT/desktop/src-tauri/agent-beacon.exe")" "$(cygpath -w "$INJECT")"
+const [src, out, msi] = process.argv.slice(1)
+const config = {
+  bundle: {
+    resources: { [src]: "agent-beacon.exe" },
+    windows: { wix: { language: ["en-US", "zh-CN"] } },
+  },
+}
+if (msi) config.bundle.windows.wix.version = msi
+fs.writeFileSync(out, JSON.stringify(config))
+' "$(cygpath -w "$ROOT/desktop/src-tauri/agent-beacon.exe")" "$(cygpath -w "$INJECT")" "$msi_version"
 cleanup() { rm -f "$ROOT/desktop/src-tauri/agent-beacon.exe" "$INJECT"; }
 trap cleanup EXIT
 

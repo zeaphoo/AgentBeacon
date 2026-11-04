@@ -125,8 +125,8 @@ pnpm package:win      # 仅在 Windows Git Bash 上
 推送 `v*` 标签会触发 Release 工作流，构建并上传所有平台产物到 GitHub Release：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.0-rc.1
+git push origin v0.1.0-rc.1
 ```
 
 产物包括 Linux `deb`/`AppImage`、macOS arm64/x86_64 `dmg`、Windows `NSIS`/`MSI` 与便携 `zip`。

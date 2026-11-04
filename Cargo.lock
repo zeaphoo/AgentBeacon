@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agent-beacon"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "agent-beacon-core",
  "agent-beacon-lights",
@@ -38,7 +38,7 @@ dependencies = [
 
 [[package]]
 name = "agent-beacon-app"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "agent-beacon-core",
  "dirs 6.0.0",
@@ -54,7 +54,7 @@ dependencies = [
 
 [[package]]
 name = "agent-beacon-core"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -63,7 +63,7 @@ dependencies = [
 
 [[package]]
 name = "agent-beacon-lights"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 dependencies = [
  "agent-beacon-core",
  "rusb",
