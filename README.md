@@ -72,6 +72,10 @@ Language and theme selectors are available directly in the navbar. The status ca
    agent-beacon integrate install codex        # Codex CLI
    agent-beacon integrate install gemini       # Gemini CLI (also qwen, iflow)
    agent-beacon integrate install qoder        # Qoder CLI
+   agent-beacon integrate install codebuddy    # CodeBuddy (also workbuddy)
+   agent-beacon integrate install github-copilot  # GitHub Copilot
+   agent-beacon integrate install hermes       # Hermes Agent
+   agent-beacon integrate install zcode        # ZCode
    ```
 
    `agent-beacon integrate install` with no target installs every detected agent; `agent-beacon integrate list` shows installed, bundled, and available states.
@@ -92,6 +96,11 @@ For building from source, packaging, testing, and architecture details, see the 
 | Claude Code | `settings.json` hooks | [Claude Code](docs/integrations/claude-code.md) |
 | Qoder CLI | `settings.json` hooks | [Qoder CLI](docs/integrations/qoder.md) |
 | Gemini CLI · Qwen Code · iFlow | `settings.json` hooks | [Gemini family](docs/integrations/gemini.md) |
+| CodeBuddy | `settings.json` hooks (Claude-style) | [CodeBuddy](docs/integrations/codebuddy.md) |
+| WorkBuddy | `settings.json` hooks (CodeBuddy runtime) | [WorkBuddy](docs/integrations/workbuddy.md) |
+| GitHub Copilot | `settings.json` hooks (camelCase events) | [GitHub Copilot](docs/integrations/github-copilot.md) |
+| ZCode | `config.json` process hooks | [ZCode](docs/integrations/zcode.md) |
+| Hermes Agent | Plugin directory (`plugin.yaml` + python) | [Hermes Agent](docs/integrations/hermes.md) |
 | Codex CLI | `config.toml` `notify` | [Codex CLI](docs/integrations/codex.md) |
 | Other agents | `agent-beacon report` or `POST /api/v1/events` | [HTTP API in development guide](docs/development.md#http-api) |
 

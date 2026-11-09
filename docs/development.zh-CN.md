@@ -160,13 +160,15 @@ CLI help 与诊断输出使用英文。
 
 ### 集成安装方式
 
-`agent-beacon integrate install` 由 `Target::kind()` 分发到四种写入方式：
+`agent-beacon integrate install` 由 `Target::kind()` 分发到五种写入方式：
 
 | 类型 | 目标 | 写入内容 |
 | --- | --- | --- |
 | 文件插件 | `pi`、`opencode` | 带 `@agent-beacon-integration` / `@agent-beacon-version` 标记的 `.js` 插件 |
 | Cordis patch | `dsh` | JS hook + `~/.dsh/cordis.patch.yml` 里的 `BEGIN/END` 块 |
-| JSON hooks | `claude-code`、`qoder`、`gemini`、`qwen`、`iflow` | 追加到 `settings.json` 的 `hooks`，命令尾部带 `# agent-beacon-hook:<target>:<version>` 标记 |
+| 插件目录 | `hermes` | `~/.hermes/plugins/agent-beacon/` 下的 `plugin.yaml` + python 模块，带 `# @agent-beacon-integration` / `# @agent-beacon-version` 标记 |
+| JSON hooks（嵌套） | `claude-code`、`qoder`、`codebuddy`、`workbuddy`、`github-copilot`、`gemini`、`qwen`、`iflow` | 追加到 `settings.json` 的 `hooks`，命令尾部带 `# agent-beacon-hook:<target>:<version>` 标记；`github-copilot` 结构相同但事件名是 camelCase |
+| JSON hooks（process） | `zcode` | `~/.zcode/cli/config.json` 里的 `{ type: "process", command, enabled, timeoutMs }` 条目；命令不走 shell，标记放在 `--marker agent-beacon-hook:<target>:<version>` |
 | Codex notify | `codex` | `config.toml` 里被 `# >>> agent-beacon-hook:codex` 注释包裹的 `notify` 数组 |
 
 控制台同样可以安装（`POST /api/v1/integrations/...`）。`config.integrations.auto_install` 让服务在启动时自动安装新检测到的 agent；`config.integrations.onboarded` 记录首次启动提示是否已处理。

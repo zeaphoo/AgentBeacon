@@ -2,8 +2,10 @@
 //!
 //! 不同 agent 调用 hook 的方式不同：
 //!
-//! - Claude Code / Qoder / Gemini 家族：命令通过 stdin 收到 JSON 载荷；
+//! - Claude Code / Qoder / CodeBuddy / WorkBuddy / GitHub Copilot / Gemini 家族 / ZCode：
+//!   命令通过 stdin 收到 JSON 载荷（ZCode 的 process hook 也一样）；
 //! - Codex：`notify` 把 JSON 载荷作为最后一个参数传入。
+//! - Hermes Agent：插件回调直接带上已知事件名和状态，不需要载荷。
 //!
 //! 这里统一读取载荷、提取 session id 和事件名、按需推导状态，然后复用
 //! `/api/v1/events` 上报。读不到可用状态时安静退出，不影响 agent。

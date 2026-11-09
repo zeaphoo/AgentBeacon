@@ -160,13 +160,15 @@ The CLI help and diagnostics are English.
 
 ### Integration install mechanisms
 
-`agent-beacon integrate install` supports four underlying strategies, dispatched from `Target::kind()`:
+`agent-beacon integrate install` supports five underlying strategies, dispatched from `Target::kind()`:
 
 | Kind | Targets | What is written |
 | --- | --- | --- |
 | File plugin | `pi`, `opencode` | A managed `.js` plugin with `@agent-beacon-integration` / `@agent-beacon-version` markers |
 | Cordis patch | `dsh` | A JS hook plus a `BEGIN/END` block in `~/.dsh/cordis.patch.yml` |
-| JSON hooks | `claude-code`, `qoder`, `gemini`, `qwen`, `iflow` | Commands appended to `settings.json` `hooks`, tagged with a trailing `# agent-beacon-hook:<target>:<version>` comment |
+| Plugin directory | `hermes` | A managed `plugin.yaml` + python module in `~/.hermes/plugins/agent-beacon/`, marked with `# @agent-beacon-integration` / `# @agent-beacon-version` |
+| JSON hooks (nested) | `claude-code`, `qoder`, `codebuddy`, `workbuddy`, `github-copilot`, `gemini`, `qwen`, `iflow` | Commands appended to `settings.json` `hooks`, tagged with a trailing `# agent-beacon-hook:<target>:<version>` comment. `github-copilot` uses the same shape with camelCase event names |
+| JSON hooks (process) | `zcode` | `{ type: "process", command, enabled, timeoutMs }` entries in `~/.zcode/cli/config.json`; the tag rides in `--marker agent-beacon-hook:<target>:<version>` because argv is not shell-parsed |
 | Codex notify | `codex` | A `notify` array wrapped in `# >>> agent-beacon-hook:codex` comments in `config.toml` |
 
 Installation is also available from the web console (`POST /api/v1/integrations/...`). `config.integrations.auto_install` makes the service install newly detected agents at startup; `config.integrations.onboarded` records that the first-launch prompt has been handled.

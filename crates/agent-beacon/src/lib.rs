@@ -5,6 +5,7 @@ pub mod cli;
 pub mod codex;
 pub mod config_store;
 pub mod dsh;
+pub mod hermes;
 pub mod hookcmd;
 pub mod integrations;
 pub mod journal;

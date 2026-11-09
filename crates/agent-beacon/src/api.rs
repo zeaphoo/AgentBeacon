@@ -537,7 +537,7 @@ mod tests {
         assert_eq!(body["auto_install"], false);
         assert_eq!(body["onboarded"], false);
         let entries = body["entries"].as_array().unwrap();
-        assert_eq!(entries.len(), 9);
+        assert_eq!(entries.len(), crate::integrations::Target::ALL.len());
         let codex = entries
             .iter()
             .find(|entry| entry["id"] == "codex")

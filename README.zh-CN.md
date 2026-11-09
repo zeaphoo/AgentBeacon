@@ -72,6 +72,10 @@ Web 控制台会在每个已连接设备上显示对应的能力徽章。
    agent-beacon integrate install codex        # Codex CLI
    agent-beacon integrate install gemini       # Gemini CLI（qwen、iflow 同理）
    agent-beacon integrate install qoder        # Qoder CLI
+   agent-beacon integrate install codebuddy    # CodeBuddy（同理 workbuddy）
+   agent-beacon integrate install github-copilot  # GitHub Copilot
+   agent-beacon integrate install hermes       # Hermes Agent
+   agent-beacon integrate install zcode        # ZCode
    ```
 
    `agent-beacon integrate install` 不带目标时会安装所有检测到的 agent；`agent-beacon integrate list` 可查看已安装、内置与可用状态。
@@ -92,6 +96,11 @@ Web 控制台会在每个已连接设备上显示对应的能力徽章。
 | Claude Code | `settings.json` hooks | [Claude Code](docs/integrations/claude-code.md) |
 | Qoder CLI | `settings.json` hooks | [Qoder CLI](docs/integrations/qoder.md) |
 | Gemini CLI · Qwen Code · iFlow | `settings.json` hooks | [Gemini 家族](docs/integrations/gemini.md) |
+| CodeBuddy | `settings.json` hooks（Claude 式） | [CodeBuddy](docs/integrations/codebuddy.md) |
+| WorkBuddy | `settings.json` hooks（CodeBuddy 运行时） | [WorkBuddy](docs/integrations/workbuddy.md) |
+| GitHub Copilot | `settings.json` hooks（camelCase 事件） | [GitHub Copilot](docs/integrations/github-copilot.md) |
+| ZCode | `config.json` process hooks | [ZCode](docs/integrations/zcode.md) |
+| Hermes Agent | 插件目录（`plugin.yaml` + python） | [Hermes Agent](docs/integrations/hermes.md) |
 | Codex CLI | `config.toml` `notify` | [Codex CLI](docs/integrations/codex.md) |
 | 其他 agent | `agent-beacon report` 或 `POST /api/v1/events` | [开发文档 HTTP API](docs/development.zh-CN.md#http-api) |
 

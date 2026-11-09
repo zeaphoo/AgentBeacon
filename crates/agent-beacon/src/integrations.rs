@@ -27,19 +27,26 @@ pub enum Target {
     Qwen,
     Iflow,
     Qoder,
+    CodeBuddy,
+    WorkBuddy,
+    GitHubCopilot,
+    Hermes,
+    ZCode,
 }
 
-/// 安装方式的差异：文件型插件、DSH patch、JSON hooks、Codex notify。
+/// 安装方式的差异：文件型插件、插件目录、DSH patch、JSON hooks、Codex notify。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
     File,
+    /// 多文件插件目录（目前只有 Hermes Agent 的 plugin 目录）。
+    PluginDir,
     Dsh,
     JsonHooks,
     CodexNotify,
 }
 
 impl Target {
-    pub const ALL: [Target; 9] = [
+    pub const ALL: [Target; 14] = [
         Target::Pi,
         Target::OpenCode,
         Target::Dsh,
@@ -49,6 +56,11 @@ impl Target {
         Target::Qwen,
         Target::Iflow,
         Target::Qoder,
+        Target::CodeBuddy,
+        Target::WorkBuddy,
+        Target::GitHubCopilot,
+        Target::Hermes,
+        Target::ZCode,
     ];
 
     pub fn id(self) -> &'static str {
@@ -62,6 +74,11 @@ impl Target {
             Target::Qwen => "qwen",
             Target::Iflow => "iflow",
             Target::Qoder => "qoder",
+            Target::CodeBuddy => "codebuddy",
+            Target::WorkBuddy => "workbuddy",
+            Target::GitHubCopilot => "github-copilot",
+            Target::Hermes => "hermes",
+            Target::ZCode => "zcode",
         }
     }
 
@@ -76,6 +93,11 @@ impl Target {
             Target::Qwen => "Qwen Code",
             Target::Iflow => "iFlow CLI",
             Target::Qoder => "Qoder CLI",
+            Target::CodeBuddy => "CodeBuddy",
+            Target::WorkBuddy => "WorkBuddy",
+            Target::GitHubCopilot => "GitHub Copilot",
+            Target::Hermes => "Hermes Agent",
+            Target::ZCode => "ZCode",
         }
     }
 
@@ -84,9 +106,16 @@ impl Target {
             Target::Pi | Target::OpenCode => Kind::File,
             Target::Dsh => Kind::Dsh,
             Target::Codex => Kind::CodexNotify,
-            Target::ClaudeCode | Target::Gemini | Target::Qwen | Target::Iflow | Target::Qoder => {
-                Kind::JsonHooks
-            }
+            Target::Hermes => Kind::PluginDir,
+            Target::ClaudeCode
+            | Target::Gemini
+            | Target::Qwen
+            | Target::Iflow
+            | Target::Qoder
+            | Target::CodeBuddy
+            | Target::WorkBuddy
+            | Target::GitHubCopilot
+            | Target::ZCode => Kind::JsonHooks,
         }
     }
 
@@ -110,6 +139,7 @@ impl Target {
                 }
                 false
             }
+            Kind::PluginDir => crate::hermes::available(),
             Kind::Dsh => crate::dsh::available(),
             Kind::JsonHooks => crate::settings_hooks::available(self),
             Kind::CodexNotify => crate::codex::available(),
@@ -119,7 +149,7 @@ impl Target {
     /// 安装方式的稳定标识，供 API 与前端展示。
     pub fn kind_id(self) -> &'static str {
         match self.kind() {
-            Kind::File => "plugin",
+            Kind::File | Kind::PluginDir => "plugin",
             Kind::Dsh => "patch",
             Kind::JsonHooks => "hooks",
             Kind::CodexNotify => "notify",
@@ -155,6 +185,11 @@ impl Target {
             "qwen" | "qwen-code" => Some(Target::Qwen),
             "iflow" | "iflow-cli" => Some(Target::Iflow),
             "qoder" | "qoder-cli" => Some(Target::Qoder),
+            "codebuddy" | "code-buddy" => Some(Target::CodeBuddy),
+            "workbuddy" | "work-buddy" => Some(Target::WorkBuddy),
+            "github-copilot" | "copilot" | "copilot-cli" => Some(Target::GitHubCopilot),
+            "hermes" | "hermes-agent" => Some(Target::Hermes),
+            "zcode" | "z-code" => Some(Target::ZCode),
             _ => None,
         }
     }
@@ -197,6 +232,19 @@ impl Target {
             Target::Qwen => config_dir("AGENT_BEACON_QWEN_DIR", "QWEN_CONFIG_DIR", ".qwen"),
             Target::Iflow => config_dir("AGENT_BEACON_IFLOW_DIR", "IFLOW_CONFIG_DIR", ".iflow"),
             Target::Qoder => config_dir("AGENT_BEACON_QODER_DIR", "QODER_CONFIG_DIR", ".qoder"),
+            Target::CodeBuddy => config_dir(
+                "AGENT_BEACON_CODEBUDDY_DIR",
+                "CODEBUDDY_CONFIG_DIR",
+                ".codebuddy",
+            ),
+            Target::WorkBuddy => {
+                config_dir("AGENT_BEACON_WORKBUDDY_DIR", "WORKBUDDY_HOME", ".workbuddy")
+            }
+            Target::GitHubCopilot => {
+                config_dir("AGENT_BEACON_COPILOT_DIR", "COPILOT_CONFIG_DIR", ".copilot")
+            }
+            Target::Hermes => crate::hermes::plugin_dir(None),
+            Target::ZCode => config_dir("AGENT_BEACON_ZCODE_DIR", "ZCODE_CONFIG_DIR", ".zcode/cli"),
         }
     }
 }
@@ -332,7 +380,10 @@ pub fn install_detected() -> Vec<(Target, Result<Outcome, String>)> {
         if current.installed_version.is_some() {
             continue;
         }
-        results.push((target, install(target, None, false).map(|(outcome, _)| outcome)));
+        results.push((
+            target,
+            install(target, None, false).map(|(outcome, _)| outcome),
+        ));
     }
     results
 }
@@ -396,6 +447,7 @@ fn resolve_dir(target: Target, override_dir: Option<&Path>) -> Result<PathBuf, S
 pub fn status(target: Target, override_dir: Option<&Path>) -> Result<Status, String> {
     match target.kind() {
         Kind::File => status_file(target, override_dir),
+        Kind::PluginDir => crate::hermes::status(override_dir),
         Kind::Dsh => crate::dsh::status(),
         Kind::JsonHooks => crate::settings_hooks::status(target, override_dir),
         Kind::CodexNotify => crate::codex::status(override_dir),
@@ -446,6 +498,7 @@ pub fn install(
 ) -> Result<(Outcome, PathBuf), String> {
     match target.kind() {
         Kind::File => install_file(target, override_dir, force),
+        Kind::PluginDir => crate::hermes::install(override_dir),
         Kind::Dsh => crate::dsh::install(),
         Kind::JsonHooks => crate::settings_hooks::install(target, override_dir, force),
         Kind::CodexNotify => crate::codex::install(override_dir, force),
@@ -502,6 +555,7 @@ fn install_file(
 pub fn upgrade(target: Target, override_dir: Option<&Path>) -> Result<(Outcome, PathBuf), String> {
     match target.kind() {
         Kind::File => upgrade_file(target, override_dir),
+        Kind::PluginDir => crate::hermes::upgrade(override_dir),
         Kind::Dsh => crate::dsh::upgrade(),
         Kind::JsonHooks => crate::settings_hooks::upgrade(target, override_dir),
         Kind::CodexNotify => crate::codex::upgrade(override_dir),
@@ -551,6 +605,7 @@ fn upgrade_file(target: Target, override_dir: Option<&Path>) -> Result<(Outcome,
 pub fn uninstall(target: Target, override_dir: Option<&Path>) -> Result<PathBuf, String> {
     match target.kind() {
         Kind::File => uninstall_file(target, override_dir),
+        Kind::PluginDir => crate::hermes::uninstall(override_dir),
         Kind::Dsh => crate::dsh::uninstall(),
         Kind::JsonHooks => crate::settings_hooks::uninstall(target, override_dir),
         Kind::CodexNotify => crate::codex::uninstall(override_dir),
@@ -572,7 +627,8 @@ fn uninstall_file(target: Target, override_dir: Option<&Path>) -> Result<PathBuf
                 path.display()
             ));
         }
-        fs::remove_file(&path).map_err(|error| format!("failed to delete {}: {error}", path.display()))?;
+        fs::remove_file(&path)
+            .map_err(|error| format!("failed to delete {}: {error}", path.display()))?;
         removed = Some(path);
     }
 
@@ -626,8 +682,9 @@ fn remove_legacy_managed(dir: &Path) -> Result<(), String> {
     let content = fs::read_to_string(&path)
         .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
     if is_managed(&content) {
-        fs::remove_file(&path)
-            .map_err(|error| format!("failed to delete legacy plugin {}: {error}", path.display()))?;
+        fs::remove_file(&path).map_err(|error| {
+            format!("failed to delete legacy plugin {}: {error}", path.display())
+        })?;
     }
     Ok(())
 }
@@ -639,7 +696,8 @@ pub(crate) fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
     fs::create_dir_all(parent)
         .map_err(|error| format!("failed to create directory {}: {error}", parent.display()))?;
     let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
-    fs::write(&tmp, content).map_err(|error| format!("failed to write {}: {error}", tmp.display()))?;
+    fs::write(&tmp, content)
+        .map_err(|error| format!("failed to write {}: {error}", tmp.display()))?;
     fs::rename(&tmp, path).map_err(|error| {
         let _ = fs::remove_file(&tmp);
         format!("failed to replace {}: {error}", path.display())

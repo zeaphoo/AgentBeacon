@@ -85,7 +85,7 @@ pub struct HooksArgs {
 
 #[derive(Debug, Args)]
 pub struct HookArgs {
-    /// Agent name: claude-code | codex | gemini | qwen | iflow | qoder.
+    /// Agent name: claude-code | codex | gemini | qwen | iflow | qoder | codebuddy | workbuddy | github-copilot | hermes | zcode.
     #[arg(long)]
     pub agent: String,
     /// State to report: idle | working | waiting | error | auto (derive from the event).
@@ -103,6 +103,12 @@ pub struct HookArgs {
     /// Hook payload passed as an argument (Codex notify style).
     #[arg(long)]
     pub payload: Option<String>,
+    /// Integration marker (`agent-beacon-hook:<target>:<version>`); ignored at runtime.
+    ///
+    /// Agent 把 hook 命令按参数数组执行（不走 shell）时，行尾注释会被当成普通参数，
+    /// 因此这类集成用 `--marker` 携带识别/版本信息。
+    #[arg(long)]
+    pub marker: Option<String>,
     /// Trailing argument that may carry the payload.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub extra: Vec<String>,
@@ -120,7 +126,7 @@ pub enum IntegrateAction {
     List,
     /// Install plugins; installs all detected targets when target is omitted.
     Install {
-        /// pi | opencode | dsh | claude-code | codex | gemini | qwen | iflow | qoder | all
+        /// pi | opencode | dsh | claude-code | codex | gemini | qwen | iflow | qoder | codebuddy | workbuddy | github-copilot | hermes | zcode | all
         target: Option<String>,
         /// Overwrite files not managed by agent-beacon.
         #[arg(long)]
@@ -128,12 +134,12 @@ pub enum IntegrateAction {
     },
     /// Upgrade installed plugins; upgrades all targets when target is omitted.
     Upgrade {
-        /// pi | opencode | dsh | claude-code | codex | gemini | qwen | iflow | qoder | all
+        /// pi | opencode | dsh | claude-code | codex | gemini | qwen | iflow | qoder | codebuddy | workbuddy | github-copilot | hermes | zcode | all
         target: Option<String>,
     },
     /// Uninstall a plugin.
     Uninstall {
-        /// pi | opencode | dsh | claude-code | codex | gemini | qwen | iflow | qoder
+        /// pi | opencode | dsh | claude-code | codex | gemini | qwen | iflow | qoder | codebuddy | workbuddy | github-copilot | hermes | zcode
         target: String,
     },
 }
@@ -445,6 +451,9 @@ async fn hook(cli: &Cli, args: HookArgs) -> i32 {
     };
 
     let extra = args.extra.join(" ");
+    // `--marker` 只是给“按参数数组执行命令”的 agent（如 ZCode process hook）
+    // 提供一个可识别的版本标记位置，运行时不影响上报内容。
+    let _ = args.marker.as_deref();
     let payload = args
         .payload
         .or_else(|| (!extra.trim().is_empty()).then_some(extra));
