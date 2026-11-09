@@ -104,6 +104,7 @@ Web 控制台会在每个已连接设备上显示对应的能力徽章。
 - [更新日志](CHANGELOG.zh-CN.md) · [English changelog](CHANGELOG.md)
 - [MLight 协议](docs/MLight-serial-protocol.md)
 - [YH50-RGY-J 协议](docs/YH50-RGY-J-serial-protocol.md)
+- [AgentCore-Light 协议](docs/AgentCore-Light-serial-protocol.md)
 - [硬件验收清单](docs/hardware-checklist.md)
 
 ## 项目状态

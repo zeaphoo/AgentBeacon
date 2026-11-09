@@ -19,6 +19,7 @@ English | [中文](CHANGELOG.zh-CN.md)
 - `agent-beacon hook` command that reads agent hook payloads from stdin or an argument, derives the state from the event name, and reports it. It always exits 0 so a stopped service never blocks the agent.
 - Integration installers now merge into existing configuration: `settings.json` hooks and `config.toml` `notify` are tagged, preserved on upgrade, and removed on uninstall without touching user-defined entries.
 - Hook diagnostics journal with `agent-beacon hooks`, `GET/DELETE /api/v1/hooks`, and `hook journal` service log entries.
+- Device protocol reference for AgentCore-Light (USB CDC / Bluetooth SPP / BLE NUS), plus a standalone probe script `scripts/agentcore_probe.py` for exercising it without the service.
 
 ### Fixed
 
