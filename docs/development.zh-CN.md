@@ -131,6 +131,7 @@ pnpm --dir web test
 | `GET` | `/api/v1/devices` | 设备列表 |
 | `POST` | `/api/v1/devices/scan` | 触发设备发现 |
 | `POST` | `/api/v1/events` | 上报 agent 事件 |
+| `GET/DELETE` | `/api/v1/hooks` | 读取或清空最近的 hook/状态迁移诊断日志 |
 | `DELETE` | `/api/v1/sessions` | 清空会话 |
 | `POST` | `/api/v1/control` | 应用手动灯效 |
 | `POST` | `/api/v1/control/auto` | 恢复自动控制 |
@@ -143,6 +144,7 @@ agent-beacon serve
 agent-beacon report --agent pi --state working --session default
 agent-beacon status
 agent-beacon devices
+agent-beacon hooks --limit 100
 agent-beacon integrate list
 agent-beacon integrate install pi
 agent-beacon integrate upgrade
@@ -150,6 +152,19 @@ agent-beacon integrate uninstall pi
 ```
 
 CLI help 与诊断输出使用英文。
+
+### 排查灯效变化
+
+服务在内存中保留最近 1000 条 hook 事件与状态迁移记录。每条记录包含收到的事件、是否被接受，以及变化前后的聚合状态与灯效；TTL 过期、手动覆盖、配置修改和无法解析的上报也会记录。
+
+```bash
+agent-beacon hooks --limit 100
+agent-beacon hooks --limit 100 --json
+curl -s 'http://127.0.0.1:6980/api/v1/hooks?limit=100'
+curl -X DELETE http://127.0.0.1:6980/api/v1/hooks   # 不重启服务即可清空
+```
+
+如果运行中灯先短暂变绿再变黄，查看两条 `working` 记录之间是否夹着一条 `idle`。记录里的 `agent/session`、来源 `message` 和毫秒时间戳可以定位是哪个 hook 发出的。记录同时以 `info` 级别写入服务日志，关键字为 `hook journal`。
 
 ### 状态模型
 

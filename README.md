@@ -28,6 +28,7 @@ AgentBeacon runs locally, watches the status reported by coding agents, and turn
 - **Desktop app** — splash screen, tray controls, launch at login, and supervised local service for Linux, macOS, and Windows.
 - **Agent integrations** — built-in Pi, OpenCode, and DeepSeek Harness integrations; Claude Code via hooks; any agent via CLI or HTTP.
 - **Hardware-free testing** — optional mock device validates the full report → aggregate → light pipeline.
+- **Hook diagnostics** — a bounded journal of hook events and state transitions, readable through `agent-beacon hooks` or `GET /api/v1/hooks`.
 - **Bilingual and themeable UI** — Chinese/English, light/dark themes, system-language initialization, and system-following theme mode.
 - **Local by default** — the service listens on `127.0.0.1:6980`; no cloud account or telemetry is required.
 

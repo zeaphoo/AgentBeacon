@@ -4,7 +4,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use agent_beacon_core::{AgentState, Config};
+use agent_beacon_core::{now_ms, AgentState, Config};
 use clap::{Args, Parser, Subcommand};
 use serde_json::{json, Value};
 use tokio::sync::watch;
@@ -17,7 +17,11 @@ use crate::state::BeaconState;
 use crate::worker;
 
 #[derive(Debug, Parser)]
-#[command(name = "agent-beacon", version, about = "Sync agent status to USB status lights")]
+#[command(
+    name = "agent-beacon",
+    version,
+    about = "Sync agent status to USB status lights"
+)]
 pub struct Cli {
     /// Service URL (used by report/status/devices).
     #[arg(long, global = true, default_value = "http://127.0.0.1:6980")]
@@ -45,6 +49,8 @@ pub enum Command {
     Status,
     /// List devices.
     Devices,
+    /// Show recent hook and state-transition diagnostics.
+    Hooks(HooksArgs),
     /// Install or upgrade agent integration plugins.
     Integrate(IntegrateArgs),
 }
@@ -63,6 +69,16 @@ pub struct ServeArgs {
     /// Path to the config file.
     #[arg(long)]
     pub config: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct HooksArgs {
+    /// Maximum number of entries to show (1-1000).
+    #[arg(long, default_value_t = 50)]
+    pub limit: usize,
+    /// Print the raw JSON response instead of a table.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Args)]
@@ -122,6 +138,7 @@ pub async fn run(mut cli: Cli) -> i32 {
         Some(Command::Report(args)) => report(&cli, args).await,
         Some(Command::Status) => status(&cli).await,
         Some(Command::Devices) => devices(&cli).await,
+        Some(Command::Hooks(args)) => hooks(&cli, args).await,
         Some(Command::Integrate(args)) => integrate(args, cli.dir.as_deref()),
         None => serve(ServeArgs::default()).await,
     }
@@ -494,6 +511,113 @@ async fn devices(cli: &Cli) -> i32 {
     0
 }
 
+async fn hooks(cli: &Cli, args: HooksArgs) -> i32 {
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+    else {
+        eprintln!("failed to create HTTP client");
+        return 2;
+    };
+    let limit = args.limit.clamp(1, 1000);
+    let url = format!(
+        "{}/api/v1/hooks?limit={limit}",
+        cli.url.trim_end_matches('/')
+    );
+    let response = match client.get(url).send().await {
+        Ok(response) if response.status().is_success() => response,
+        Ok(response) => {
+            eprintln!("failed to read hooks (HTTP {})", response.status());
+            return 2;
+        }
+        Err(error) => {
+            eprintln!("cannot connect to agent-beacon ({}): {error}", cli.url);
+            return 2;
+        }
+    };
+    let value: Value = match response.json().await {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("failed to parse hook log: {error}");
+            return 2;
+        }
+    };
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string())
+        );
+        return 0;
+    }
+
+    let entries = value["entries"].as_array().cloned().unwrap_or_default();
+    if entries.is_empty() {
+        println!("No hook records");
+        return 0;
+    }
+    println!(
+        "{:<6} {:<9} {:<16} {:<24} {:<8} {:<9} {:<20} {:<16} DETAIL",
+        "SEQ", "AGE", "KIND", "AGENT/SESSION", "STATE", "OUTCOME", "AGGREGATE", "EFFECT"
+    );
+    let now = now_ms();
+    for entry in entries {
+        let at_ms = entry["at_ms"].as_u64().unwrap_or(now);
+        let age = format_age(now.saturating_sub(at_ms));
+        let agent = entry["agent"].as_str().unwrap_or("");
+        let session = entry["session"].as_str().unwrap_or("");
+        let target = if agent.is_empty() && session.is_empty() {
+            "-".to_string()
+        } else {
+            format!("{agent}/{session}")
+        };
+        let aggregate = transition_label(
+            entry["aggregate_before"].as_str().unwrap_or("?"),
+            entry["aggregate_after"].as_str().unwrap_or("?"),
+        );
+        let effect = transition_label(
+            entry["effect_before"].as_str().unwrap_or("?"),
+            entry["effect_after"].as_str().unwrap_or("?"),
+        );
+        let detail = entry["detail"]
+            .as_str()
+            .or_else(|| entry["error"].as_str())
+            .unwrap_or("");
+        println!(
+            "{:<6} {:<9} {:<16} {:<24} {:<8} {:<9} {:<20} {:<16} {}",
+            entry["seq"].as_u64().unwrap_or(0),
+            age,
+            entry["kind"].as_str().unwrap_or("?"),
+            target,
+            entry["state"].as_str().unwrap_or("-"),
+            entry["outcome"].as_str().unwrap_or("?"),
+            aggregate,
+            effect,
+            detail
+        );
+    }
+    0
+}
+
+fn format_age(age_ms: u64) -> String {
+    if age_ms < 1_000 {
+        format!("{age_ms}ms")
+    } else if age_ms < 60_000 {
+        format!("{:.1}s", age_ms as f64 / 1_000.0)
+    } else if age_ms < 3_600_000 {
+        format!("{:.1}m", age_ms as f64 / 60_000.0)
+    } else {
+        format!("{:.1}h", age_ms as f64 / 3_600_000.0)
+    }
+}
+
+fn transition_label(before: &str, after: &str) -> String {
+    if before == after {
+        before.to_string()
+    } else {
+        format!("{before}->{after}")
+    }
+}
+
 fn parse_targets(raw: Option<&str>) -> Result<Vec<Target>, String> {
     let value = raw.unwrap_or("all").trim();
     match value {
@@ -505,7 +629,9 @@ fn parse_targets(raw: Option<&str>) -> Result<Vec<Target>, String> {
         "pi" => Ok(vec![Target::Pi]),
         "opencode" => Ok(vec![Target::OpenCode]),
         "dsh" => Ok(vec![Target::Dsh]),
-        other => Err(format!("unknown integration {other}; expected pi, opencode, dsh, all")),
+        other => Err(format!(
+            "unknown integration {other}; expected pi, opencode, dsh, all"
+        )),
     }
 }
 

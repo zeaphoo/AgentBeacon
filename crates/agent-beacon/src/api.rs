@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use agent_beacon_core::{Config, Effect, Event};
 use axum::extract::rejection::JsonRejection;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::{header, HeaderValue, StatusCode, Uri};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
@@ -27,6 +27,7 @@ pub fn router(state: Arc<BeaconState>) -> Router {
     Router::new()
         .route("/api/v1/health", get(health))
         .route("/api/v1/events", post(report_event))
+        .route("/api/v1/hooks", get(hooks).delete(clear_hooks))
         .route("/api/v1/agents", get(agents))
         .route("/api/v1/sessions", delete(clear_sessions))
         .route("/api/v1/state", get(state_snapshot))
@@ -83,7 +84,11 @@ async fn report_event(
     State(state): State<Arc<BeaconState>>,
     payload: Result<Json<Event>, JsonRejection>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let Json(event) = payload.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
+    let Json(event) = payload.map_err(|rejection| {
+        let message = rejection.body_text();
+        state.record_rejected_hook(&message);
+        ApiError::bad_request(message)
+    })?;
     let session = state
         .apply_event(event)
         .map_err(|error| ApiError::bad_request(error.to_string()))?;
@@ -108,6 +113,29 @@ async fn clear_sessions(State(state): State<Arc<BeaconState>>) -> Json<serde_jso
 
 async fn state_snapshot(State(state): State<Arc<BeaconState>>) -> Json<Snapshot> {
     Json(state.snapshot())
+}
+
+#[derive(Debug, Deserialize)]
+struct HooksQuery {
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+async fn hooks(
+    State(state): State<Arc<BeaconState>>,
+    Query(query): Query<HooksQuery>,
+) -> Json<serde_json::Value> {
+    let limit = query.limit.unwrap_or(100);
+    Json(json!({
+        "capacity": state.journal().capacity(),
+        "next_seq": state.journal().next_seq(),
+        "entries": state.journal().entries(limit),
+    }))
+}
+
+async fn clear_hooks(State(state): State<Arc<BeaconState>>) -> Json<serde_json::Value> {
+    state.journal().clear();
+    Json(json!({ "ok": true }))
 }
 
 async fn stream(
@@ -184,7 +212,9 @@ async fn control(
         .duration_secs
         .unwrap_or_else(|| state.config().manual_override_default_secs);
     if !(1..=3600).contains(&duration) {
-        return Err(ApiError::bad_request("duration_secs must be between 1 and 3600"));
+        return Err(ApiError::bad_request(
+            "duration_secs must be between 1 and 3600",
+        ));
     }
     let device = request
         .device
@@ -328,6 +358,41 @@ mod tests {
         let agents = body_json(response).await;
         assert_eq!(agents["aggregate"], "waiting");
         assert_eq!(agents["sessions"][0]["session"], "claude:default");
+    }
+
+    #[tokio::test]
+    async fn hook_log_exposes_events_and_rejections() {
+        let app = router(test_state());
+        let response = app
+            .clone()
+            .oneshot(post(
+                "/api/v1/events",
+                r#"{"agent":"pi","state":"working","message":"bash"}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .clone()
+            .oneshot(post("/api/v1/events", r#"{"agent":"pi","state":"busy"}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let response = app.oneshot(get("/api/v1/hooks?limit=10")).await.unwrap();
+        let body = body_json(response).await;
+        let entries = body["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0]["kind"], "event");
+        assert_eq!(entries[0]["outcome"], "applied");
+        assert_eq!(entries[0]["state"], "working");
+        assert_eq!(entries[0]["aggregate_after"], "working");
+        assert_eq!(entries[1]["outcome"], "rejected");
+        assert!(entries[1]["error"]
+            .as_str()
+            .unwrap()
+            .contains("unknown variant"));
     }
 
     #[tokio::test]

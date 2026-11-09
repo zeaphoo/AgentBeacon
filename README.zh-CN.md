@@ -28,6 +28,7 @@ AgentBeacon 在本地运行，监听编码 agent 上报的状态，并把它转�
 - **桌面应用** — 启动页、托盘菜单、开机自启动和本地服务托管，覆盖 Linux、macOS 与 Windows。
 - **Agent 集成** — 内置 Pi、OpenCode、DeepSeek Harness 集成；Claude Code 通过 hooks 接入；其他 agent 可通过 CLI 或 HTTP 接入。
 - **无硬件测试** — 可选 mock 设备验证「上报 → 聚合 → 设备命令」完整链路。
+- **Hook 诊断日志** — 保留最近的 hook 事件与状态迁移，可用 `agent-beacon hooks` 或 `GET /api/v1/hooks` 查看。
 - **中英文与主题** — 中文/English、浅色/深色主题、按系统语言初始化、主题可跟随系统。
 - **本地优先** — 服务默认监听 `127.0.0.1:6980`，不需要云端账号，不上报遥测。
 

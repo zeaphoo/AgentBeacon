@@ -9,6 +9,14 @@
 
 ## [Unreleased]
 
+### 新增
+
+- 新增 hook 诊断日志：`agent-beacon hooks`、`GET/DELETE /api/v1/hooks`，并在服务日志中输出 `hook journal`。
+
+### 修复
+
+- Pi 集成在扩展热重载时不再于运行中误报 `idle`；上报会携带 Pi session id，并按顺序发送（latest-wins）。
+
 ## [0.1.0-rc.1] - 2026-11-04
 
 ### 新增

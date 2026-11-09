@@ -192,9 +192,28 @@ impl SessionRegistry {
 
     /// 删除过期会话，返回是否有变化。
     pub fn expire(&mut self, now_ms: u64) -> bool {
-        let before = self.sessions.len();
-        self.sessions.retain(|_, view| view.expires_at_ms > now_ms);
-        before != self.sessions.len()
+        !self.expire_and_collect(now_ms).is_empty()
+    }
+
+    /// 删除过期会话并返回被删除的会话，供诊断日志记录原因。
+    pub fn expire_and_collect(&mut self, now_ms: u64) -> Vec<SessionView> {
+        let mut expired = Vec::new();
+        let mut retained = HashMap::with_capacity(self.sessions.len());
+        for (key, view) in self.sessions.drain() {
+            if view.expires_at_ms > now_ms {
+                retained.insert(key, view);
+            } else {
+                expired.push(view);
+            }
+        }
+        self.sessions = retained;
+        expired.sort_by(|a, b| {
+            a.expires_at_ms
+                .cmp(&b.expires_at_ms)
+                .then_with(|| a.agent.cmp(&b.agent))
+                .then_with(|| a.session.cmp(&b.session))
+        });
+        expired
     }
 
     /// 聚合活动会话；优先级 `error > waiting > working > idle`，同优先级取最近更新。
@@ -320,6 +339,22 @@ mod tests {
             .apply(&event("claude", AgentState::Working), 800_000)
             .unwrap();
         assert_eq!(registry.sessions_at(900_001).len(), 1);
+    }
+
+    #[test]
+    fn expire_and_collect_returns_dropped_sessions() {
+        let mut registry = SessionRegistry::with_default_ttl();
+        registry
+            .apply(&event("claude", AgentState::Working), 0)
+            .unwrap();
+        registry
+            .apply(&event("codex", AgentState::Idle), 0)
+            .unwrap();
+        let expired = registry.expire_and_collect(900_001);
+        assert_eq!(expired.len(), 2);
+        assert_eq!(expired[0].agent, "claude");
+        assert_eq!(expired[1].agent, "codex");
+        assert!(registry.is_empty());
     }
 
     #[test]

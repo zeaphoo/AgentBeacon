@@ -14,6 +14,7 @@ use serde::Serialize;
 use tokio::sync::{broadcast, watch, Notify};
 
 use crate::config_store::ConfigStore;
+use crate::journal::{HookKind, HookOutcome, HookRecord, Journal, DEFAULT_CAPACITY};
 use crate::VERSION;
 
 #[derive(Debug, Clone, Serialize)]
@@ -55,6 +56,8 @@ struct Inner {
     config: Config,
     sessions: SessionRegistry,
     manual_override: Option<ManualOverride>,
+    /// 最近一次实际下发的聚合/灯效，用于诊断日志精确记录“变化前”。
+    last_view: Transition,
 }
 
 pub struct BeaconState {
@@ -62,6 +65,7 @@ pub struct BeaconState {
     devices: DeviceRegistry,
     desired_tx: watch::Sender<DesiredState>,
     events: broadcast::Sender<Snapshot>,
+    journal: Journal,
     started: Instant,
     started_at_ms: u64,
     port: u16,
@@ -76,15 +80,21 @@ impl BeaconState {
         let (events, _) = broadcast::channel(64);
         let (shutdown, _) = watch::channel(false);
         let started_at_ms = now_ms();
+        let last_view = Transition {
+            aggregate: Aggregate::None,
+            effect: config.mapping.effect_for(Aggregate::None),
+        };
         Arc::new(Self {
             inner: Mutex::new(Inner {
                 config,
                 sessions: SessionRegistry::with_default_ttl(),
                 manual_override: None,
+                last_view,
             }),
             devices: new_registry(),
             desired_tx,
             events,
+            journal: Journal::new(DEFAULT_CAPACITY),
             started: Instant::now(),
             started_at_ms,
             port,
@@ -108,6 +118,10 @@ impl BeaconState {
         &self.devices
     }
 
+    pub fn journal(&self) -> &Journal {
+        &self.journal
+    }
+
     pub fn scan_notify(&self) -> &Notify {
         &self.scan
     }
@@ -127,6 +141,17 @@ impl BeaconState {
     /// 通知所有 SSE 流结束，让 graceful shutdown 不被长连接卡住。
     pub fn begin_shutdown(&self) {
         tracing::info!("shutting down: notifying SSE clients");
+        {
+            let inner = self.lock();
+            let current = inner.last_view;
+            self.journal.record(HookRecord::new(
+                HookKind::Shutdown,
+                current.aggregate,
+                current.effect,
+                current.aggregate,
+                current.effect,
+            ));
+        }
         let _ = self.shutdown.send_replace(true);
     }
 
@@ -183,75 +208,208 @@ impl BeaconState {
     }
 
     pub fn apply_event(&self, event: Event) -> Result<SessionView, ValidationError> {
-        let view = {
-            let mut inner = self.lock();
-            let view = inner.sessions.apply(&event, now_ms())?;
-            refresh_desired(&self.desired_tx, &inner);
-            view
-        };
-        self.publish();
-        Ok(view)
+        let now = now_ms();
+        let mut inner = self.lock();
+        let before = inner.last_view;
+        let result = inner.sessions.apply(&event, now);
+        match result {
+            Ok(view) => {
+                refresh_desired(&self.desired_tx, &inner);
+                let after = transition(&inner, now);
+                inner.last_view = after;
+                self.journal.record(event_record(
+                    &event,
+                    Some(&view),
+                    before,
+                    after,
+                    HookOutcome::Applied,
+                    None,
+                ));
+                drop(inner);
+                self.publish();
+                Ok(view)
+            }
+            Err(error) => {
+                self.journal.record(event_record(
+                    &event,
+                    None,
+                    before,
+                    before,
+                    HookOutcome::Rejected,
+                    Some(error.to_string()),
+                ));
+                Err(error)
+            }
+        }
+    }
+
+    /// 记录无法解析成 `Event` 的上报，便于排查 hook 版本/字段错误。
+    pub fn record_rejected_hook(&self, error: impl Into<String>) {
+        let inner = self.lock();
+        let current = inner.last_view;
+        self.journal.record(
+            HookRecord::new(
+                HookKind::Event,
+                current.aggregate,
+                current.effect,
+                current.aggregate,
+                current.effect,
+            )
+            .rejected(error),
+        );
     }
 
     pub fn clear_sessions(&self) {
-        {
-            let mut inner = self.lock();
-            inner.sessions.clear();
-            refresh_desired(&self.desired_tx, &inner);
-        }
+        let now = now_ms();
+        let mut inner = self.lock();
+        let before = inner.last_view;
+        inner.sessions.clear();
+        refresh_desired(&self.desired_tx, &inner);
+        let after = transition(&inner, now);
+        inner.last_view = after;
+        self.journal.record(HookRecord::new(
+            HookKind::SessionsCleared,
+            before.aggregate,
+            before.effect,
+            after.aggregate,
+            after.effect,
+        ));
+        drop(inner);
         self.publish();
     }
 
     pub fn set_config(&self, config: Config) -> Result<(), String> {
         self.store.save(&config)?;
-        {
-            let mut inner = self.lock();
-            inner.config = config;
-            refresh_desired(&self.desired_tx, &inner);
-        }
+        let now = now_ms();
+        let mut inner = self.lock();
+        let before = inner.last_view;
+        inner.config = config;
+        refresh_desired(&self.desired_tx, &inner);
+        let after = transition(&inner, now);
+        inner.last_view = after;
+        self.journal.record(
+            HookRecord::new(
+                HookKind::Config,
+                before.aggregate,
+                before.effect,
+                after.aggregate,
+                after.effect,
+            )
+            .with_detail("configuration updated"),
+        );
+        drop(inner);
         self.publish();
         Ok(())
     }
 
     pub fn set_override(&self, effect: Effect, duration_secs: u64, device: Option<String>) {
-        {
-            let mut inner = self.lock();
-            inner.manual_override = Some(ManualOverride {
-                effect,
-                expires_at_ms: now_ms().saturating_add(duration_secs.saturating_mul(1000)),
-                device,
-            });
-            refresh_desired(&self.desired_tx, &inner);
-        }
+        let now = now_ms();
+        let mut inner = self.lock();
+        let before = inner.last_view;
+        let detail = match &device {
+            Some(device) => format!(
+                "effect={} duration={}s device={device}",
+                effect.as_str(),
+                duration_secs
+            ),
+            None => format!(
+                "effect={} duration={}s all devices",
+                effect.as_str(),
+                duration_secs
+            ),
+        };
+        inner.manual_override = Some(ManualOverride {
+            effect,
+            expires_at_ms: now.saturating_add(duration_secs.saturating_mul(1000)),
+            device,
+        });
+        refresh_desired(&self.desired_tx, &inner);
+        let after = transition(&inner, now);
+        inner.last_view = after;
+        self.journal.record(
+            HookRecord::new(
+                HookKind::Override,
+                before.aggregate,
+                before.effect,
+                after.aggregate,
+                after.effect,
+            )
+            .with_detail(detail),
+        );
+        drop(inner);
         self.publish();
     }
 
     pub fn clear_override(&self) {
-        {
-            let mut inner = self.lock();
-            inner.manual_override = None;
-            refresh_desired(&self.desired_tx, &inner);
-        }
+        let now = now_ms();
+        let mut inner = self.lock();
+        let before = inner.last_view;
+        inner.manual_override = None;
+        refresh_desired(&self.desired_tx, &inner);
+        let after = transition(&inner, now);
+        inner.last_view = after;
+        self.journal.record(HookRecord::new(
+            HookKind::OverrideCleared,
+            before.aggregate,
+            before.effect,
+            after.aggregate,
+            after.effect,
+        ));
+        drop(inner);
         self.publish();
     }
 
     /// 到期清理；有变化时返回 true 并已广播。
     pub fn tick(&self) -> bool {
-        let changed = {
-            let mut inner = self.lock();
-            let now = now_ms();
-            let mut changed = inner.sessions.expire(now);
-            if let Some(item) = &inner.manual_override {
-                if item.expires_at_ms <= now {
-                    inner.manual_override = None;
-                    changed = true;
-                }
-            }
-            if changed {
-                refresh_desired(&self.desired_tx, &inner);
-            }
-            changed
-        };
+        let now = now_ms();
+        let mut inner = self.lock();
+        let mut changed = false;
+
+        let before = inner.last_view;
+        let expired = inner.sessions.expire_and_collect(now);
+        if !expired.is_empty() {
+            refresh_desired(&self.desired_tx, &inner);
+            let after = transition(&inner, now);
+            inner.last_view = after;
+            let detail = expired
+                .iter()
+                .map(|view| format!("{}/{} {}", view.agent, view.session, view.state.as_str()))
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.journal.record(
+                HookRecord::new(
+                    HookKind::Expire,
+                    before.aggregate,
+                    before.effect,
+                    after.aggregate,
+                    after.effect,
+                )
+                .with_detail(format!("expired: {detail}")),
+            );
+            changed = true;
+        }
+
+        let override_expired = inner
+            .manual_override
+            .as_ref()
+            .is_some_and(|item| item.expires_at_ms <= now);
+        if override_expired {
+            let before = inner.last_view;
+            inner.manual_override = None;
+            refresh_desired(&self.desired_tx, &inner);
+            let after = transition(&inner, now);
+            inner.last_view = after;
+            self.journal.record(HookRecord::new(
+                HookKind::OverrideExpired,
+                before.aggregate,
+                before.effect,
+                after.aggregate,
+                after.effect,
+            ));
+            changed = true;
+        }
+
+        drop(inner);
         if changed {
             self.publish();
         }
@@ -275,6 +433,51 @@ impl BeaconState {
             "uptime_secs": self.started.elapsed().as_secs(),
         })
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Transition {
+    aggregate: Aggregate,
+    effect: Effect,
+}
+
+fn transition(inner: &Inner, now: u64) -> Transition {
+    Transition {
+        aggregate: inner.sessions.aggregate_at(now),
+        effect: effective_global(inner, now),
+    }
+}
+
+fn event_record(
+    event: &Event,
+    view: Option<&SessionView>,
+    before: Transition,
+    after: Transition,
+    outcome: HookOutcome,
+    error: Option<String>,
+) -> HookRecord {
+    let agent = event.agent.trim();
+    let mut record = HookRecord::new(
+        HookKind::Event,
+        before.aggregate,
+        before.effect,
+        after.aggregate,
+        after.effect,
+    );
+    record.agent = (!agent.is_empty()).then(|| agent.to_string());
+    record.session = Some(
+        view.map(|view| view.session.clone())
+            .unwrap_or_else(|| event.session_id()),
+    );
+    record.state = Some(event.state);
+    record.message = event.message.clone().filter(|message| !message.is_empty());
+    record.ttl_secs = event.ttl_secs;
+    record.outcome = outcome;
+    record.error = error;
+    if let Some(message) = view.and_then(|view| view.message.clone()) {
+        record.detail = Some(format!("message: {message}"));
+    }
+    record
 }
 
 fn initial_desired(config: &Config) -> DesiredState {
@@ -365,6 +568,37 @@ mod tests {
     }
 
     #[test]
+    fn journal_records_event_transitions() {
+        let state = state();
+        state.apply_event(event(AgentState::Working)).unwrap();
+        let entries = state.journal().entries(10);
+        let last = entries.last().expect("event should be journaled");
+        assert_eq!(last.kind, HookKind::Event);
+        assert_eq!(last.agent.as_deref(), Some("test"));
+        assert_eq!(last.session.as_deref(), Some("test:default"));
+        assert_eq!(last.state, Some(AgentState::Working));
+        assert_eq!(last.aggregate_before, Aggregate::None);
+        assert_eq!(last.aggregate_after, Aggregate::Working);
+        assert_eq!(last.effect_before, Effect::Off);
+        assert_eq!(last.effect_after, Effect::Busy);
+        assert_eq!(last.outcome, HookOutcome::Applied);
+    }
+
+    #[test]
+    fn journal_records_rejected_events() {
+        let state = state();
+        let mut invalid = event(AgentState::Working);
+        invalid.ttl_secs = Some(1);
+        assert!(state.apply_event(invalid).is_err());
+        let entries = state.journal().entries(10);
+        let last = entries.last().expect("rejected event should be journaled");
+        assert_eq!(last.kind, HookKind::Event);
+        assert_eq!(last.outcome, HookOutcome::Rejected);
+        assert!(last.error.as_deref().unwrap().contains("ttl_secs"));
+        assert_eq!(last.aggregate_before, last.aggregate_after);
+    }
+
+    #[test]
     fn override_wins_until_cleared() {
         let state = state();
         state.apply_event(event(AgentState::Working)).unwrap();
@@ -396,5 +630,10 @@ mod tests {
         }
         assert!(state.tick());
         assert!(state.snapshot().manual_override.is_none());
+        let entries = state.journal().entries(10);
+        let last = entries.last().expect("override expiry should be journaled");
+        assert_eq!(last.kind, HookKind::OverrideExpired);
+        assert_eq!(last.effect_before, Effect::Alert);
+        assert_eq!(last.effect_after, Effect::Off);
     }
 }

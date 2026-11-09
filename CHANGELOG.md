@@ -9,6 +9,14 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ## [Unreleased]
 
+### Added
+
+- Hook diagnostics journal with `agent-beacon hooks`, `GET/DELETE /api/v1/hooks`, and `hook journal` service log entries.
+
+### Fixed
+
+- Pi integration no longer reports `idle` during an active run when extensions reload, and reports now carry the Pi session id and are sent in order (latest state wins).
+
 ## [0.1.0-rc.1] - 2026-11-04
 
 ### Added

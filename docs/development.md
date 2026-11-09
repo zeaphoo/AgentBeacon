@@ -131,6 +131,7 @@ The default listen address is `127.0.0.1:6980`. Configuration can be updated thr
 | `GET` | `/api/v1/devices` | Devices |
 | `POST` | `/api/v1/devices/scan` | Trigger discovery |
 | `POST` | `/api/v1/events` | Report an agent event |
+| `GET/DELETE` | `/api/v1/hooks` | Read or clear recent hook/state-transition diagnostics |
 | `DELETE` | `/api/v1/sessions` | Clear sessions |
 | `POST` | `/api/v1/control` | Apply a manual light effect |
 | `POST` | `/api/v1/control/auto` | Restore automatic control |
@@ -143,6 +144,7 @@ agent-beacon serve
 agent-beacon report --agent pi --state working --session default
 agent-beacon status
 agent-beacon devices
+agent-beacon hooks --limit 100
 agent-beacon integrate list
 agent-beacon integrate install pi
 agent-beacon integrate upgrade
@@ -150,6 +152,19 @@ agent-beacon integrate uninstall pi
 ```
 
 The CLI help and diagnostics are English.
+
+### Diagnosing light changes
+
+The service keeps an in-memory ring buffer of the latest 1000 hook events and state transitions. Every record includes the received event, whether it was accepted, and the aggregate/effect before and after the change. TTL expiry, manual overrides, config changes, and rejected payloads are recorded as well.
+
+```bash
+agent-beacon hooks --limit 100
+agent-beacon hooks --limit 100 --json
+curl -s 'http://127.0.0.1:6980/api/v1/hooks?limit=100'
+curl -X DELETE http://127.0.0.1:6980/api/v1/hooks   # clear without restarting
+```
+
+Look for a short-lived `idle` record between two `working` records when the light flashes green during a run. The record's `agent/session`, source `message`, and exact millisecond timestamps tell you which hook sent it. Records are also written to the service log at `info` level with a `hook journal` message.
 
 ### State model
 
