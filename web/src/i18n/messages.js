@@ -2,7 +2,7 @@ export const messages = {
   zh: {
     'app.tagline': 'Agent 状态灯',
     'nav.dashboard': '状态',
-    'nav.control': '手动控制',
+    'nav.control': '灯具',
     'nav.settings': '设置',
     'nav.agents': 'Agent 集成',
 
@@ -41,11 +41,6 @@ export const messages = {
     'settings.buzzerConfirm': '确认开启',
     'settings.serviceTitle': '服务',
     'settings.serviceDescription': '本地 agent-beacon 服务信息',
-    'settings.supportedTitle': '支持的设备',
-    'settings.supportedDescription': '已支持的灯型号与特性',
-    'settings.devicesTitle': '设备绑定',
-    'settings.devicesDescription': '为特定设备覆盖自动识别的型号',
-    'settings.noDevices': '未发现设备；插入状态灯后可在此绑定型号。',
     'settings.saving': '保存中…',
     'settings.autoSaveHint': '修改后自动保存',
 
@@ -124,7 +119,6 @@ export const messages = {
 
     'control.title': '手动灯光控制',
     'control.description': '覆盖自动映射，到期后自动恢复',
-    'control.effectSelected': '已选',
     'control.duration': '持续时长（秒）',
     'control.target': '作用设备',
     'control.allDevices': '全部设备',
@@ -142,6 +136,15 @@ export const messages = {
     'control.tip2': '同一设备重复应用相同灯效会被抑制，避免打断进行中的动画。',
     'control.applied': '已应用 {effect}，{n} 秒后恢复自动',
     'control.restored': '已恢复自动灯效',
+
+    'lights.devicesTitle': '连接的设备',
+    'lights.devicesDescription': '为每台设备指定型号；未指定时使用自动识别的结果',
+    'lights.noDevices': '未发现设备；插入状态灯后会自动出现在这里。',
+    'lights.deviceEffect': '当前灯效 {effect}',
+    'lights.profileFor': '设备型号 · {device}',
+    'lights.supportedButton': '支持的型号',
+    'lights.supportedTitle': '支持的设备型号',
+    'lights.supportedDescription': '已支持的灯型号与特性',
 
     'effect.off.label': '关闭',
     'effect.off.description': '全部熄灭',
@@ -183,7 +186,7 @@ export const messages = {
   en: {
     'app.tagline': 'Agent status light',
     'nav.dashboard': 'Status',
-    'nav.control': 'Manual control',
+    'nav.control': 'Lights',
     'nav.settings': 'Settings',
     'nav.agents': 'Integrations',
 
@@ -221,11 +224,6 @@ export const messages = {
     'settings.buzzerConfirm': 'Enable',
     'settings.serviceTitle': 'Service',
     'settings.serviceDescription': 'Local agent-beacon service information',
-    'settings.supportedTitle': 'Supported devices',
-    'settings.supportedDescription': 'Supported light profiles and features',
-    'settings.devicesTitle': 'Device bindings',
-    'settings.devicesDescription': 'Override the auto-detected profile for specific devices',
-    'settings.noDevices': 'No devices found; plug in a status light to bind a profile here.',
     'settings.saving': 'Saving…',
     'settings.autoSaveHint': 'Changes are saved automatically',
 
@@ -305,7 +303,6 @@ export const messages = {
 
     'control.title': 'Manual light control',
     'control.description': 'Override automatic mapping; it restores automatically when it expires',
-    'control.effectSelected': 'Selected',
     'control.duration': 'Duration (seconds)',
     'control.target': 'Target device',
     'control.allDevices': 'All devices',
@@ -325,6 +322,15 @@ export const messages = {
       'Re-applying the same effect to the same device is suppressed to avoid interrupting an animation.',
     'control.applied': 'Applied {effect}; restores automatically in {n}s',
     'control.restored': 'Automatic effect restored',
+
+    'lights.devicesTitle': 'Connected devices',
+    'lights.devicesDescription': 'Assign a profile per device; the auto-detected profile is used when unset',
+    'lights.noDevices': 'No devices found; plug in a status light and it will appear here.',
+    'lights.deviceEffect': 'Current effect {effect}',
+    'lights.profileFor': 'Device profile · {device}',
+    'lights.supportedButton': 'Supported models',
+    'lights.supportedTitle': 'Supported device models',
+    'lights.supportedDescription': 'Supported light models and their features',
 
     'effect.off.label': 'Off',
     'effect.off.description': 'All lights off',

@@ -14,3 +14,13 @@ Object.defineProperty(window.navigator, 'languages', {
   value: ['zh-CN'],
   configurable: true,
 })
+
+// jsdom 未实现指针捕获与滚动，Radix UI 的 Select/Dialog 会直接调用它们。
+if (!window.Element.prototype.hasPointerCapture) {
+  window.Element.prototype.hasPointerCapture = () => false
+  window.Element.prototype.setPointerCapture = () => {}
+  window.Element.prototype.releasePointerCapture = () => {}
+}
+if (!window.Element.prototype.scrollIntoView) {
+  window.Element.prototype.scrollIntoView = () => {}
+}

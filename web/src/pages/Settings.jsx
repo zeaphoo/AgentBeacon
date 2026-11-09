@@ -1,15 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Lightbulb, Server, Usb } from 'lucide-react'
+import { AlertTriangle, Server } from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
 import { useI18n } from '../i18n'
-import {
-  AGGREGATE_KEYS,
-  EFFECTS,
-  SUPPORTED_LIGHT_PROFILES,
-  capabilitiesForProfile,
-  profileLabel,
-} from '../lib/labels'
-import DeviceFeatures from '../components/DeviceFeatures'
+import { AGGREGATE_KEYS, EFFECTS } from '../lib/labels'
 import { Button } from '../components/ui/button'
 import {
   Card,
@@ -39,7 +32,6 @@ import {
 } from '../components/ui/dialog'
 
 const MAPPING_ROWS = ['none', 'idle', 'working', 'waiting', 'error']
-const PROFILES = ['mlight-single', 'mlight-3led', 'yh50-rgy-j']
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value))
@@ -56,7 +48,7 @@ export default function Settings() {
   const [buzzerDialogOpen, setBuzzerDialogOpen] = useState(false)
   const savedRef = useRef(null)
   const requestRef = useRef(0)
-  // integrations 由“Agent 集成”页面与本页共写同一份配置；保存时始终采用
+  // integrations 由「Agent 集成」页面与本页共写同一份配置；保存时始终采用
   // 服务端最新值，避免本页的旧副本把自动安装开关改回去。
   const integrationsRef = useRef(null)
 
@@ -122,42 +114,8 @@ export default function Settings() {
     )
   }
 
-  const realDevices = (snapshot?.devices ?? []).filter((device) => device.profile !== 'mock')
-  const supportedProfiles = (
-    snapshot?.profiles?.length
-      ? snapshot.profiles
-      : SUPPORTED_LIGHT_PROFILES.map((profile) => ({
-          profile,
-          capabilities: capabilitiesForProfile(profile),
-        }))
-  ).filter((item) => item.profile !== 'mock')
-
   function update(patch) {
     setForm((current) => ({ ...current, ...patch }))
-  }
-
-  function bindingFor(device) {
-    const serial = device.id.startsWith('serial:') ? device.id.slice('serial:'.length) : null
-    return form.devices.find((binding) =>
-      serial ? binding.serial === serial : binding.port === device.port,
-    )
-  }
-
-  function profileFor(device) {
-    return bindingFor(device)?.profile ?? device.profile
-  }
-
-  function setDeviceProfile(device, profile) {
-    const serial = device.id.startsWith('serial:') ? device.id.slice('serial:'.length) : null
-    setForm((current) => {
-      const bindings = current.devices.filter((binding) =>
-        serial ? binding.serial !== serial : binding.port !== device.port,
-      )
-      const entry = serial
-        ? { serial, port: null, profile }
-        : { port: device.port, serial: null, profile }
-      return { ...current, devices: [...bindings, entry] }
-    })
   }
 
   return (
@@ -283,83 +241,6 @@ export default function Settings() {
           </CardContent>
         </Card>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t('settings.devicesTitle')}</CardTitle>
-          <CardDescription>{t('settings.devicesDescription')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {realDevices.length === 0 ? (
-            <div className="flex items-center gap-2 rounded-lg border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">
-              <Usb className="h-4 w-4" />
-              {t('settings.noDevices')}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {realDevices.map((device) => (
-                <div
-                  key={device.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-background/40 px-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{device.id}</div>
-                    <div className="truncate text-xs text-muted-foreground">{device.port}</div>
-                    <DeviceFeatures
-                      capabilities={capabilitiesForProfile(
-                        profileFor(device),
-                        snapshot?.profiles,
-                      )}
-                      className="mt-1.5"
-                    />
-                  </div>
-                  <Select
-                    value={profileFor(device)}
-                    onValueChange={(value) => setDeviceProfile(device, value)}
-                  >
-                    <SelectTrigger className="w-52">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PROFILES.map((profile) => (
-                        <SelectItem key={profile} value={profile}>
-                          {profileLabel(profile, t)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Lightbulb className="h-4 w-4" />
-            {t('settings.supportedTitle')}
-          </CardTitle>
-          <CardDescription>{t('settings.supportedDescription')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {supportedProfiles.map((item) => (
-              <div
-                key={item.profile}
-                className="rounded-lg border border-border/70 bg-background/40 p-4"
-              >
-                <div className="text-sm font-medium">{profileLabel(item.profile, t)}</div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t(`profile.${item.profile}.description`)}
-                </p>
-                <DeviceFeatures capabilities={item.capabilities} className="mt-2" />
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>

@@ -45,11 +45,12 @@ The web console displays the supported capabilities as feature badges on each co
 
 ## UI
 
-The main window has three sections:
+The main window has four sections:
 
 - **Status** — current aggregate state, active sessions, connected devices, and live service uptime.
-- **Manual control** — temporarily override the automatic light effect with a duration and target device.
-- **Settings** — state-to-effect mapping, light behavior, device bindings, supported devices, and service information.
+- **Lights** — manually override the automatic light effect (effect, duration, target device), list devices with per-device profile bindings, and open the supported models list in a scrollable dialog.
+- **Settings** — state-to-effect mapping, light behavior (default override duration, brightness, turn-off on shutdown, alert buzzer), and service information.
+- **Integrations** — every detected agent with its install state, one-click install/upgrade/uninstall, and an *install automatically* switch.
 
 Language and theme selectors are available directly in the navbar. The status card uses the current state color as a subtle surface, with a larger icon and label for quick recognition.
 
