@@ -98,6 +98,16 @@ describe('Agents', () => {
     expect(screen.getByText('版本 0.0.9')).toBeInTheDocument()
   })
 
+  it('shows a bundled brand logo for every integration', async () => {
+    const { container } = render(<Agents />)
+
+    await screen.findByText('Claude Code')
+    const logos = container.querySelectorAll('[data-agent-logo]')
+    expect(logos).toHaveLength(integrations.entries.length)
+    expect(container.querySelector('[data-agent-logo="claude-code"] svg')).toBeTruthy()
+    expect(container.querySelector('[data-agent-logo="qwen"] svg')).toBeTruthy()
+  })
+
   it('installs a single integration', async () => {
     const user = userEvent.setup()
     render(<Agents />)

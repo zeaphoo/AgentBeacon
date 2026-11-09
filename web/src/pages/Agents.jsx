@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, Download, Plug, RefreshCw, Trash2 } from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
 import { useI18n } from '../i18n'
+import AgentLogo from '../components/AgentLogo'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import {
@@ -132,6 +133,7 @@ export default function Agents() {
                     key={entry.id}
                     className="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0"
                   >
+                    <AgentLogo id={entry.id} className="h-6 w-6" />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-medium">{entry.label}</span>
