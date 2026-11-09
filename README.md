@@ -26,7 +26,7 @@ AgentBeacon runs locally, watches the status reported by coding agents, and turn
 - **Device capabilities** — brightness and buzzer features are shown per device and per supported model.
 - **Web console** — status overview, manual light control, automatic settings save, device bindings, and supported-device reference.
 - **Desktop app** — splash screen, tray controls, launch at login, and supervised local service for Linux, macOS, and Windows.
-- **Agent integrations** — built-in Pi, OpenCode, and DeepSeek Harness integrations; Claude Code via hooks; any agent via CLI or HTTP.
+- **Agent integrations** — installer-managed hooks and plugins for Pi, OpenCode, DeepSeek Harness, Claude Code, Codex CLI, Qoder CLI, and the Gemini CLI family (Gemini / Qwen Code / iFlow); any agent via CLI or HTTP.
 - **Hardware-free testing** — optional mock device validates the full report → aggregate → light pipeline.
 - **Hook diagnostics** — a bounded journal of hook events and state transitions, readable through `agent-beacon hooks` or `GET /api/v1/hooks`.
 - **Bilingual and themeable UI** — Chinese/English, light/dark themes, system-language initialization, and system-following theme mode.
@@ -64,10 +64,16 @@ Language and theme selectors are available directly in the navbar. The status ca
 4. Install an agent integration:
 
    ```bash
-   agent-beacon integrate install pi        # Pi
-   agent-beacon integrate install opencode  # OpenCode
-   agent-beacon integrate install dsh       # DeepSeek Harness
+   agent-beacon integrate install pi           # Pi
+   agent-beacon integrate install opencode     # OpenCode
+   agent-beacon integrate install dsh          # DeepSeek Harness
+   agent-beacon integrate install claude-code  # Claude Code
+   agent-beacon integrate install codex        # Codex CLI
+   agent-beacon integrate install gemini       # Gemini CLI (also qwen, iflow)
+   agent-beacon integrate install qoder        # Qoder CLI
    ```
+
+   `agent-beacon integrate install` with no target installs every detected agent; `agent-beacon integrate list` shows installed, bundled, and available states.
 
 5. Open the console to inspect status, try manual lighting, or adjust settings.
 
@@ -77,10 +83,13 @@ For building from source, packaging, testing, and architecture details, see the 
 
 | Agent | Integration | Guide |
 | --- | --- | --- |
-| Claude Code | Hooks | [Claude Code](docs/integrations/claude-code.md) |
 | Pi | Extension | [Pi](docs/integrations/pi.md) |
 | OpenCode | Plugin | [OpenCode](docs/integrations/opencode.md) |
 | DeepSeek Harness | Cordis plugin | [DeepSeek Harness](docs/integrations/dsh.md) |
+| Claude Code | `settings.json` hooks | [Claude Code](docs/integrations/claude-code.md) |
+| Qoder CLI | `settings.json` hooks | [Qoder CLI](docs/integrations/qoder.md) |
+| Gemini CLI · Qwen Code · iFlow | `settings.json` hooks | [Gemini family](docs/integrations/gemini.md) |
+| Codex CLI | `config.toml` `notify` | [Codex CLI](docs/integrations/codex.md) |
 | Other agents | `agent-beacon report` or `POST /api/v1/events` | [HTTP API in development guide](docs/development.md#http-api) |
 
 The built-in integrations are shipped with the service and can be installed or upgraded from the CLI.

@@ -147,11 +147,27 @@ agent-beacon devices
 agent-beacon hooks --limit 100
 agent-beacon integrate list
 agent-beacon integrate install pi
+agent-beacon integrate install claude-code
 agent-beacon integrate upgrade
 agent-beacon integrate uninstall pi
 ```
 
 CLI help 与诊断输出使用英文。
+
+### 集成安装方式
+
+`agent-beacon integrate install` 由 `Target::kind()` 分发到四种写入方式：
+
+| 类型 | 目标 | 写入内容 |
+| --- | --- | --- |
+| 文件插件 | `pi`、`opencode` | 带 `@agent-beacon-integration` / `@agent-beacon-version` 标记的 `.js` 插件 |
+| Cordis patch | `dsh` | JS hook + `~/.dsh/cordis.patch.yml` 里的 `BEGIN/END` 块 |
+| JSON hooks | `claude-code`、`qoder`、`gemini`、`qwen`、`iflow` | 追加到 `settings.json` 的 `hooks`，命令尾部带 `# agent-beacon-hook:<target>:<version>` 标记 |
+| Codex notify | `codex` | `config.toml` 里被 `# >>> agent-beacon-hook:codex` 注释包裹的 `notify` 数组 |
+
+JSON hooks 与 Codex 安装器采用合并写入：用户已有的 hook 与其它配置键保持不变，卸载时只删除带标记的条目。`integrate install` 不带目标时，会安装所有配置目录存在的目标。
+
+所有 hook 都调用 `agent-beacon hook`：它读取 agent 载荷（JSON hooks 走 stdin，Codex notify 走最后一个参数），提取 `session_id`、事件名与工具名，在 `--state auto` 时推导状态，然后上报到 `/api/v1/events`。它始终返回 0，服务不在时不会阻塞 agent。
 
 ### 排查灯效变化
 

@@ -19,16 +19,47 @@ pub enum Target {
     Pi,
     OpenCode,
     Dsh,
+    ClaudeCode,
+    Codex,
+    Gemini,
+    Qwen,
+    Iflow,
+    Qoder,
+}
+
+/// 安装方式的差异：文件型插件、DSH patch、JSON hooks、Codex notify。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    File,
+    Dsh,
+    JsonHooks,
+    CodexNotify,
 }
 
 impl Target {
-    pub const ALL: [Target; 3] = [Target::Pi, Target::OpenCode, Target::Dsh];
+    pub const ALL: [Target; 9] = [
+        Target::Pi,
+        Target::OpenCode,
+        Target::Dsh,
+        Target::ClaudeCode,
+        Target::Codex,
+        Target::Gemini,
+        Target::Qwen,
+        Target::Iflow,
+        Target::Qoder,
+    ];
 
     pub fn id(self) -> &'static str {
         match self {
             Target::Pi => "pi",
             Target::OpenCode => "opencode",
             Target::Dsh => "dsh",
+            Target::ClaudeCode => "claude-code",
+            Target::Codex => "codex",
+            Target::Gemini => "gemini",
+            Target::Qwen => "qwen",
+            Target::Iflow => "iflow",
+            Target::Qoder => "qoder",
         }
     }
 
@@ -37,14 +68,43 @@ impl Target {
             Target::Pi => "Pi",
             Target::OpenCode => "OpenCode",
             Target::Dsh => "DeepSeek Harness",
+            Target::ClaudeCode => "Claude Code",
+            Target::Codex => "Codex CLI",
+            Target::Gemini => "Gemini CLI",
+            Target::Qwen => "Qwen Code",
+            Target::Iflow => "iFlow CLI",
+            Target::Qoder => "Qoder CLI",
         }
     }
 
+    fn kind(self) -> Kind {
+        match self {
+            Target::Pi | Target::OpenCode => Kind::File,
+            Target::Dsh => Kind::Dsh,
+            Target::Codex => Kind::CodexNotify,
+            Target::ClaudeCode | Target::Gemini | Target::Qwen | Target::Iflow | Target::Qoder => {
+                Kind::JsonHooks
+            }
+        }
+    }
+
+    /// 该 agent 是否已经装过（用于 `integrate install` 不带参数时自动筛选）。
+    pub fn available(self) -> bool {
+        match self.kind() {
+            Kind::File => true,
+            Kind::Dsh => crate::dsh::available(),
+            Kind::JsonHooks => crate::settings_hooks::available(self),
+            Kind::CodexNotify => crate::codex::available(),
+        }
+    }
+
+    /// 文件型集成的插件文件名；非文件型集成不使用。
     pub fn file_name(self) -> &'static str {
         match self {
             Target::Pi => "agent-beacon-hook-pi.js",
             Target::OpenCode => "agent-beacon-hook-opencode.js",
             Target::Dsh => "agent-beacon-hook-dsh.js",
+            _ => "",
         }
     }
 
@@ -52,7 +112,7 @@ impl Target {
         match self {
             Target::Pi => PI_SOURCE,
             Target::OpenCode => OPENCODE_SOURCE,
-            Target::Dsh => "",
+            _ => "",
         }
     }
 
@@ -61,8 +121,22 @@ impl Target {
             "pi" => Some(Target::Pi),
             "opencode" => Some(Target::OpenCode),
             "dsh" => Some(Target::Dsh),
+            "claude-code" | "claude" => Some(Target::ClaudeCode),
+            "codex" | "codex-cli" => Some(Target::Codex),
+            "gemini" | "gemini-cli" => Some(Target::Gemini),
+            "qwen" | "qwen-code" => Some(Target::Qwen),
+            "iflow" | "iflow-cli" => Some(Target::Iflow),
+            "qoder" | "qoder-cli" => Some(Target::Qoder),
             _ => None,
         }
+    }
+
+    pub fn ids() -> String {
+        Target::ALL
+            .iter()
+            .map(|target| target.id())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     pub fn default_dir(self) -> Result<PathBuf, String> {
@@ -87,6 +161,14 @@ impl Target {
                     Ok(plugins)
                 }
             }
+            Target::ClaudeCode => {
+                config_dir("AGENT_BEACON_CLAUDE_DIR", "CLAUDE_CONFIG_DIR", ".claude")
+            }
+            Target::Codex => config_dir("AGENT_BEACON_CODEX_DIR", "CODEX_HOME", ".codex"),
+            Target::Gemini => config_dir("AGENT_BEACON_GEMINI_DIR", "GEMINI_CONFIG_DIR", ".gemini"),
+            Target::Qwen => config_dir("AGENT_BEACON_QWEN_DIR", "QWEN_CONFIG_DIR", ".qwen"),
+            Target::Iflow => config_dir("AGENT_BEACON_IFLOW_DIR", "IFLOW_CONFIG_DIR", ".iflow"),
+            Target::Qoder => config_dir("AGENT_BEACON_QODER_DIR", "QODER_CONFIG_DIR", ".qoder"),
         }
     }
 }
@@ -141,6 +223,18 @@ fn home_dir() -> Result<PathBuf, String> {
     dirs::home_dir().ok_or_else(|| "cannot resolve user home directory".to_string())
 }
 
+/// 解析 agent 自己的配置目录：`--dir` > AgentBeacon 覆盖变量 > agent 变量 > `~/<subdir>`。
+fn config_dir(override_var: &str, agent_var: &str, home_subdir: &str) -> Result<PathBuf, String> {
+    for key in [override_var, agent_var] {
+        if let Some(dir) = std::env::var_os(key) {
+            if !dir.is_empty() {
+                return Ok(PathBuf::from(dir));
+            }
+        }
+    }
+    Ok(home_dir()?.join(home_subdir))
+}
+
 /// OpenCode 文档使用 `~/.config/opencode`（含 macOS）；Windows 使用 `%APPDATA%`。
 fn opencode_config_dir() -> Result<PathBuf, String> {
     if cfg!(windows) {
@@ -182,9 +276,15 @@ fn resolve_dir(target: Target, override_dir: Option<&Path>) -> Result<PathBuf, S
 }
 
 pub fn status(target: Target, override_dir: Option<&Path>) -> Result<Status, String> {
-    if target == Target::Dsh {
-        return crate::dsh::status();
+    match target.kind() {
+        Kind::File => status_file(target, override_dir),
+        Kind::Dsh => crate::dsh::status(),
+        Kind::JsonHooks => crate::settings_hooks::status(target, override_dir),
+        Kind::CodexNotify => crate::codex::status(override_dir),
     }
+}
+
+fn status_file(target: Target, override_dir: Option<&Path>) -> Result<Status, String> {
     let dir = resolve_dir(target, override_dir)?;
     let path = dir.join(target.file_name());
     let legacy = dir.join(LEGACY_FILE_NAME);
@@ -226,9 +326,19 @@ pub fn install(
     override_dir: Option<&Path>,
     force: bool,
 ) -> Result<(Outcome, PathBuf), String> {
-    if target == Target::Dsh {
-        return crate::dsh::install();
+    match target.kind() {
+        Kind::File => install_file(target, override_dir, force),
+        Kind::Dsh => crate::dsh::install(),
+        Kind::JsonHooks => crate::settings_hooks::install(target, override_dir, force),
+        Kind::CodexNotify => crate::codex::install(override_dir, force),
     }
+}
+
+fn install_file(
+    target: Target,
+    override_dir: Option<&Path>,
+    force: bool,
+) -> Result<(Outcome, PathBuf), String> {
     let dir = resolve_dir(target, override_dir)?;
     let path = dir.join(target.file_name());
     let legacy = dir.join(LEGACY_FILE_NAME);
@@ -272,9 +382,15 @@ pub fn install(
 }
 
 pub fn upgrade(target: Target, override_dir: Option<&Path>) -> Result<(Outcome, PathBuf), String> {
-    if target == Target::Dsh {
-        return crate::dsh::upgrade();
+    match target.kind() {
+        Kind::File => upgrade_file(target, override_dir),
+        Kind::Dsh => crate::dsh::upgrade(),
+        Kind::JsonHooks => crate::settings_hooks::upgrade(target, override_dir),
+        Kind::CodexNotify => crate::codex::upgrade(override_dir),
     }
+}
+
+fn upgrade_file(target: Target, override_dir: Option<&Path>) -> Result<(Outcome, PathBuf), String> {
     let dir = resolve_dir(target, override_dir)?;
     let path = dir.join(target.file_name());
     let legacy = dir.join(LEGACY_FILE_NAME);
@@ -315,9 +431,15 @@ pub fn upgrade(target: Target, override_dir: Option<&Path>) -> Result<(Outcome, 
 }
 
 pub fn uninstall(target: Target, override_dir: Option<&Path>) -> Result<PathBuf, String> {
-    if target == Target::Dsh {
-        return crate::dsh::uninstall();
+    match target.kind() {
+        Kind::File => uninstall_file(target, override_dir),
+        Kind::Dsh => crate::dsh::uninstall(),
+        Kind::JsonHooks => crate::settings_hooks::uninstall(target, override_dir),
+        Kind::CodexNotify => crate::codex::uninstall(override_dir),
     }
+}
+
+fn uninstall_file(target: Target, override_dir: Option<&Path>) -> Result<PathBuf, String> {
     let dir = resolve_dir(target, override_dir)?;
     let path = dir.join(target.file_name());
     let legacy = dir.join(LEGACY_FILE_NAME);
@@ -355,18 +477,21 @@ pub fn upgrade_installed() -> Vec<(Target, Result<Outcome, String>)> {
     if let Some(result) = crate::dsh::upgrade_installed() {
         results.push((Target::Dsh, result));
     }
-    for target in [Target::Pi, Target::OpenCode] {
-        let Ok(dir) = target.default_dir() else {
+    for target in Target::ALL {
+        if target.kind() == Kind::Dsh {
+            continue;
+        }
+        let Ok(current) = status(target, None) else {
             continue;
         };
-        let managed = [dir.join(target.file_name()), dir.join(LEGACY_FILE_NAME)]
-            .iter()
-            .any(|path| {
-                fs::read_to_string(path)
-                    .map(|content| is_managed(&content))
-                    .unwrap_or(false)
-            });
-        if !managed {
+        let Some(version) = current.installed_version else {
+            continue;
+        };
+        let stale_legacy = target.kind() == Kind::File
+            && fs::read_to_string(current.dir.join(LEGACY_FILE_NAME))
+                .map(|content| is_managed(&content))
+                .unwrap_or(false);
+        if version == VERSION && !stale_legacy {
             continue;
         }
         results.push((target, upgrade(target, None).map(|(outcome, _)| outcome)));

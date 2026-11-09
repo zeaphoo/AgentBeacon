@@ -26,7 +26,7 @@ AgentBeacon 在本地运行，监听编码 agent 上报的状态，并把它转�
 - **设备能力** — 按设备和型号展示是否支持亮度调节、蜂鸣器等特性。
 - **Web 控制台** — 状态总览、手动灯光控制、设置自动保存、设备绑定和支持设备列表。
 - **桌面应用** — 启动页、托盘菜单、开机自启动和本地服务托管，覆盖 Linux、macOS 与 Windows。
-- **Agent 集成** — 内置 Pi、OpenCode、DeepSeek Harness 集成；Claude Code 通过 hooks 接入；其他 agent 可通过 CLI 或 HTTP 接入。
+- **Agent 集成** — 为 Pi、OpenCode、DeepSeek Harness、Claude Code、Codex CLI、Qoder CLI 以及 Gemini CLI 家族（Gemini / Qwen Code / iFlow）提供安装器管理的 hook 与插件；其他 agent 可通过 CLI 或 HTTP 接入。
 - **无硬件测试** — 可选 mock 设备验证「上报 → 聚合 → 设备命令」完整链路。
 - **Hook 诊断日志** — 保留最近的 hook 事件与状态迁移，可用 `agent-beacon hooks` 或 `GET /api/v1/hooks` 查看。
 - **中英文与主题** — 中文/English、浅色/深色主题、按系统语言初始化、主题可跟随系统。
@@ -64,10 +64,16 @@ Web 控制台会在每个已连接设备上显示对应的能力徽章。
 4. 安装 agent 集成：
 
    ```bash
-   agent-beacon integrate install pi        # Pi
-   agent-beacon integrate install opencode  # OpenCode
-   agent-beacon integrate install dsh       # DeepSeek Harness
+   agent-beacon integrate install pi           # Pi
+   agent-beacon integrate install opencode     # OpenCode
+   agent-beacon integrate install dsh          # DeepSeek Harness
+   agent-beacon integrate install claude-code  # Claude Code
+   agent-beacon integrate install codex        # Codex CLI
+   agent-beacon integrate install gemini       # Gemini CLI（qwen、iflow 同理）
+   agent-beacon integrate install qoder        # Qoder CLI
    ```
+
+   `agent-beacon integrate install` 不带目标时会安装所有检测到的 agent；`agent-beacon integrate list` 可查看已安装、内置与可用状态。
 
 5. 打开控制台查看状态、试用灯光控制或调整设置。
 
@@ -77,10 +83,13 @@ Web 控制台会在每个已连接设备上显示对应的能力徽章。
 
 | Agent | 接入方式 | 文档 |
 | --- | --- | --- |
-| Claude Code | Hooks | [Claude Code](docs/integrations/claude-code.md) |
 | Pi | Extension | [Pi](docs/integrations/pi.md) |
 | OpenCode | Plugin | [OpenCode](docs/integrations/opencode.md) |
 | DeepSeek Harness | Cordis plugin | [DeepSeek Harness](docs/integrations/dsh.md) |
+| Claude Code | `settings.json` hooks | [Claude Code](docs/integrations/claude-code.md) |
+| Qoder CLI | `settings.json` hooks | [Qoder CLI](docs/integrations/qoder.md) |
+| Gemini CLI · Qwen Code · iFlow | `settings.json` hooks | [Gemini 家族](docs/integrations/gemini.md) |
+| Codex CLI | `config.toml` `notify` | [Codex CLI](docs/integrations/codex.md) |
 | 其他 agent | `agent-beacon report` 或 `POST /api/v1/events` | [开发文档 HTTP API](docs/development.zh-CN.md#http-api) |
 
 内置集成随服务分发，可通过 CLI 安装或升级。

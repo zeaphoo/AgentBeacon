@@ -147,11 +147,27 @@ agent-beacon devices
 agent-beacon hooks --limit 100
 agent-beacon integrate list
 agent-beacon integrate install pi
+agent-beacon integrate install claude-code
 agent-beacon integrate upgrade
 agent-beacon integrate uninstall pi
 ```
 
 The CLI help and diagnostics are English.
+
+### Integration install mechanisms
+
+`agent-beacon integrate install` supports four underlying strategies, dispatched from `Target::kind()`:
+
+| Kind | Targets | What is written |
+| --- | --- | --- |
+| File plugin | `pi`, `opencode` | A managed `.js` plugin with `@agent-beacon-integration` / `@agent-beacon-version` markers |
+| Cordis patch | `dsh` | A JS hook plus a `BEGIN/END` block in `~/.dsh/cordis.patch.yml` |
+| JSON hooks | `claude-code`, `qoder`, `gemini`, `qwen`, `iflow` | Commands appended to `settings.json` `hooks`, tagged with a trailing `# agent-beacon-hook:<target>:<version>` comment |
+| Codex notify | `codex` | A `notify` array wrapped in `# >>> agent-beacon-hook:codex` comments in `config.toml` |
+
+The JSON-hooks and Codex installers merge instead of overwriting: user-defined hooks and unrelated keys are preserved, and uninstall only removes tagged entries. `integrate install` without a target installs every target whose config directory exists.
+
+All hook commands run `agent-beacon hook`, which reads the agent payload (stdin for JSON hooks, trailing argument for Codex notify), extracts `session_id` / event name / tool name, derives the state when `--state auto` is used, and posts to `/api/v1/events`. It always exits 0 so a missing service never blocks the agent.
 
 ### Diagnosing light changes
 

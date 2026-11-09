@@ -2,10 +2,13 @@
 
 pub mod api;
 pub mod cli;
+pub mod codex;
 pub mod config_store;
 pub mod dsh;
+pub mod hookcmd;
 pub mod integrations;
 pub mod journal;
+pub mod settings_hooks;
 pub mod state;
 pub mod worker;
 

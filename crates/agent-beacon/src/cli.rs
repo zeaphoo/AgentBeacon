@@ -51,6 +51,8 @@ pub enum Command {
     Devices,
     /// Show recent hook and state-transition diagnostics.
     Hooks(HooksArgs),
+    /// Report a status event from an agent hook (reads the hook payload).
+    Hook(HookArgs),
     /// Install or upgrade agent integration plugins.
     Integrate(IntegrateArgs),
 }
@@ -82,6 +84,31 @@ pub struct HooksArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct HookArgs {
+    /// Agent name: claude-code | codex | gemini | qwen | iflow | qoder.
+    #[arg(long)]
+    pub agent: String,
+    /// State to report: idle | working | waiting | error | auto (derive from the event).
+    #[arg(long, default_value = "auto")]
+    pub state: String,
+    /// Lifecycle event name, if it is not part of the payload.
+    #[arg(long)]
+    pub event: Option<String>,
+    /// Status message override (defaults to the tool name or event).
+    #[arg(long)]
+    pub message: Option<String>,
+    /// Session TTL in seconds.
+    #[arg(long)]
+    pub ttl: Option<u64>,
+    /// Hook payload passed as an argument (Codex notify style).
+    #[arg(long)]
+    pub payload: Option<String>,
+    /// Trailing argument that may carry the payload.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    pub extra: Vec<String>,
+}
+
+#[derive(Debug, Args)]
 pub struct IntegrateArgs {
     #[command(subcommand)]
     pub action: IntegrateAction,
@@ -91,9 +118,9 @@ pub struct IntegrateArgs {
 pub enum IntegrateAction {
     /// Show supported integrations and installation state.
     List,
-    /// Install plugins; installs all targets when target is omitted.
+    /// Install plugins; installs all detected targets when target is omitted.
     Install {
-        /// pi | opencode | dsh | all
+        /// pi | opencode | dsh | claude-code | codex | gemini | qwen | iflow | qoder | all
         target: Option<String>,
         /// Overwrite files not managed by agent-beacon.
         #[arg(long)]
@@ -101,12 +128,12 @@ pub enum IntegrateAction {
     },
     /// Upgrade installed plugins; upgrades all targets when target is omitted.
     Upgrade {
-        /// pi | opencode | dsh | all
+        /// pi | opencode | dsh | claude-code | codex | gemini | qwen | iflow | qoder | all
         target: Option<String>,
     },
     /// Uninstall a plugin.
     Uninstall {
-        /// pi | opencode | dsh
+        /// pi | opencode | dsh | claude-code | codex | gemini | qwen | iflow | qoder
         target: String,
     },
 }
@@ -139,6 +166,7 @@ pub async fn run(mut cli: Cli) -> i32 {
         Some(Command::Status) => status(&cli).await,
         Some(Command::Devices) => devices(&cli).await,
         Some(Command::Hooks(args)) => hooks(&cli, args).await,
+        Some(Command::Hook(args)) => hook(&cli, args).await,
         Some(Command::Integrate(args)) => integrate(args, cli.dir.as_deref()),
         None => serve(ServeArgs::default()).await,
     }
@@ -368,14 +396,6 @@ async fn report(cli: &Cli, args: ReportArgs) -> i32 {
             return 2;
         }
     };
-    let Ok(client) = reqwest::Client::builder()
-        .timeout(Duration::from_millis(900))
-        .build()
-    else {
-        eprintln!("failed to create HTTP client");
-        return 2;
-    };
-
     let mut body = json!({
         "agent": args.agent,
         "state": state,
@@ -389,9 +409,57 @@ async fn report(cli: &Cli, args: ReportArgs) -> i32 {
     if let Some(ttl) = args.ttl {
         body["ttl_secs"] = json!(ttl);
     }
+    post_event(&cli.url, &body).await
+}
 
-    let url = format!("{}/api/v1/events", cli.url.trim_end_matches('/'));
-    match client.post(url).json(&body).send().await {
+/// `agent-beacon hook`：供各家 agent 的 hook 调用。
+///
+/// 状态不可推导时静默返回 0，避免因灯效问题阻塞 agent 自身。
+async fn hook(cli: &Cli, args: HookArgs) -> i32 {
+    let explicit_state = args.state.trim();
+    let state = if explicit_state.is_empty() || explicit_state == "auto" {
+        Some("auto".to_string())
+    } else {
+        match parse_state(explicit_state) {
+            Ok(state) => Some(state.as_str().to_string()),
+            Err(error) => {
+                eprintln!("{error}");
+                return 2;
+            }
+        }
+    };
+
+    let extra = args.extra.join(" ");
+    let payload = args
+        .payload
+        .or_else(|| (!extra.trim().is_empty()).then_some(extra));
+    let request = crate::hookcmd::HookRequest {
+        agent: args.agent,
+        state,
+        event: args.event,
+        message: args.message,
+        ttl: args.ttl,
+        payload,
+    };
+    let Some(body) = crate::hookcmd::build_body(&request) else {
+        return 0;
+    };
+    // 无论上报是否成功都退出 0：Claude Code 等 agent 会把非零退出码当成
+    // 阻断当前操作，灯效不该影响 agent 正常工作。
+    let _ = post_event(&cli.url, &body).await;
+    0
+}
+
+async fn post_event(url: &str, body: &Value) -> i32 {
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(Duration::from_millis(900))
+        .build()
+    else {
+        eprintln!("failed to create HTTP client");
+        return 2;
+    };
+    let url = format!("{}/api/v1/events", url.trim_end_matches('/'));
+    match client.post(&url).json(body).send().await {
         Ok(response) if response.status().is_success() => 0,
         Ok(response) => {
             let status = response.status();
@@ -400,7 +468,7 @@ async fn report(cli: &Cli, args: ReportArgs) -> i32 {
             2
         }
         Err(error) => {
-            eprintln!("cannot connect to agent-beacon ({}): {error}", cli.url);
+            eprintln!("cannot connect to agent-beacon ({url}): {error}");
             2
         }
     }
@@ -624,14 +692,16 @@ fn parse_targets(raw: Option<&str>) -> Result<Vec<Target>, String> {
         "" | "all" => Ok(Target::ALL
             .iter()
             .copied()
-            .filter(|target| *target != Target::Dsh || crate::dsh::available())
+            .filter(|target| target.available())
             .collect()),
-        "pi" => Ok(vec![Target::Pi]),
-        "opencode" => Ok(vec![Target::OpenCode]),
-        "dsh" => Ok(vec![Target::Dsh]),
-        other => Err(format!(
-            "unknown integration {other}; expected pi, opencode, dsh, all"
-        )),
+        other => Target::parse(other)
+            .map(|target| vec![target])
+            .ok_or_else(|| {
+                format!(
+                    "unknown integration {other}; expected {} or all",
+                    Target::ids()
+                )
+            }),
     }
 }
 
@@ -639,7 +709,7 @@ fn integrate(args: IntegrateArgs, dir: Option<&std::path::Path>) -> i32 {
     match args.action {
         IntegrateAction::List => {
             println!(
-                "{:<9} {:<8} {:<8} {}",
+                "{:<12} {:<14} {:<14} {}",
                 "AGENT", "INSTALLED", "BUNDLED", "STATE"
             );
             let mut code = 0;
@@ -647,13 +717,13 @@ fn integrate(args: IntegrateArgs, dir: Option<&std::path::Path>) -> i32 {
                 match integrations::status(target, dir) {
                     Ok(status) => {
                         println!(
-                            "{:<9} {:<8} {:<8} {}",
+                            "{:<12} {:<14} {:<14} {}",
                             status.target.id(),
                             status.installed_version.as_deref().unwrap_or("-"),
                             status.embedded_version,
                             status.state.label()
                         );
-                        println!("          {}", status.dir.display());
+                        println!("             {}", status.dir.display());
                     }
                     Err(error) => {
                         eprintln!("{}: {error}", target.id());
@@ -729,7 +799,7 @@ fn integrate(args: IntegrateArgs, dir: Option<&std::path::Path>) -> i32 {
             let target = match Target::parse(target.trim()) {
                 Some(target) => target,
                 None => {
-                    eprintln!("unknown integration {target}; expected pi, opencode, dsh");
+                    eprintln!("unknown integration {target}; expected {}", Target::ids());
                     return 2;
                 }
             };

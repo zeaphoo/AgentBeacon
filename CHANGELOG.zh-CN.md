@@ -11,6 +11,9 @@
 
 ### 新增
 
+- 新增 Claude Code、Codex CLI、Qoder CLI 以及 Gemini CLI 家族（Gemini / Qwen Code / iFlow）集成，可用 `agent-beacon integrate install <target>` 安装。
+- 新增 `agent-beacon hook` 命令：从 stdin 或参数读取 agent 的 hook 载荷，按事件名推导状态并上报。它始终返回 0，服务未运行也不会阻塞 agent。
+- 集成安装器改为合并写入：`settings.json` 的 hooks 与 `config.toml` 的 `notify` 会带标记保留，升级时原地更新，卸载时只删除自己的条目，不影响用户已有配置。
 - 新增 hook 诊断日志：`agent-beacon hooks`、`GET/DELETE /api/v1/hooks`，并在服务日志中输出 `hook journal`。
 
 ### 修复
