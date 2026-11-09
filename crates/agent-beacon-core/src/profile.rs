@@ -24,15 +24,18 @@ pub enum DeviceProfile {
     Mlight3Led,
     #[serde(rename = "yh50-rgy-j")]
     Yh50,
+    #[serde(rename = "agentcore-light")]
+    AgentCore,
     #[serde(rename = "mock")]
     Mock,
 }
 
 impl DeviceProfile {
-    pub const ALL: [DeviceProfile; 4] = [
+    pub const ALL: [DeviceProfile; 5] = [
         DeviceProfile::MlightSingle,
         DeviceProfile::Mlight3Led,
         DeviceProfile::Yh50,
+        DeviceProfile::AgentCore,
         DeviceProfile::Mock,
     ];
 
@@ -41,6 +44,7 @@ impl DeviceProfile {
             DeviceProfile::MlightSingle => "mlight-single",
             DeviceProfile::Mlight3Led => "mlight-3led",
             DeviceProfile::Yh50 => "yh50-rgy-j",
+            DeviceProfile::AgentCore => "agentcore-light",
             DeviceProfile::Mock => "mock",
         }
     }
@@ -50,6 +54,7 @@ impl DeviceProfile {
             "mlight-single" => Some(DeviceProfile::MlightSingle),
             "mlight-3led" => Some(DeviceProfile::Mlight3Led),
             "yh50-rgy-j" => Some(DeviceProfile::Yh50),
+            "agentcore-light" | "agentcore" => Some(DeviceProfile::AgentCore),
             "mock" => Some(DeviceProfile::Mock),
             _ => None,
         }
@@ -62,6 +67,16 @@ impl DeviceProfile {
         )
     }
 
+    /// AgentCore-Light 是 USB CDC / 蓝牙 SPP / BLE 三种链路共用的文本行协议。
+    pub fn is_agentcore(self) -> bool {
+        self == DeviceProfile::AgentCore
+    }
+
+    /// 亮度是否用独立命令下发（而不是折进灯效命令里）。
+    pub fn has_brightness_command(self) -> bool {
+        self.is_mlight() || self.is_agentcore()
+    }
+
     pub fn capabilities(self) -> DeviceCapabilities {
         match self {
             DeviceProfile::MlightSingle | DeviceProfile::Mlight3Led => DeviceCapabilities {
@@ -70,6 +85,10 @@ impl DeviceProfile {
             },
             DeviceProfile::Yh50 => DeviceCapabilities {
                 brightness: false,
+                buzzer: true,
+            },
+            DeviceProfile::AgentCore => DeviceCapabilities {
+                brightness: true,
                 buzzer: true,
             },
             DeviceProfile::Mock => DeviceCapabilities::default(),
@@ -115,6 +134,10 @@ mod tests {
         let yh50 = DeviceProfile::Yh50.capabilities();
         assert!(!yh50.brightness);
         assert!(yh50.buzzer);
+
+        let agentcore = DeviceProfile::AgentCore.capabilities();
+        assert!(agentcore.brightness);
+        assert!(agentcore.buzzer);
 
         let mock = DeviceProfile::Mock.capabilities();
         assert!(!mock.brightness);

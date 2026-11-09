@@ -40,7 +40,7 @@ import {
 } from '../components/ui/select'
 import { cn } from '../lib/utils'
 
-const PROFILES = ['mlight-single', 'mlight-3led', 'yh50-rgy-j']
+const PROFILES = ['mlight-single', 'mlight-3led', 'yh50-rgy-j', 'agentcore-light']
 
 export default function Control() {
   const snapshot = useBeaconStore((state) => state.snapshot)

@@ -8,7 +8,6 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use crate::device::{update, DeviceRegistry};
-use crate::mlight::{brightness_command, replay};
 use crate::transport::Transport;
 use crate::{hex, plan_for, DesiredState, PlanOptions};
 
@@ -43,8 +42,8 @@ async fn run(mut config: ActorConfig) {
                     applied = None;
                     let desired = config.desired.borrow().clone();
                     let mut failed = None;
-                    if config.profile.is_mlight() {
-                        let bytes = brightness_command(desired.brightness);
+                    if config.profile.has_brightness_command() {
+                        let bytes = brightness_bytes(config.profile, desired.brightness);
                         if let Err(error) = opened.write(&bytes) {
                             failed = Some(error);
                         }
@@ -54,7 +53,7 @@ async fn run(mut config: ActorConfig) {
                         tokio::time::sleep(Duration::from_secs(1)).await;
                         continue;
                     }
-                    if config.profile.is_mlight() {
+                    if config.profile.has_brightness_command() {
                         applied_brightness = Some(desired.brightness);
                     }
                     update(&config.registry, &config.id, |info| {
@@ -76,7 +75,7 @@ async fn run(mut config: ActorConfig) {
         let effect = desired.for_device(&config.id);
         let key = (effect, desired.buzzer_on_alert);
         let brightness_changed =
-            config.profile.is_mlight() && applied_brightness != Some(desired.brightness);
+            config.profile.has_brightness_command() && applied_brightness != Some(desired.brightness);
 
         if applied == Some(key) && !brightness_changed {
             if config.desired.changed().await.is_err() {
@@ -90,7 +89,7 @@ async fn run(mut config: ActorConfig) {
                 applied_brightness = None;
                 continue;
             };
-            if let Err(error) = writer.write(&brightness_command(desired.brightness)) {
+            if let Err(error) = writer.write(&brightness_bytes(config.profile, desired.brightness)) {
                 mark_error(&config.registry, &config.id, error);
                 transport = None;
                 applied = None;
@@ -103,7 +102,7 @@ async fn run(mut config: ActorConfig) {
             if applied == Some(key) {
                 // Brightness-only change: put the light back into its current
                 // state without the OFF prelude, so the effect does not flicker.
-                let replay_plan = replay(effect, config.profile == DeviceProfile::Mlight3Led);
+                let replay_plan = replay_plan(config.profile, effect);
                 let mut replay_failed = false;
                 for command in replay_plan.commands {
                     if command.delay_ms > 0 {
@@ -160,6 +159,7 @@ async fn run(mut config: ActorConfig) {
 
             match writer.write(&command.bytes) {
                 Ok(()) => {
+                    log_reports(writer, &config.id);
                     if config.profile == DeviceProfile::Mock {
                         update(&config.registry, &config.id, |info| {
                             info.mock_commands.push(hex(&command.bytes));
@@ -191,6 +191,52 @@ async fn run(mut config: ActorConfig) {
             info.connected = true;
             info.last_error = None;
         });
+    }
+}
+
+/// 亮度命令按协议分派：MLight 用 `BRIGHTNESS_n`，AgentCore-Light 用 `BRIGHTNESS_LEVEL:n(×3)`。
+fn brightness_bytes(profile: DeviceProfile, percent: u8) -> Vec<u8> {
+    if profile.is_agentcore() {
+        crate::agentcore::brightness_command(percent)
+    } else {
+        crate::mlight::brightness_command(percent)
+    }
+}
+
+/// 亮度调整后的重放：MLight 不带 `OFF` 清场，AgentCore-Light 重发一次状态名。
+fn replay_plan(profile: DeviceProfile, effect: Effect) -> crate::CommandPlan {
+    if profile.is_agentcore() {
+        crate::agentcore::replay(effect)
+    } else {
+        crate::mlight::replay(effect, profile == DeviceProfile::Mlight3Led)
+    }
+}
+
+/// 读走设备主动上报（AgentCore-Light 的 `STATUS:` / `CHG:` 心跳），只写诊断日志。
+///
+/// 不读会把系统缓冲撑满，所以即使不展示也必须消费。
+fn log_reports(writer: &mut Box<dyn Transport>, id: &str) {
+    for line in writer.drain_lines() {
+        match crate::agentcore::parse_report(&line) {
+            crate::agentcore::Report::Battery(battery) => tracing::debug!(
+                device = id,
+                charging = battery.charging,
+                millivolts = battery.millivolts,
+                percent = battery.percent,
+                "agentcore battery report"
+            ),
+            crate::agentcore::Report::Status(status) => tracing::debug!(
+                device = id,
+                state = status.state.as_deref(),
+                firmware = status.firmware.as_deref(),
+                ble_state = status.ble_state,
+                "agentcore status report"
+            ),
+            crate::agentcore::Report::Error(error) => {
+                tracing::warn!(device = id, error = %error, "agentcore rejected a command")
+            }
+            _ => {}
+        }
     }
 }
 
@@ -314,6 +360,68 @@ mod tests {
 
         actor.abort();
     }
+    #[tokio::test(start_paused = true)]
+    async fn agentcore_sends_state_names_and_scaled_brightness() {
+        let registry = new_registry();
+        upsert(
+            &registry,
+            DeviceInfo::new("ac:0", "/dev/fake", DeviceProfile::AgentCore),
+        );
+        let log = MockLog::default();
+        let factory_log = log.clone();
+        let (desired_tx, desired_rx) = watch::channel(DesiredState {
+            effect: Effect::Busy,
+            brightness: 50,
+            ..DesiredState::default()
+        });
+
+        let actor = spawn(ActorConfig {
+            id: "ac:0".into(),
+            port: "/dev/fake".into(),
+            profile: DeviceProfile::AgentCore,
+            factory: Arc::new(move || Ok(Box::new(MockTransport::new(factory_log.clone())))),
+            desired: desired_rx,
+            registry: registry.clone(),
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let entries = log.entries();
+        // 50% → "BRIGHTNESS_LEVEL:150\n"
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry == "42 52 49 47 48 54 4E 45 53 53 5F 4C 45 56 45 4C 3A 31 35 30 0A"),
+            "{entries:?}"
+        );
+        assert!(entries.iter().any(|entry| entry == "42 55 53 59 0A"), "{entries:?}");
+
+        desired_tx
+            .send(DesiredState {
+                effect: Effect::Attention,
+                brightness: 100,
+                ..DesiredState::default()
+            })
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let entries = log.entries();
+        // "WAIT_CONFIRM\n"
+        assert!(
+            entries.iter().any(|entry| entry == "57 41 49 54 5F 43 4F 4E 46 49 52 4D 0A"),
+            "{entries:?}"
+        );
+        // "BRIGHTNESS_LEVEL:300\n"
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry == "42 52 49 47 48 54 4E 45 53 53 5F 4C 45 56 45 4C 3A 33 30 30 0A"),
+            "{entries:?}"
+        );
+        assert_eq!(snapshot(&registry)[0].effect, Effect::Attention);
+
+        actor.abort();
+    }
+
     #[tokio::test(start_paused = true)]
     async fn brightness_change_replays_current_state_without_off() {
         let registry = new_registry();

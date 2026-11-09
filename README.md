@@ -39,9 +39,23 @@ AgentBeacon runs locally, watches the status reported by coding agents, and turn
 | `mlight-single` | USB CDC | ✅ | — | Single-LED RGB status light |
 | `mlight-3led` | USB CDC | ✅ | — | Three-LED RGB status light |
 | `yh50-rgy-j` | USB serial / libusb | — | ✅ | Tri-color LED with buzzer |
+| `agentcore-light` | USB CDC / Bluetooth SPP | ✅ | ✅ | Text-line status light; auto-detected by VID `4C4A:4155`, Espressif `303A` + product name, or Bluetooth SPP port + `HELLO` handshake |
 | `mock` | Virtual | — | — | Development and hardware-free validation |
 
 The web console displays the supported capabilities as feature badges on each connected device.
+
+### AgentCore-Light over USB and Bluetooth
+
+AgentCore-Light speaks a text-line protocol (`HELLO` / `STATUS` / `IDLE` / `BUSY` / …) over USB CDC or Bluetooth SPP. Detection is automatic:
+
+- **USB CDC** — recognised by `4C4A:4155`; the early Espressif firmware (`303A`) must also expose `agentcore` / `jieli` / `ac696` in the product name or serial, so other ESP32 boards are ignored.
+- **Bluetooth SPP** — any Bluetooth serial port (`SerialPortType::BluetoothPort`, or a port name containing `bluetooth` / `jl_spp` / `rfcomm` / `标准串行`) is probed once with `HELLO`; only a device answering `HELLO:OK` becomes a light. On Windows, where COM ports carry no USB metadata, bind it explicitly:
+
+  ```json
+  { "devices": [{ "port": "COM5", "profile": "agentcore-light" }] }
+  ```
+
+  Pair the device first (`bluetoothctl pair <MAC>`); on Linux connect over RFCOMM channel 2 (`sudo rfcomm bind 0 <MAC> 2`). Note the device stops advertising while USB is plugged in, and BLE (NUS) is not wired up yet — see the [protocol document](docs/AgentCore-Light-serial-protocol.md).
 
 ## UI
 

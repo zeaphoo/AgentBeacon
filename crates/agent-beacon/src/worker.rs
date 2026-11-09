@@ -7,9 +7,11 @@ use std::time::Duration;
 use agent_beacon_core::DeviceProfile;
 use agent_beacon_lights::actor::{spawn, ActorConfig, TransportFactory};
 use agent_beacon_lights::device::upsert;
-use agent_beacon_lights::discovery::{detect, PortInfo};
+use agent_beacon_lights::discovery::{detect, PortInfo, PortKind};
 use agent_beacon_lights::mock::{MockLog, MockTransport};
-use agent_beacon_lights::transport::{SerialTransport, Transport, Yh50Transport};
+use agent_beacon_lights::transport::{
+    probe_agentcore, AgentCoreTransport, SerialTransport, Transport, Yh50Transport,
+};
 use agent_beacon_lights::DeviceInfo;
 use serialport::SerialPortType;
 use tokio::task::JoinHandle;
@@ -26,6 +28,8 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut actors: HashMap<String, ActorEntry> = HashMap::new();
         let mut mock_actor: Option<ActorEntry> = None;
+        // 蓝牙端口的握手探测只做一次：`HELLO` 要等 1.5 s，不能每两秒重来。
+        let mut probes: HashMap<String, bool> = HashMap::new();
 
         loop {
             let config = state.config();
@@ -37,13 +41,18 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                 }
             };
 
+            let mut current_ports: Vec<String> = Vec::new();
+
             for port in ports {
-                let Some(info) = to_port_info(port) else {
-                    continue;
-                };
+                let info = to_port_info(port);
                 let Some(device) = detect(&info, &config.devices) else {
                     continue;
                 };
+                current_ports.push(info.port_name.clone());
+
+                if device.probe_required && !probe_allows(&mut probes, &device.port).await {
+                    continue;
+                }
                 let reuse = actors.get(&device.id).is_some_and(|entry| {
                     entry.profile == device.profile && entry.port == device.port
                 });
@@ -67,6 +76,9 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                     },
                 );
             }
+
+            // 端口拔掉后清掉探测结果，重新插上时会再握手一次。
+            probes.retain(|port, _| current_ports.contains(port));
 
             if config.mock.enabled {
                 if mock_actor.is_none() {
@@ -97,9 +109,13 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                 mock_actor = None;
             }
 
-            tokio::select! {
-                _ = state.scan_notify().notified() => {}
-                _ = tokio::time::sleep(Duration::from_secs(2)) => {}
+            let manual = tokio::select! {
+                _ = state.scan_notify().notified() => true,
+                _ = tokio::time::sleep(Duration::from_secs(2)) => false,
+            };
+            if manual {
+                // 手动“重新扫描”时丢掉握手结果：刚配好对的蓝牙设备可以立刻重试。
+                probes.clear();
             }
         }
     })
@@ -126,6 +142,16 @@ fn spawn_actor(
                     .map(|transport| Box::new(transport) as Box<dyn Transport>)
             })
         }
+        DeviceProfile::AgentCore => {
+            let port = port.to_string();
+            Arc::new(move || {
+                // 握手要等 1.5 s 的 CDC 就绪时间，放到阻塞线程池里等，
+                // 别把 API/SSE 所在的 tokio worker 卡住。
+                let target = port.clone();
+                in_blocking(move || AgentCoreTransport::open(&target))
+                    .map(|transport| Box::new(transport) as Box<dyn Transport>)
+            })
+        }
         DeviceProfile::Mock => {
             Arc::new(|| Ok(Box::new(MockTransport::new(MockLog::default())) as Box<dyn Transport>))
         }
@@ -141,14 +167,73 @@ fn spawn_actor(
     })
 }
 
-fn to_port_info(port: serialport::SerialPortInfo) -> Option<PortInfo> {
+/// 在阻塞线程池里跑一段会 sleep 的打开流程；当前线程运行时则直接执行。
+fn in_blocking<T, F>(work: F) -> T
+where
+    F: FnOnce() -> T,
+{
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(work)
+        }
+        _ => work(),
+    }
+}
+
+/// 蓝牙等“端口名不可靠”的候选设备：只在第一次遇到该端口时握手确认。
+async fn probe_allows(probes: &mut HashMap<String, bool>, port: &str) -> bool {
+    if let Some(allowed) = probes.get(port) {
+        return *allowed;
+    }
+    let path = port.to_string();
+    let result = tokio::task::spawn_blocking(move || probe_agentcore(&path))
+        .await
+        .unwrap_or_else(|error| Err(format!("probe task failed: {error}")));
+    let allowed = match result {
+        Ok(identity) => {
+            tracing::info!(
+                port = port,
+                firmware = identity.firmware.as_deref(),
+                state = identity.state.as_deref(),
+                "detected AgentCore-Light over bluetooth"
+            );
+            true
+        }
+        Err(error) => {
+            tracing::debug!(port = port, error = %error, "bluetooth port is not an AgentCore-Light");
+            false
+        }
+    };
+    probes.insert(port.to_string(), allowed);
+    allowed
+}
+
+fn to_port_info(port: serialport::SerialPortInfo) -> PortInfo {
+    let port_name = port.port_name;
     match port.port_type {
-        SerialPortType::UsbPort(usb) => Some(PortInfo {
-            port_name: port.port_name,
+        SerialPortType::UsbPort(usb) => PortInfo {
+            port_name,
             vid: Some(usb.vid),
             pid: Some(usb.pid),
             serial: usb.serial_number,
-        }),
-        _ => None,
+            product: usb.product,
+            kind: PortKind::Usb,
+        },
+        SerialPortType::BluetoothPort => PortInfo {
+            port_name,
+            vid: None,
+            pid: None,
+            serial: None,
+            product: None,
+            kind: PortKind::Bluetooth,
+        },
+        SerialPortType::PciPort | SerialPortType::Unknown => PortInfo {
+            port_name,
+            vid: None,
+            pid: None,
+            serial: None,
+            product: None,
+            kind: PortKind::Other,
+        },
     }
 }

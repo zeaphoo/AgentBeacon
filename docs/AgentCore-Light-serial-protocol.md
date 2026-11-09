@@ -8,6 +8,16 @@
 >
 > 配套测试工具：`scripts/agentcore_probe.py`。
 
+> **AgentBeacon 内的实现**：profile `agentcore-light`（`crates/agent-beacon-lights/src/agentcore.rs`
+> 协议与命令计划、`transport.rs` 的 `AgentCoreTransport` 负责 `DTR=1/RTS=0` + `HELLO` 握手与上报读取）。
+> 灯效映射：`off → OFF`、`calm → IDLE`、`busy → BUSY`、`attention → WAIT_CONFIRM`、`alert → ERROR`；
+> 亮度按百分比 ×3 发 `BRIGHTNESS_LEVEL`。自动识别规则见 `discovery.rs`：
+> 杰理 CDC（`4C4A:4155`）直接认定；Espressif `303A` 需产品名/序列号命中 `agentcore`/`jieli`/`ac696`；
+> 蓝牙 SPP 端口（`bluetooth`/`jl_spp`/`rfcomm`/`标准串行` 等，含 `SerialPortType::BluetoothPort`）
+> 一律先做 `HELLO` 握手确认，握手不通过就当普通串口忽略。也可用配置绑定
+> `devices[{ port: "COM5", profile: "agentcore-light" }]` 指定 Windows 上的蓝牙 COM 口。
+> BLE（NUS）暂未接入，原因见 §2.3 与 §11（Linux 侧只有 SPP 可用，BLE 需另加蓝牙栈依赖）。
+
 - 设备方案：杰理 JieLi **AC696N**（USB `0x4C4A:0x4155`，早期版本为 Espressif `0x303A`）
 - 文档版本：v1.0
 - 整理日期：2026-11-09

@@ -24,6 +24,8 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ### Fixed
 
+- AgentCore-Light device support (`agentcore-light` profile): text-line protocol with `HELLO` handshake, `IDLE`/`BUSY`/`SUCCESS`/`ERROR`/`WAIT_CONFIRM` states, `BRIGHTNESS_LEVEL` (percent ×3) and buzzer mapping, plus a background reader that drains the device's `STATUS`/`CHG` reports.
+- Automatic AgentCore-Light detection over USB CDC (`4C4A:4155`; Espressif `303A` also needs a product-name keyword) and Bluetooth SPP (bluetooth serial ports are verified with a one-off `HELLO` handshake before an actor is attached).
 - Pi integration no longer reports `idle` during an active run when extensions reload, and reports now carry the Pi session id and are sent in order (latest state wins).
 
 ## [0.1.0-rc.1] - 2026-11-04

@@ -22,6 +22,9 @@
 - 新增 hook 诊断日志：`agent-beacon hooks`、`GET/DELETE /api/v1/hooks`，并在服务日志中输出 `hook journal`。
 - 新增 AgentCore-Light 设备协议文档（USB CDC / 蓝牙 SPP / BLE NUS），以及无需依赖的调试脚本 `scripts/agentcore_probe.py`。
 
+- 新增 AgentCore-Light 状态灯支持（`agentcore-light` profile）：文本行协议 + `HELLO` 握手、`IDLE`/`BUSY`/`SUCCESS`/`ERROR`/`WAIT_CONFIRM` 状态、`BRIGHTNESS_LEVEL`（百分比 ×3）与蜂鸣器映射，并有后台读线程消费设备的 `STATUS`/`CHG` 上报。
+- AgentCore-Light 自动识别：USB CDC 按 `4C4A:4155`（Espressif `303A` 需产品名关键字）认定，蓝牙 SPP 端口先做一次 `HELLO` 握手确认后才挂 actor。
+
 ### 修复
 
 - Pi 集成在扩展热重载时不再于运行中误报 `idle`；上报会携带 Pi session id，并按顺序发送（latest-wins）。

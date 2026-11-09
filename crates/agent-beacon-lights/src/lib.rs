@@ -3,6 +3,7 @@
 //! 协议差异只体现在 `DeviceProfile` 对应的命令计划里；上层只传语义灯效。
 
 pub mod actor;
+pub mod agentcore;
 pub mod device;
 pub mod discovery;
 pub mod mlight;
@@ -51,6 +52,7 @@ pub fn plan_for(profile: DeviceProfile, effect: Effect, options: PlanOptions) ->
         DeviceProfile::MlightSingle => mlight::plan(effect, false),
         DeviceProfile::Mlight3Led => mlight::plan(effect, true),
         DeviceProfile::Yh50 => yh50::plan(effect, options.buzzer_on_alert),
+        DeviceProfile::AgentCore => agentcore::plan(effect, options.buzzer_on_alert),
         DeviceProfile::Mock => mock::plan(effect),
     }
 }

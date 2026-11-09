@@ -39,9 +39,23 @@ AgentBeacon 在本地运行，监听编码 agent 上报的状态，并把它转�
 | `mlight-single` | USB CDC | ✅ | — | 单灯珠 RGB 状态灯 |
 | `mlight-3led` | USB CDC | ✅ | — | 三灯珠 RGB 状态灯 |
 | `yh50-rgy-j` | USB 串口 / libusb | — | ✅ | 三色 LED + 蜂鸣器 |
+| `agentcore-light` | USB CDC / 蓝牙 SPP | ✅ | ✅ | 文本行协议状态灯；按 VID `4C4A:4155`、Espressif `303A` + 产品名、或蓝牙 SPP 端口 + `HELLO` 握手自动识别 |
 | `mock` | 虚拟设备 | — | — | 开发与无硬件验证 |
 
 Web 控制台会在每个已连接设备上显示对应的能力徽章。
+
+### AgentCore-Light 的 USB 与蓝牙接入
+
+AgentCore-Light 在 USB CDC 或蓝牙 SPP 上跑同一套文本行协议（`HELLO` / `STATUS` / `IDLE` / `BUSY` / …），自动识别规则：
+
+- **USB CDC** —— 按 `4C4A:4155` 直接认定；早期 Espressif 固件（`303A`）还要求产品名或序列号里带 `agentcore` / `jieli` / `ac696`，避免把别的 ESP32 开发板当成灯。
+- **蓝牙 SPP** —— 任何蓝牙串口（`SerialPortType::BluetoothPort`，或端口名含 `bluetooth` / `jl_spp` / `rfcomm` / `标准串行`）都会先做一次 `HELLO` 握手，只有回 `HELLO:OK` 的才认作灯。Windows 的 COM 口没有 USB 元数据，用配置显式绑定：
+
+  ```json
+  { "devices": [{ "port": "COM5", "profile": "agentcore-light" }] }
+  ```
+
+  蓝牙需先配对（`bluetoothctl pair <MAC>`）；Linux 上走 RFCOMM 通道 2（`sudo rfcomm bind 0 <MAC> 2`）。注意插着 USB 时设备不广播，且 BLE（NUS）尚未接入 —— 详见[协议文档](docs/AgentCore-Light-serial-protocol.md)。
 
 ## 界面
 
