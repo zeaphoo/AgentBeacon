@@ -75,6 +75,8 @@ Language and theme selectors are available directly in the navbar. The status ca
 
    `agent-beacon integrate install` with no target installs every detected agent; `agent-beacon integrate list` shows installed, bundled, and available states.
 
+   You can also do this from the console: the **Integrations** page lists every detected agent with its install state, one-click install/upgrade/uninstall, and an *install automatically* switch. On first launch the console offers to connect the agents it detected.
+
 5. Open the console to inspect status, try manual lighting, or adjust settings.
 
 For building from source, packaging, testing, and architecture details, see the [development guide](docs/development.md).

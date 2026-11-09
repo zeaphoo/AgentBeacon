@@ -246,7 +246,22 @@ async fn serve(args: ServeArgs) -> i32 {
     flush_stdout();
     tracing::info!(address = %format!("{host}:{actual_port}"), "agent-beacon started");
 
-    // 已安装的受管插件随二进制版本自动升级；不主动安装新插件。
+    // 开启自动安装后，把新检测到的 agent 接进来；随后统一升级已装版本。
+    if config.integrations.auto_install {
+        for (target, result) in integrations::install_detected() {
+            match result {
+                Ok(Outcome::Installed) => {
+                    tracing::info!(agent = target.id(), "auto-installed agent integration");
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::warn!(agent = target.id(), %error, "failed to auto-install agent integration");
+                }
+            }
+        }
+    }
+
+    // 已安装的受管插件随二进制版本自动升级。
     for (target, result) in integrations::upgrade_installed() {
         match result {
             Ok(Outcome::Upgraded) => {
@@ -692,7 +707,7 @@ fn parse_targets(raw: Option<&str>) -> Result<Vec<Target>, String> {
         "" | "all" => Ok(Target::ALL
             .iter()
             .copied()
-            .filter(|target| target.available())
+            .filter(|target| target.detected())
             .collect()),
         other => Target::parse(other)
             .map(|target| vec![target])

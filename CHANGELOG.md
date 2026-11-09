@@ -11,6 +11,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ### Added
 
+- Integrations page in the web console: every detected agent with its install state, one-click install/upgrade/uninstall, and an *install automatically* switch.
+- First-launch prompt that offers to connect detected-but-unconnected agents; dismissing or connecting records `integrations.onboarded` so it never shows twice.
+- `GET /api/v1/integrations`, `POST /api/v1/integrations/settings`, `POST /api/v1/integrations/install-all`, and `POST /api/v1/integrations/{target}/{install|upgrade|uninstall}`.
+- New config field `integrations.auto_install` to install detected agents automatically at startup.
 - Claude Code, Codex CLI, Qoder CLI, and Gemini CLI family (Gemini / Qwen Code / iFlow) integrations, installable with `agent-beacon integrate install <target>`.
 - `agent-beacon hook` command that reads agent hook payloads from stdin or an argument, derives the state from the event name, and reports it. It always exits 0 so a stopped service never blocks the agent.
 - Integration installers now merge into existing configuration: `settings.json` hooks and `config.toml` `notify` are tagged, preserved on upgrade, and removed on uninstall without touching user-defined entries.

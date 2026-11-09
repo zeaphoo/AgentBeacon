@@ -136,6 +136,10 @@ pnpm --dir web test
 | `POST` | `/api/v1/control` | 应用手动灯效 |
 | `POST` | `/api/v1/control/auto` | 恢复自动控制 |
 | `GET/PUT` | `/api/v1/config` | 读取或更新配置 |
+| `GET` | `/api/v1/integrations` | Agent 集成：检测到、已安装、待安装 |
+| `POST` | `/api/v1/integrations/settings` | 只更新 `auto_install` / `onboarded` |
+| `POST` | `/api/v1/integrations/install-all` | 安装所有检测到但尚未接入的 agent |
+| `POST` | `/api/v1/integrations/{target}/{install\|upgrade\|uninstall}` | 操作单个集成 |
 
 ### CLI
 
@@ -164,6 +168,8 @@ CLI help 与诊断输出使用英文。
 | Cordis patch | `dsh` | JS hook + `~/.dsh/cordis.patch.yml` 里的 `BEGIN/END` 块 |
 | JSON hooks | `claude-code`、`qoder`、`gemini`、`qwen`、`iflow` | 追加到 `settings.json` 的 `hooks`，命令尾部带 `# agent-beacon-hook:<target>:<version>` 标记 |
 | Codex notify | `codex` | `config.toml` 里被 `# >>> agent-beacon-hook:codex` 注释包裹的 `notify` 数组 |
+
+控制台同样可以安装（`POST /api/v1/integrations/...`）。`config.integrations.auto_install` 让服务在启动时自动安装新检测到的 agent；`config.integrations.onboarded` 记录首次启动提示是否已处理。
 
 JSON hooks 与 Codex 安装器采用合并写入：用户已有的 hook 与其它配置键保持不变，卸载时只删除带标记的条目。`integrate install` 不带目标时，会安装所有配置目录存在的目标。
 

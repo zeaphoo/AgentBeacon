@@ -19,6 +19,7 @@ pub struct Config {
     pub yh50: Yh50Config,
     pub devices: Vec<DeviceBinding>,
     pub mock: MockConfig,
+    pub integrations: IntegrationsConfig,
 }
 
 impl Default for Config {
@@ -33,6 +34,7 @@ impl Default for Config {
             yh50: Yh50Config::default(),
             devices: Vec::new(),
             mock: MockConfig::default(),
+            integrations: IntegrationsConfig::default(),
         }
     }
 }
@@ -110,6 +112,24 @@ pub struct DeviceBinding {
     pub profile: DeviceProfile,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IntegrationsConfig {
+    /// 服务启动时自动安装新检测到的 agent 集成。
+    pub auto_install: bool,
+    /// 首次启动的接入提示是否已经处理过（安装或跳过）。
+    pub onboarded: bool,
+}
+
+impl Default for IntegrationsConfig {
+    fn default() -> Self {
+        Self {
+            auto_install: false,
+            onboarded: false,
+        }
+    }
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ConfigError {
     #[error("unsupported config version: {0}")]
@@ -177,6 +197,17 @@ mod tests {
         let text = serde_json::to_string_pretty(&config).unwrap();
         let parsed: Config = serde_json::from_str(&text).unwrap();
         assert_eq!(config, parsed);
+    }
+
+    #[test]
+    fn integrations_default_to_manual_install() {
+        let config = Config::default();
+        assert!(!config.integrations.auto_install);
+        assert!(!config.integrations.onboarded);
+
+        // 老配置文件缺少 integrations 段时按默认值补齐。
+        let parsed: Config = serde_json::from_str(r#"{"version":1}"#).unwrap();
+        assert_eq!(parsed.integrations, IntegrationsConfig::default());
     }
 
     #[test]

@@ -37,6 +37,16 @@ pub fn router(state: Arc<BeaconState>) -> Router {
         .route("/api/v1/control", post(control))
         .route("/api/v1/control/auto", post(control_auto))
         .route("/api/v1/config", get(get_config).put(put_config))
+        .route("/api/v1/integrations", get(integrations_view))
+        .route("/api/v1/integrations/settings", post(integrations_settings))
+        .route(
+            "/api/v1/integrations/install-all",
+            post(integrations_install_all),
+        )
+        .route(
+            "/api/v1/integrations/{target}/{action}",
+            post(integrations_action),
+        )
         .fallback(static_handler)
         .with_state(state)
 }
@@ -247,6 +257,123 @@ async fn put_config(
     Ok(Json(config))
 }
 
+/// `GET /api/v1/integrations`：可控台展示的全部 agent 集成与安装状态。
+async fn integrations_view(State(state): State<Arc<BeaconState>>) -> Json<serde_json::Value> {
+    Json(integrations_payload(&state))
+}
+
+fn integrations_payload(state: &BeaconState) -> serde_json::Value {
+    let config = state.config();
+    let entries = crate::integrations::list();
+    let detected = entries.iter().filter(|entry| entry.detected).count();
+    let installed = entries
+        .iter()
+        .filter(|entry| entry.installed_version.is_some())
+        .count();
+    let pending: Vec<&str> = entries
+        .iter()
+        .filter(|entry| entry.detected && entry.installed_version.is_none())
+        .map(|entry| entry.id)
+        .collect();
+    json!({
+        "auto_install": config.integrations.auto_install,
+        "onboarded": config.integrations.onboarded,
+        "detected": detected,
+        "installed": installed,
+        "pending": pending,
+        "entries": entries,
+    })
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct IntegrationsSettings {
+    #[serde(default)]
+    auto_install: Option<bool>,
+    #[serde(default)]
+    onboarded: Option<bool>,
+}
+
+/// `POST /api/v1/integrations/settings`：只改集成相关设置，不触碰其余配置。
+async fn integrations_settings(
+    State(state): State<Arc<BeaconState>>,
+    payload: Result<Json<IntegrationsSettings>, JsonRejection>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let Json(settings) =
+        payload.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
+    let mut config = state.config();
+    if let Some(auto_install) = settings.auto_install {
+        config.integrations.auto_install = auto_install;
+    }
+    if let Some(onboarded) = settings.onboarded {
+        config.integrations.onboarded = onboarded;
+    }
+    state.set_config(config).map_err(ApiError::internal)?;
+    Ok(Json(integrations_payload(&state)))
+}
+
+/// `POST /api/v1/integrations/install-all`：安装所有检测到但尚未安装的集成。
+///
+/// 顺带把首次启动提示标记为已处理，避免装完又弹一次。
+async fn integrations_install_all(
+    State(state): State<Arc<BeaconState>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let results = crate::integrations::install_detected();
+    let mut config = state.config();
+    if !config.integrations.onboarded {
+        config.integrations.onboarded = true;
+        state.set_config(config).map_err(ApiError::internal)?;
+    }
+    Ok(Json(json!({
+        "results": results
+            .into_iter()
+            .map(|(target, result)| match result {
+                Ok(outcome) => json!({
+                    "id": target.id(),
+                    "outcome": outcome.id(),
+                }),
+                Err(error) => json!({
+                    "id": target.id(),
+                    "error": error,
+                }),
+            })
+            .collect::<Vec<_>>(),
+        "integrations": integrations_payload(&state),
+    })))
+}
+
+/// `POST /api/v1/integrations/{target}/{install|upgrade|uninstall}`。
+async fn integrations_action(
+    State(state): State<Arc<BeaconState>>,
+    axum::extract::Path((target, action)): axum::extract::Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let Some(target) = crate::integrations::Target::parse(target.trim()) else {
+        return Err(ApiError::not_found(format!(
+            "unknown integration {}; expected {}",
+            target,
+            crate::integrations::Target::ids()
+        )));
+    };
+    let outcome = match action.as_str() {
+        "install" => {
+            crate::integrations::install(target, None, false).map(|(outcome, _)| outcome.id())
+        }
+        "upgrade" => crate::integrations::upgrade(target, None).map(|(outcome, _)| outcome.id()),
+        "uninstall" => crate::integrations::uninstall(target, None).map(|_| "uninstalled"),
+        other => {
+            return Err(ApiError::not_found(format!(
+                "unknown integration action {other}; expected install, upgrade, uninstall"
+            )))
+        }
+    }
+    .map_err(ApiError::bad_request)?;
+    Ok(Json(json!({
+        "id": target.id(),
+        "action": action,
+        "outcome": outcome,
+        "integrations": integrations_payload(&state),
+    })))
+}
+
 fn asset_response(path: &str, data: Vec<u8>) -> Response {
     let mime = mime_guess::from_path(path).first_or_octet_stream();
     let cache = if path == "index.html" {
@@ -393,6 +520,64 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("unknown variant"));
+    }
+
+    #[tokio::test]
+    async fn integrations_endpoint_lists_targets_and_settings() {
+        let state = test_state();
+        let app = router(state.clone());
+
+        let response = app
+            .clone()
+            .oneshot(get("/api/v1/integrations"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response).await;
+        assert_eq!(body["auto_install"], false);
+        assert_eq!(body["onboarded"], false);
+        let entries = body["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 9);
+        let codex = entries
+            .iter()
+            .find(|entry| entry["id"] == "codex")
+            .expect("codex must be listed");
+        assert_eq!(codex["kind"], "notify");
+        assert_eq!(codex["bundled_version"], crate::VERSION);
+        assert!(codex["state"].is_string());
+        assert!(codex["detected"].is_boolean());
+
+        // 设置接口只改集成开关，其余配置保持不变。
+        let response = app
+            .clone()
+            .oneshot(post(
+                "/api/v1/integrations/settings",
+                r#"{"auto_install":true,"onboarded":true}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response).await;
+        assert_eq!(body["auto_install"], true);
+        assert_eq!(body["onboarded"], true);
+        assert_eq!(state.config().server.port, 6980);
+    }
+
+    #[tokio::test]
+    async fn integration_actions_report_unknown_targets() {
+        let app = router(test_state());
+        let response = app
+            .clone()
+            .oneshot(post("/api/v1/integrations/nope/install", "{}"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = app
+            .oneshot(post("/api/v1/integrations/codex/explode", "{}"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

@@ -136,6 +136,10 @@ The default listen address is `127.0.0.1:6980`. Configuration can be updated thr
 | `POST` | `/api/v1/control` | Apply a manual light effect |
 | `POST` | `/api/v1/control/auto` | Restore automatic control |
 | `GET/PUT` | `/api/v1/config` | Read or update configuration |
+| `GET` | `/api/v1/integrations` | Agent integrations: detected, installed, and pending |
+| `POST` | `/api/v1/integrations/settings` | Update `auto_install` / `onboarded` only |
+| `POST` | `/api/v1/integrations/install-all` | Install every detected but unconnected agent |
+| `POST` | `/api/v1/integrations/{target}/{install\|upgrade\|uninstall}` | Act on one integration |
 
 ### CLI
 
@@ -164,6 +168,8 @@ The CLI help and diagnostics are English.
 | Cordis patch | `dsh` | A JS hook plus a `BEGIN/END` block in `~/.dsh/cordis.patch.yml` |
 | JSON hooks | `claude-code`, `qoder`, `gemini`, `qwen`, `iflow` | Commands appended to `settings.json` `hooks`, tagged with a trailing `# agent-beacon-hook:<target>:<version>` comment |
 | Codex notify | `codex` | A `notify` array wrapped in `# >>> agent-beacon-hook:codex` comments in `config.toml` |
+
+Installation is also available from the web console (`POST /api/v1/integrations/...`). `config.integrations.auto_install` makes the service install newly detected agents at startup; `config.integrations.onboarded` records that the first-launch prompt has been handled.
 
 The JSON-hooks and Codex installers merge instead of overwriting: user-defined hooks and unrelated keys are preserved, and uninstall only removes tagged entries. `integrate install` without a target installs every target whose config directory exists.
 

@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { Languages, LayoutDashboard, Lightbulb, Monitor, Moon, Settings, Sun, Usb } from 'lucide-react'
+import { Languages, LayoutDashboard, Lightbulb, Monitor, Moon, Plug, Settings, Sun, Usb } from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
 import { usePreferencesStore } from '../store/preferences'
 import { useBeaconStream } from '../hooks/useBeaconStream'
@@ -15,10 +15,12 @@ import {
   SelectValue,
 } from '../components/ui/select'
 import BeaconLogo from '../components/BeaconLogo'
+import IntegrationOnboarding from '../components/IntegrationOnboarding'
 
 const NAV = [
   { to: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard },
   { to: '/control', labelKey: 'nav.control', icon: Lightbulb },
+  { to: '/agents', labelKey: 'nav.agents', icon: Plug },
   { to: '/settings', labelKey: 'nav.settings', icon: Settings },
 ]
 
@@ -136,6 +138,8 @@ export default function Layout() {
       <main className="mx-auto max-w-6xl px-4 py-6">
         <Outlet />
       </main>
+
+      <IntegrationOnboarding />
     </div>
   )
 }

@@ -37,4 +37,18 @@ export const api = {
       body: JSON.stringify({ effect, duration_secs, device }),
     }),
   cancelControl: () => request('/api/v1/control/auto', { method: 'POST' }),
+  getIntegrations: () => request('/api/v1/integrations'),
+  saveIntegrationSettings: (settings) =>
+    request('/api/v1/integrations/settings', {
+      method: 'POST',
+      body: JSON.stringify(settings),
+    }),
+  installIntegration: (id) =>
+    request(`/api/v1/integrations/${id}/install`, { method: 'POST' }),
+  upgradeIntegration: (id) =>
+    request(`/api/v1/integrations/${id}/upgrade`, { method: 'POST' }),
+  uninstallIntegration: (id) =>
+    request(`/api/v1/integrations/${id}/uninstall`, { method: 'POST' }),
+  installAllIntegrations: () =>
+    request('/api/v1/integrations/install-all', { method: 'POST' }),
 }

@@ -6,6 +6,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
+
 use crate::VERSION;
 
 const PI_SOURCE: &str = include_str!("../assets/integrations/agent-beacon-hook-pi.js");
@@ -88,13 +90,39 @@ impl Target {
         }
     }
 
-    /// 该 agent 是否已经装过（用于 `integrate install` 不带参数时自动筛选）。
-    pub fn available(self) -> bool {
+    /// 本机是否装了该 agent：只看 agent 自己的配置目录，与插件是否安装无关。
+    ///
+    /// 用于 `integrate install` 不带目标时的筛选，以及控制台的“检测到”标记。
+    pub fn detected(self) -> bool {
         match self.kind() {
-            Kind::File => true,
+            Kind::File => {
+                let Ok(dir) = self.default_dir() else {
+                    return false;
+                };
+                // 插件目录可能要等 agent 首次启动才创建，因此逐级向上找。
+                let mut current = Some(dir.as_path());
+                for _ in 0..3 {
+                    let Some(path) = current else { break };
+                    if path.exists() {
+                        return true;
+                    }
+                    current = path.parent();
+                }
+                false
+            }
             Kind::Dsh => crate::dsh::available(),
             Kind::JsonHooks => crate::settings_hooks::available(self),
             Kind::CodexNotify => crate::codex::available(),
+        }
+    }
+
+    /// 安装方式的稳定标识，供 API 与前端展示。
+    pub fn kind_id(self) -> &'static str {
+        match self.kind() {
+            Kind::File => "plugin",
+            Kind::Dsh => "patch",
+            Kind::JsonHooks => "hooks",
+            Kind::CodexNotify => "notify",
         }
     }
 
@@ -188,6 +216,14 @@ impl Outcome {
             Outcome::UpToDate => "up to date",
         }
     }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Outcome::Installed => "installed",
+            Outcome::Upgraded => "upgraded",
+            Outcome::UpToDate => "up-to-date",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -217,6 +253,88 @@ impl State {
             State::Unmanaged => "unmanaged file",
         }
     }
+
+    /// API 里使用的稳定标识（前端据此选择文案与颜色）。
+    pub fn id(self) -> &'static str {
+        match self {
+            State::NotInstalled => "not-installed",
+            State::UpToDate => "up-to-date",
+            State::UpgradeAvailable => "upgrade-available",
+            State::Unmanaged => "unmanaged",
+        }
+    }
+}
+
+/// 一个集成在控制台里需要展示的全部信息。
+#[derive(Debug, Clone, Serialize)]
+pub struct IntegrationInfo {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub kind: &'static str,
+    /// 本机是否装了该 agent（决定“检测到”标记与默认安装范围）。
+    pub detected: bool,
+    pub state: &'static str,
+    pub installed_version: Option<String>,
+    pub bundled_version: &'static str,
+    pub dir: String,
+    pub path: String,
+    /// 状态查询失败时的原因；此时其余字段为尽力而为的占位值。
+    pub error: Option<String>,
+}
+
+/// 列出全部集成及其安装状态。
+pub fn list() -> Vec<IntegrationInfo> {
+    Target::ALL
+        .iter()
+        .copied()
+        .map(|target| match status(target, None) {
+            Ok(status) => IntegrationInfo {
+                id: target.id(),
+                label: target.label(),
+                kind: target.kind_id(),
+                detected: target.detected(),
+                state: status.state.id(),
+                installed_version: status.installed_version,
+                bundled_version: status.embedded_version,
+                dir: status.dir.display().to_string(),
+                path: status.path.display().to_string(),
+                error: None,
+            },
+            Err(error) => {
+                let dir = target.default_dir().unwrap_or_default();
+                IntegrationInfo {
+                    id: target.id(),
+                    label: target.label(),
+                    kind: target.kind_id(),
+                    detected: target.detected(),
+                    state: State::NotInstalled.id(),
+                    installed_version: None,
+                    bundled_version: VERSION,
+                    dir: dir.display().to_string(),
+                    path: dir.display().to_string(),
+                    error: Some(error),
+                }
+            }
+        })
+        .collect()
+}
+
+/// 安装所有“检测到但尚未安装”的集成；已在册的跳过（由 upgrade_installed 处理）。
+pub fn install_detected() -> Vec<(Target, Result<Outcome, String>)> {
+    let mut results = Vec::new();
+    for target in Target::ALL {
+        if !target.detected() {
+            continue;
+        }
+        let Ok(current) = status(target, None) else {
+            continue;
+        };
+        if current.installed_version.is_some() {
+            continue;
+        }
+        results.push((target, install(target, None, false).map(|(outcome, _)| outcome)));
+    }
+    results
 }
 
 fn home_dir() -> Result<PathBuf, String> {

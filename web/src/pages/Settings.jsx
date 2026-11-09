@@ -56,6 +56,15 @@ export default function Settings() {
   const [buzzerDialogOpen, setBuzzerDialogOpen] = useState(false)
   const savedRef = useRef(null)
   const requestRef = useRef(0)
+  // integrations 由“Agent 集成”页面与本页共写同一份配置；保存时始终采用
+  // 服务端最新值，避免本页的旧副本把自动安装开关改回去。
+  const integrationsRef = useRef(null)
+
+  useEffect(() => {
+    if (snapshot?.config?.integrations) {
+      integrationsRef.current = snapshot.config.integrations
+    }
+  }, [snapshot])
 
   useEffect(() => {
     if (snapshot?.config && form === null) {
@@ -68,6 +77,7 @@ export default function Settings() {
 
     const payload = {
       ...form,
+      integrations: integrationsRef.current ?? form.integrations,
       manual_override_default_secs: Number(form.manual_override_default_secs),
       mlight: { ...form.mlight, brightness: Number(form.mlight.brightness) },
     }

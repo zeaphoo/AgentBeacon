@@ -75,6 +75,8 @@ Web 控制台会在每个已连接设备上显示对应的能力徽章。
 
    `agent-beacon integrate install` 不带目标时会安装所有检测到的 agent；`agent-beacon integrate list` 可查看已安装、内置与可用状态。
 
+   也可以在控制台完成：**Agent 集成**页面会列出所有检测到的 agent 及其安装状态，支持一键安装/升级/卸载，以及「自动安装」开关；首次启动时控制台会提示接入检测到的 agent。
+
 5. 打开控制台查看状态、试用灯光控制或调整设置。
 
 从源码构建、打包、测试和架构说明见[开发文档](docs/development.zh-CN.md)。

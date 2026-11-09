@@ -11,6 +11,10 @@
 
 ### 新增
 
+- 控制台新增「Agent 集成」页面：列出所有检测到的 agent 及其安装状态，支持一键安装/升级/卸载，以及「自动安装」开关。
+- 首次启动提示：检测到已安装但未接入的 agent 时弹出，接入或跳过后写入 `integrations.onboarded`，不会重复打扰。
+- 新增 `GET /api/v1/integrations`、`POST /api/v1/integrations/settings`、`POST /api/v1/integrations/install-all`，以及 `POST /api/v1/integrations/{target}/{install|upgrade|uninstall}`。
+- 新增配置项 `integrations.auto_install`，服务启动时自动安装检测到的 agent。
 - 新增 Claude Code、Codex CLI、Qoder CLI 以及 Gemini CLI 家族（Gemini / Qwen Code / iFlow）集成，可用 `agent-beacon integrate install <target>` 安装。
 - 新增 `agent-beacon hook` 命令：从 stdin 或参数读取 agent 的 hook 载荷，按事件名推导状态并上报。它始终返回 0，服务未运行也不会阻塞 agent。
 - 集成安装器改为合并写入：`settings.json` 的 hooks 与 `config.toml` 的 `notify` 会带标记保留，升级时原地更新，卸载时只删除自己的条目，不影响用户已有配置。
