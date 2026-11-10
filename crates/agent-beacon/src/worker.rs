@@ -1,4 +1,4 @@
-//! 设备发现循环：发现新设备、按配置启动 actor，并处理 mock 设备开关。
+//! 设备发现循环：发现新设备并按配置启动 actor。
 //!
 //! 两条发现通道并行：
 //!
@@ -13,7 +13,6 @@ use agent_beacon_core::DeviceProfile;
 use agent_beacon_lights::actor::{spawn, ActorConfig, TransportFactory};
 use agent_beacon_lights::ble::{known_links, BleTransport, KnownLink};
 use agent_beacon_lights::discovery::{detect, PortInfo, PortKind};
-use agent_beacon_lights::mock::{MockLog, MockTransport};
 use agent_beacon_lights::transport::{
     probe_agentcore, AgentCoreTransport, SerialTransport, Transport, Yh50Transport,
 };
@@ -27,6 +26,8 @@ struct ActorEntry {
     profile: DeviceProfile,
     port: String,
     handle: JoinHandle<()>,
+    /// 串口从系统枚举里消失的时间；宽限期后停掉 actor 并清理设备条目。
+    missing_since: Option<Instant>,
 }
 
 /// BLE 扫描节奏：每次扫多久、隔多久扫一次。
@@ -41,14 +42,16 @@ const BLE_SCAN_INTERVAL: Duration = Duration::from_secs(15);
 /// 的问题，可以比广播扫描勤快得多：设备连上之后就不再广播，靠它才能发现。
 const KNOWN_LINK_INTERVAL: Duration = Duration::from_secs(10);
 
+/// 串口从系统枚举里消失后保留多久：先显示“未连接”方便重插，超时后停 actor 并移除设备。
+const MISSING_PORT_GRACE: Duration = Duration::from_millis(crate::routing::MISSING_GRACE_MS);
+
 pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut actors: HashMap<String, ActorEntry> = HashMap::new();
-        let mut mock_actor: Option<ActorEntry> = None;
         // 蓝牙端口的握手探测只做一次：`HELLO` 要等 1.5 s，不能每两秒重来。
         let mut probes: HashMap<String, bool> = HashMap::new();
         // BLE：扫描是阻塞动作（一次要扫几秒），交给后台线程跑，结果从这个 channel 回来，
-        // 保证串口枚举和 mock 设备不被拖慢。
+        // 保证串口枚举不被拖慢。
         let (ble_tx, mut ble_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut ble_scanning = false;
         let mut last_ble_scan: Option<Instant> = None;
@@ -60,13 +63,14 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
 
         loop {
             let config = state.config();
-            let ports = match serialport::available_ports() {
-                Ok(ports) => ports,
+            let (ports, enumeration_ok) = match serialport::available_ports() {
+                Ok(ports) => (ports, true),
                 Err(error) => {
                     tracing::warn!(error = %error, "failed to enumerate serial ports");
-                    Vec::new()
+                    (Vec::new(), false)
                 }
             };
+            let enumerated: Vec<String> = ports.iter().map(|port| port.port_name.clone()).collect();
 
             let mut current_ports: Vec<String> = Vec::new();
 
@@ -97,12 +101,41 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                         profile: device.profile,
                         port: device.port,
                         handle,
+                        missing_since: None,
                     },
                 );
             }
 
             // 端口拔掉后清掉探测结果，重新插上时会再握手一次。
             probes.retain(|port, _| current_ports.contains(port));
+
+            // 串口已经不在系统枚举里：先保留一小段时间显示“未连接”，
+            // 方便用户判断是掉线还是没插；超过宽限期就停 actor、清理设备条目。
+            // BLE / SPP 不是系统串口，不能按枚举结果判断，跳过。
+            if enumeration_ok {
+                let now = Instant::now();
+                actors.retain(|id, entry| {
+                    if entry.port.starts_with("ble:") || entry.port.starts_with("spp:") {
+                        return true;
+                    }
+                    if enumerated.iter().any(|port| port == &entry.port) {
+                        entry.missing_since = None;
+                        return true;
+                    }
+                    let since = *entry.missing_since.get_or_insert(now);
+                    if now.duration_since(since) < MISSING_PORT_GRACE {
+                        return true;
+                    }
+                    tracing::info!(
+                        device = %id,
+                        port = %entry.port,
+                        "serial port has been missing; stopping device actor"
+                    );
+                    entry.handle.abort();
+                    state.unregister_device(id);
+                    false
+                });
+            }
 
             // 配置里显式绑定的 BLE / SPP 链路：这两类端口系统不会枚举出来，
             // 只能按 `devices[{ port: "ble:…" / "spp:…" }]` 直接起 actor。
@@ -129,6 +162,7 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                         profile: DeviceProfile::AgentCore,
                         port: id,
                         handle,
+                        missing_since: None,
                     },
                 );
             }
@@ -182,6 +216,7 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                                     profile: DeviceProfile::AgentCore,
                                     port: id,
                                     handle,
+                                    missing_since: None,
                                 },
                             );
                         }
@@ -238,6 +273,7 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                                     profile: DeviceProfile::AgentCore,
                                     port,
                                     handle,
+                                    missing_since: None,
                                 },
                             );
                         }
@@ -251,30 +287,15 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                 }
             }
 
-            if config.mock.enabled {
-                if mock_actor.is_none() {
-                    state.register_device(DeviceInfo::new("mock:0", "mock", DeviceProfile::Mock));
-                    let handle = spawn_actor(&state, "mock:0", "mock", DeviceProfile::Mock);
-                    mock_actor = Some(ActorEntry {
-                        profile: DeviceProfile::Mock,
-                        port: "mock".to_string(),
-                        handle,
-                    });
+            // 让被 abort 的 actor 有机会结束，避免句柄堆积；actor 自己退出时也要清掉设备条目。
+            actors.retain(|id, entry| {
+                if entry.handle.is_finished() {
+                    state.unregister_device(id);
+                    false
+                } else {
+                    true
                 }
-            } else if let Some(entry) = mock_actor.take() {
-                entry.handle.abort();
-                state.unregister_device("mock:0");
-            }
-
-            // 让被 abort 的 actor 有机会结束，避免句柄堆积。
-            actors.retain(|_, entry| !entry.handle.is_finished());
-            if mock_actor
-                .as_ref()
-                .is_some_and(|entry| entry.handle.is_finished())
-            {
-                mock_actor = None;
-            }
-
+            });
             let manual = tokio::select! {
                 _ = state.scan_notify().notified() => true,
                 _ = tokio::time::sleep(Duration::from_secs(2)) => false,
@@ -349,9 +370,6 @@ fn spawn_actor(
                 in_blocking(move || AgentCoreTransport::open(&target))
                     .map(|transport| Box::new(transport) as Box<dyn Transport>)
             })
-        }
-        DeviceProfile::Mock => {
-            Arc::new(|| Ok(Box::new(MockTransport::new(MockLog::default())) as Box<dyn Transport>))
         }
     };
 

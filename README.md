@@ -35,7 +35,6 @@ Runs fully local on `127.0.0.1:6980` — no account, no telemetry.
 - **Web console** — status overview, manual light control, automatic settings save, device bindings, and supported-device reference.
 - **Desktop app** — splash screen, tray controls, launch at login, and supervised local service for Linux, macOS, and Windows.
 - **Agent integrations** — installer-managed hooks and plugins for Pi, OpenCode, DeepSeek Harness, Claude Code, Codex CLI, Qoder CLI, the Gemini CLI family (Gemini / Qwen Code / iFlow), Google Antigravity, Grok Build, and more; any agent via CLI or HTTP.
-- **Hardware-free testing** — optional mock device validates the full report → aggregate → light pipeline.
 - **Hook diagnostics** — a bounded journal of hook events and state transitions, readable through `agent-beacon hooks` or `GET /api/v1/hooks`.
 - **Bilingual and themeable UI** — Chinese/English, light/dark themes, system-language initialization, and system-following theme mode.
 - **Local by default** — the service listens on `127.0.0.1:6980`; no cloud account or telemetry is required.
@@ -48,7 +47,6 @@ Runs fully local on `127.0.0.1:6980` — no account, no telemetry.
 | `mlight-3led` | USB CDC | ✅ | — | Three-LED RGB status light |
 | `yh50-rgy-j` | USB serial / libusb | — | ✅ | Tri-color LED with buzzer |
 | `agentcore-light` | USB CDC / Bluetooth SPP / BLE (NUS) | ✅ | ✅ | Text-line status light; auto-detected by VID `4C4A:4155`, Espressif `303A` + product name, Bluetooth SPP port + `HELLO` handshake, or a BLE advertisement with the NUS service |
-| `mock` | Virtual | — | — | Development and hardware-free validation |
 
 The web console displays the supported capabilities as feature badges on each connected device.
 

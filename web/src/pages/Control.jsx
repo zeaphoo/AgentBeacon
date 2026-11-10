@@ -7,10 +7,12 @@ import {
   SUPPORTED_LIGHT_PROFILES,
   TONE_CLASSES,
   capabilitiesForProfile,
+  connectionLabel,
   effectLabel,
   profileLabel,
 } from '../lib/labels'
 import DeviceFeatures from '../components/DeviceFeatures'
+import { resolveLights } from '../lib/lights'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import {
@@ -108,9 +110,8 @@ export default function Control() {
       .catch((err) => setBindingStatus(err.message))
   }, [devices, snapshot?.config, saveConfig])
 
-  const deviceList = snapshot?.devices ?? []
-  // mock 设备只在状态页与手动覆盖目标中出现，不参与型号绑定。
-  const realDevices = deviceList.filter((item) => item.profile !== 'mock')
+  // 统一视图：只列运行时发现的设备；配置里存在但没插的绑定不显示。
+  const realDevices = resolveLights(snapshot)
   const override = snapshot?.override
   const remaining = override
     ? Math.max(0, Math.ceil((override.expires_at_ms - now) / 1000))
@@ -123,7 +124,7 @@ export default function Control() {
           profile,
           capabilities: capabilitiesForProfile(profile),
         }))
-  ).filter((item) => item.profile !== 'mock')
+  )
 
   const messageText = message
     ? message.key === 'control.applied'
@@ -171,8 +172,10 @@ export default function Control() {
 
   function bindingFor(item) {
     const serial = item.id.startsWith('serial:') ? item.id.slice('serial:'.length) : null
-    return (devices ?? []).find((binding) =>
-      serial ? binding.serial === serial : binding.port === item.port,
+    return (devices ?? []).find(
+      (binding) =>
+        binding.id === item.id ||
+        (serial ? binding.serial === serial : binding.port === item.port),
     )
   }
 
@@ -260,9 +263,10 @@ export default function Control() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">{t('control.allDevices')}</SelectItem>
-                    {deviceList.map((item) => (
+                    {realDevices.map((item) => (
                       <SelectItem key={item.id} value={item.id}>
-                        {item.id} · {profileLabel(profileFor(item), t)}
+                        {connectionLabel(item.port, t)} · {item.id} ·{' '}
+                        {profileLabel(profileFor(item), t)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -365,8 +369,10 @@ export default function Control() {
                             : t('dashboard.disconnected')}
                         </Badge>
                       </div>
-                      <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
-                        {item.port}
+                      <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {connectionLabel(item.port, t)}
+                        <span className="mx-1">·</span>
+                        <span className="font-mono">{item.port}</span>
                       </div>
                       <DeviceFeatures
                         capabilities={capabilitiesForProfile(

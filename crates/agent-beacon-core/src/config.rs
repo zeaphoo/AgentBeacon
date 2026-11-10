@@ -21,7 +21,6 @@ pub struct Config {
     pub yh50: Yh50Config,
     pub routing: RoutingConfig,
     pub devices: Vec<DeviceBinding>,
-    pub mock: MockConfig,
     pub integrations: IntegrationsConfig,
 }
 
@@ -37,7 +36,6 @@ impl Default for Config {
             yh50: Yh50Config::default(),
             routing: RoutingConfig::default(),
             devices: Vec::new(),
-            mock: MockConfig::default(),
             integrations: IntegrationsConfig::default(),
         }
     }
@@ -92,17 +90,6 @@ impl Default for Yh50Config {
         Self {
             buzzer_on_alert: false,
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MockConfig {
-    pub enabled: bool,
-}
-
-impl Default for MockConfig {
-    fn default() -> Self {
-        Self { enabled: false }
     }
 }
 

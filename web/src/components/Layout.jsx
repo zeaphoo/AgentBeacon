@@ -1,6 +1,16 @@
 import { useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { Languages, LayoutDashboard, Lightbulb, Monitor, Moon, Plug, Settings, Sun, Usb } from 'lucide-react'
+import {
+  Languages,
+  LayoutDashboard,
+  Lightbulb,
+  Monitor,
+  Moon,
+  Plug,
+  Settings,
+  Sun,
+  Usb,
+} from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
 import { usePreferencesStore } from '../store/preferences'
 import { useBeaconStream } from '../hooks/useBeaconStream'
@@ -12,10 +22,10 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from '../components/ui/select'
 import BeaconLogo from '../components/BeaconLogo'
 import IntegrationOnboarding from '../components/IntegrationOnboarding'
+import { resolveLights } from '../lib/lights'
 
 const NAV = [
   { to: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard },
@@ -39,18 +49,18 @@ export default function Layout() {
     if (!snapshot) load()
   }, [snapshot, load])
 
-  const devices = snapshot?.devices ?? []
-  const connectedDevices = devices.filter((device) => device.connected).length
+  const lights = resolveLights(snapshot)
+  const connectedDevices = lights.filter((light) => light.connected).length
   const deviceTone =
-    !snapshot || devices.length === 0
+    !snapshot || lights.length === 0
       ? 'text-muted-foreground'
-      : connectedDevices === devices.length
+      : connectedDevices === lights.length
         ? 'text-success'
         : connectedDevices === 0
           ? 'text-danger'
           : 'text-warning'
   const deviceLabel = snapshot
-    ? t('header.deviceCount', { connected: connectedDevices, total: devices.length })
+    ? t('header.deviceCount', { connected: connectedDevices, total: lights.length })
     : t('header.deviceNone')
   const deviceTitle = connected ? t('header.deviceTitleLive') : t('header.deviceTitleStale')
 
@@ -98,34 +108,32 @@ export default function Layout() {
             </Badge>
             <Select value={language} onValueChange={setLanguage}>
               <SelectTrigger
-                className="h-8 w-auto gap-1.5 border-border/70 px-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                className="h-8 w-auto gap-1 border-input bg-transparent px-2 text-muted-foreground shadow-none hover:bg-accent hover:text-accent-foreground [&>span]:hidden"
                 title={t('header.language')}
                 aria-label={t('header.language')}
               >
-                <Languages className="h-3.5 w-3.5 shrink-0" />
-                <SelectValue />
+                <Languages className="h-4 w-4 shrink-0" />
               </SelectTrigger>
-              <SelectContent className="min-w-[9rem]">
+              <SelectContent className="min-w-0">
                 <SelectItem value="zh">{t('header.languageZh')}</SelectItem>
                 <SelectItem value="en">{t('header.languageEn')}</SelectItem>
               </SelectContent>
             </Select>
             <Select value={theme} onValueChange={setTheme}>
               <SelectTrigger
-                className="h-8 w-auto gap-1.5 border-border/70 px-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                className="h-8 w-auto gap-1 border-input bg-transparent px-2 text-muted-foreground shadow-none hover:bg-accent hover:text-accent-foreground [&>span]:hidden"
                 title={t('header.theme')}
                 aria-label={t('header.theme')}
               >
                 {theme === 'system' ? (
-                  <Monitor className="h-3.5 w-3.5 shrink-0" />
+                  <Monitor className="h-4 w-4 shrink-0" />
                 ) : theme === 'light' ? (
-                  <Sun className="h-3.5 w-3.5 shrink-0" />
+                  <Sun className="h-4 w-4 shrink-0" />
                 ) : (
-                  <Moon className="h-3.5 w-3.5 shrink-0" />
+                  <Moon className="h-4 w-4 shrink-0" />
                 )}
-                <SelectValue />
               </SelectTrigger>
-              <SelectContent className="min-w-[9rem]">
+              <SelectContent className="min-w-0">
                 <SelectItem value="system">{t('header.themeSystem')}</SelectItem>
                 <SelectItem value="light">{t('header.themeLight')}</SelectItem>
                 <SelectItem value="dark">{t('header.themeDark')}</SelectItem>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatUptime, stateTone } from './labels'
+import { connectionLabel, formatUptime, stateTone } from './labels'
 
 const t = (key, vars) => (vars ? `${key.replace('time.', '')}:${vars.n}` : key)
 
@@ -9,6 +9,18 @@ describe('labels', () => {
     expect(formatUptime(60, t)).toBe('minutes:1')
     expect(formatUptime(7063, t)).toBe('hours:1 minutes:57')
     expect(formatUptime(90061, t)).toBe('days:1 hours:1')
+  })
+
+
+  it('labels connection types for BLE, SPP, serial and USB links', () => {
+    const key = (name) => name
+    expect(connectionLabel('ble:c3:a4:49:2c:6a', key)).toBe('connection.bluetooth')
+    expect(connectionLabel('spp:AA:BB:CC:DD:EE:FF', key)).toBe('connection.bluetoothSpp')
+    expect(connectionLabel('/dev/ttyACM0', key)).toBe('connection.serial')
+    expect(connectionLabel('COM3', key)).toBe('connection.serial')
+    expect(connectionLabel('serial:5055207940A3461C', key)).toBe('connection.serial')
+    expect(connectionLabel('usb:1A86:7523', key)).toBe('connection.usb')
+    expect(connectionLabel('unknown', key)).toBe('connection.device')
   })
 
   it('uses the configured effect tone for session states', () => {

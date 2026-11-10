@@ -36,6 +36,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 - Automatic AgentCore-Light detection over USB CDC (`4C4A:4155`; Espressif `303A` also needs a product-name keyword) and Bluetooth SPP (bluetooth serial ports are verified with a one-off `HELLO` handshake before an actor is attached).
 - Pi integration no longer reports `idle` during an active run when extensions reload, and reports now carry the Pi session id and are sent in order (latest state wins).
 
+### Removed
+
+- The mock device concept: the `mock` profile, `mock.enabled` config, mock command log, dashboard/settings references, and hardware-free mock actor are gone. Devices now come only from real discovery.
+
 ## [0.1.0-rc.1] - 2026-11-04
 
 ### Added

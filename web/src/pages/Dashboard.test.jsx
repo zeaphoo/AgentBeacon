@@ -19,13 +19,12 @@ const snapshot = {
   ],
   devices: [
     {
-      id: 'mock:0',
-      port: 'mock',
-      profile: 'mock',
+      id: 'ml:0',
+      port: '/dev/ttyUSB0',
+      profile: 'mlight-3led',
       connected: true,
       effect: 'attention',
       last_error: null,
-      mock_commands: ['4D 4F 43 4B'],
     },
   ],
   service: { version: '0.1.0', pid: 42, port: 6980, uptime_secs: 12 },
@@ -44,16 +43,20 @@ describe('Dashboard', () => {
   })
 
   it('renders aggregate, sessions and devices', () => {
-    render(
+    const { container } = render(
       <MemoryRouter>
         <Dashboard />
       </MemoryRouter>,
     )
 
     expect(screen.getAllByText('等待确认').length).toBeGreaterThan(0)
-    expect(screen.getByText('claude-code')).toBeInTheDocument()
-    expect(screen.getByText('Mock 设备')).toBeInTheDocument()
+    const sessionRow = screen.getByText('claude-code').closest('li')
+    expect(sessionRow.firstElementChild).toHaveTextContent('等待确认')
+    expect(sessionRow.children[1].getAttribute('data-agent-logo')).toBe('claude-code')
+    expect(container.querySelector('[data-agent-logo="claude-code"]')).toBeTruthy()
+    expect(screen.getByText('MLight 三灯珠')).toBeInTheDocument()
     expect(screen.getByText('已连接')).toBeInTheDocument()
+    expect(screen.getByText('串口')).toBeInTheDocument()
     expect(screen.queryByText(/PID/)).not.toBeInTheDocument()
   })
 
@@ -90,6 +93,10 @@ describe('Dashboard', () => {
         aggregate: 'error',
         effect: 'alert',
         sessions: [],
+        config: {
+          ...snapshot.config,
+          routing: { strategy: 'auto_agent' },
+        },
         routing: [
           {
             device: 'serial:A',
@@ -127,7 +134,6 @@ describe('Dashboard', () => {
             connected: true,
             effect: 'busy',
             last_error: null,
-            mock_commands: [],
           },
           {
             id: 'serial:B',
@@ -137,7 +143,6 @@ describe('Dashboard', () => {
             connected: true,
             effect: 'alert',
             last_error: null,
-            mock_commands: [],
           },
         ],
       },
@@ -150,9 +155,9 @@ describe('Dashboard', () => {
     )
 
     expect(screen.getByTestId('device-serial:A')).toHaveTextContent('左灯')
-    expect(screen.getByTestId('device-serial:A')).toHaveTextContent('显示：claude')
+    expect(screen.getByTestId('device-serial:A')).toHaveTextContent('分配 Agent：claude')
     expect(screen.getByTestId('device-serial:B')).toHaveTextContent('右灯')
-    expect(screen.getByTestId('device-serial:B')).toHaveTextContent('显示：codex')
+    expect(screen.getByTestId('device-serial:B')).toHaveTextContent('分配 Agent：codex')
   })
 
   it('shows an empty state when there are no sessions', () => {

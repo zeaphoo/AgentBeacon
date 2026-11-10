@@ -8,7 +8,6 @@ pub mod ble;
 pub mod device;
 pub mod discovery;
 pub mod mlight;
-pub mod mock;
 pub mod spp;
 pub mod transport;
 pub mod yh50;
@@ -55,7 +54,6 @@ pub fn plan_for(profile: DeviceProfile, effect: Effect, options: PlanOptions) ->
         DeviceProfile::Mlight3Led => mlight::plan(effect, true),
         DeviceProfile::Yh50 => yh50::plan(effect, options.buzzer_on_alert),
         DeviceProfile::AgentCore => agentcore::plan(effect, options.buzzer_on_alert),
-        DeviceProfile::Mock => mock::plan(effect),
     }
 }
 
@@ -115,8 +113,6 @@ pub struct DeviceInfo {
     pub last_seen_ms: Option<u64>,
     pub effect: Effect,
     pub last_error: Option<String>,
-    #[serde(default)]
-    pub mock_commands: Vec<String>,
 }
 
 impl DeviceInfo {
@@ -131,7 +127,6 @@ impl DeviceInfo {
             last_seen_ms: None,
             effect: Effect::Off,
             last_error: None,
-            mock_commands: Vec::new(),
         }
     }
 }
@@ -160,9 +155,6 @@ mod tests {
                 label: "yh50:alert".to_string(),
             }]
         );
-
-        let plan = plan_for(DeviceProfile::Mock, Effect::Busy, options);
-        assert_eq!(plan.dedupe_key, "mock:busy");
     }
 
     #[test]

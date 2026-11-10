@@ -16,6 +16,7 @@ import {
   TONE_CLASSES,
   aggregateLabel,
   capabilitiesForProfile,
+  connectionLabel,
   effectLabel,
   effectTone,
   formatAge,
@@ -24,7 +25,10 @@ import {
   stateLabel,
   stateTone,
 } from '../lib/labels'
+import AgentLogo from '../components/AgentLogo'
 import DeviceFeatures from '../components/DeviceFeatures'
+import { resolveLights } from '../lib/lights'
+import { agentLogoId } from '../lib/agents'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import {
@@ -107,23 +111,7 @@ export default function Dashboard() {
   const sessions = snapshot.sessions ?? []
   const devices = snapshot.devices ?? []
   const runtimeById = new Map(devices.map((device) => [device.id, device]))
-  const routes = snapshot.routing ?? []
-  const lights =
-    routes.length > 0
-      ? routes
-      : devices.map((device) => ({
-          device: device.id,
-          label: device.label,
-          assignment: 'mirror',
-          agents: [],
-          sessions: [],
-          aggregate: snapshot.aggregate,
-          auto_effect: device.effect,
-          effect: device.effect,
-          overridden: false,
-          connected: device.connected,
-          last_seen_ms: device.last_seen_ms,
-        }))
+  const lights = resolveLights(snapshot)
   const connectedDevices = lights.filter((light) => light.connected).length
 
   async function handleClear() {
@@ -260,6 +248,10 @@ export default function Dashboard() {
                   >
                     {stateLabel(session.state, t)}
                   </Badge>
+                  <AgentLogo
+                    id={agentLogoId(session.agent)}
+                    className="h-5 w-5"
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{session.agent}</div>
                     <div className="truncate text-xs text-muted-foreground">
@@ -289,7 +281,7 @@ export default function Dashboard() {
           </Button>
         </CardHeader>
         <CardContent>
-          {devices.length === 0 ? (
+          {lights.length === 0 ? (
             <EmptyState
               icon={Usb}
               title={t('dashboard.noDevicesTitle')}
@@ -344,15 +336,26 @@ export default function Dashboard() {
 
                     <div className="mt-3 space-y-1 text-xs text-muted-foreground">
                       <div>
-                        {t('dashboard.showingAgents', {
-                          agents: light.agents?.length
-                            ? light.agents.join(', ')
-                            : t('dashboard.noAgents'),
-                        })}
+                        {t(
+                          ['auto_agent', 'manual_agent'].includes(
+                            snapshot.config?.routing?.strategy,
+                          )
+                            ? 'dashboard.assignedAgents'
+                            : 'dashboard.showingAgents',
+                          {
+                            agents: light.agents?.length
+                              ? light.agents.join(', ')
+                              : t('dashboard.noAgents'),
+                          },
+                        )}
                       </div>
                       {runtime ? (
                         <>
-                          <div className="truncate">{runtime.port}</div>
+                          <div className="truncate">
+                            {connectionLabel(runtime.port, t)}
+                            <span className="mx-1">·</span>
+                            <span className="font-mono">{runtime.port}</span>
+                          </div>
                           <DeviceFeatures
                             capabilities={
                               runtime.capabilities ??
@@ -362,18 +365,15 @@ export default function Dashboard() {
                           />
                         </>
                       ) : (
-                        <div className="truncate font-mono">{light.device}</div>
+                        <div className="truncate">
+                          {connectionLabel(light.device, t)}
+                          <span className="mx-1">·</span>
+                          <span className="font-mono">{light.device}</span>
+                        </div>
                       )}
                       {runtime?.last_error && (
                         <div className="text-danger">
                           {t('dashboard.deviceError', { error: runtime.last_error })}
-                        </div>
-                      )}
-                      {runtime?.mock_commands?.length > 0 && (
-                        <div className="truncate font-mono">
-                          {t('dashboard.lastCommand', {
-                            command: runtime.mock_commands[runtime.mock_commands.length - 1],
-                          })}
                         </div>
                       )}
                     </div>

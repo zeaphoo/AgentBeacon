@@ -14,7 +14,7 @@ pub trait Transport: Send {
 
     /// 取走设备主动上报、还没被消费的行（只有文本行协议设备实现）。
     ///
-    /// 默认返回空：二进制协议设备（MLight / YH50 / Mock）没有上报。
+    /// 默认返回空：二进制协议设备（MLight / YH50）没有上报。
     fn drain_lines(&mut self) -> Vec<String> {
         Vec::new()
     }

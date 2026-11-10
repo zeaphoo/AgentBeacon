@@ -1,4 +1,4 @@
-//! 端到端：启动真实二进制（mock 设备），用 CLI 上报，验证聚合与设备命令。
+//! 端到端：启动真实二进制，用 CLI 上报，验证聚合、会话与 stdin 关闭退出。
 
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -21,7 +21,6 @@ fn temp_config(port: u16) -> std::path::PathBuf {
     let path = dir.join("config.json");
     let mut config = Config::default();
     config.server.port = port;
-    config.mock.enabled = true;
     std::fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
     path
 }
@@ -38,7 +37,7 @@ fn wait_until<F: FnMut() -> bool>(timeout: Duration, mut condition: F) -> bool {
 }
 
 #[test]
-fn cli_report_reaches_mock_device_and_shuts_down_on_stdin_close() {
+fn cli_report_updates_state_and_shuts_down_on_stdin_close() {
     let port = free_port();
     let config = temp_config(port);
     let base = format!("http://127.0.0.1:{port}");
@@ -91,7 +90,6 @@ fn cli_report_reaches_mock_device_and_shuts_down_on_stdin_close() {
         String::from_utf8_lossy(&report.stderr)
     );
 
-    let mut snapshot = Value::Null;
     assert!(
         wait_until(Duration::from_secs(5), || {
             let Ok(response) = client.get(format!("{base}/api/v1/state")).send() else {
@@ -100,30 +98,14 @@ fn cli_report_reaches_mock_device_and_shuts_down_on_stdin_close() {
             let Ok(value) = response.json::<Value>() else {
                 return false;
             };
-            let ready = value["devices"].as_array().is_some_and(|devices| {
-                devices.iter().any(|device| {
-                    device["id"] == "mock:0"
-                        && device["connected"] == true
-                        && device["effect"] == "attention"
+            value["aggregate"] == "waiting"
+                && value["sessions"].as_array().is_some_and(|sessions| {
+                    sessions.iter().any(|session| {
+                        session["agent"] == "claude" && session["state"] == "waiting"
+                    })
                 })
-            }) && value["aggregate"] == "waiting";
-            if ready {
-                snapshot = value;
-            }
-            ready
         }),
-        "mock 设备没有收到 attention 灯效"
-    );
-
-    let commands = snapshot["devices"][0]["mock_commands"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    assert!(
-        commands.iter().any(|command| command
-            .as_str()
-            .is_some_and(|value| value.starts_with("4D 4F 43 4B 3A 61 74 74 65 6E 74 69 6F 6E"))),
-        "mock 命令序列缺少 attention：{commands:?}"
+        "CLI 上报没有进入 waiting 状态"
     );
 
     let _ = child.stdin.take();

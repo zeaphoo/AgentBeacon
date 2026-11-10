@@ -26,7 +26,7 @@ agent hooks / CLI
 ```text
 crates/
   agent-beacon-core/     # 领域模型、配置、会话、灯效
-  agent-beacon-lights/   # 设备发现、协议、传输、actor、mock
+  agent-beacon-lights/   # 设备发现、协议、传输、actor
   agent-beacon/          # axum API、SSE、内嵌资源、CLI、worker
 web/                     # React + Vite + Tailwind + Zustand 控制台
 desktop/src-tauri/       # Tauri 桌面壳（splash、托盘、服务托管）
@@ -107,7 +107,6 @@ pnpm --dir web test
 
 - `cargo run -p agent-beacon` 能启动服务。
 - `agent-beacon status` 和 `agent-beacon devices` 输出英文诊断信息。
-- 没有硬件时，可在配置中设置 `mock.enabled = true` 启用 mock 设备。
 - `agent-beacon integrate list` 查看受管集成状态。
 
 ## 配置与 API

@@ -29,7 +29,6 @@ const config = {
   mlight: { brightness: 50 },
   yh50: { buzzer_on_alert: false },
   devices: [],
-  mock: { enabled: false },
 }
 
 const snapshot = {
@@ -66,8 +65,6 @@ describe('Settings', () => {
   it('saves numeric brightness and mapping values', async () => {
     const user = userEvent.setup()
     render(<Settings />)
-
-    expect(screen.queryByText('启用 mock 设备')).not.toBeInTheDocument()
 
     const brightness = screen.getByLabelText('灯光亮度')
     await user.clear(brightness)

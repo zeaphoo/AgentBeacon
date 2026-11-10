@@ -37,6 +37,10 @@
 
 - Pi 集成在扩展热重载时不再于运行中误报 `idle`；上报会携带 Pi session id，并按顺序发送（latest-wins）。
 
+### 移除
+
+- 移除 mock 设备概念：`mock` profile、`mock.enabled` 配置、mock 命令日志、控制台引用和无需硬件的 mock actor 全部删除。设备只来自真实发现。
+
 ## [0.1.0-rc.1] - 2026-11-04
 
 ### 新增

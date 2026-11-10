@@ -35,7 +35,6 @@ AgentBeacon 把编码 agent 的状态变成桌面上的一束光。
 - **Web 控制台** — 状态总览、手动灯光控制、设置自动保存、灯具页的设备绑定与支持型号列表。
 - **桌面应用** — 启动页、托盘菜单、开机自启动和本地服务托管，覆盖 Linux、macOS 与 Windows。
 - **Agent 集成** — 为 Pi、OpenCode、DeepSeek Harness、Claude Code、Codex CLI、Qoder CLI、Gemini CLI 家族（Gemini / Qwen Code / iFlow）、Google Antigravity、Grok Build 等提供安装器管理的 hook 与插件；其他 agent 可通过 CLI 或 HTTP 接入。
-- **无硬件测试** — 可选 mock 设备验证「上报 → 聚合 → 设备命令」完整链路。
 - **Hook 诊断日志** — 保留最近的 hook 事件与状态迁移，可用 `agent-beacon hooks` 或 `GET /api/v1/hooks` 查看。
 - **中英文与主题** — 中文/English、浅色/深色主题、按系统语言初始化、主题可跟随系统。
 - **本地优先** — 服务默认监听 `127.0.0.1:6980`，不需要云端账号，不上报遥测。
@@ -48,7 +47,6 @@ AgentBeacon 把编码 agent 的状态变成桌面上的一束光。
 | `mlight-3led` | USB CDC | ✅ | — | 三灯珠 RGB 状态灯 |
 | `yh50-rgy-j` | USB 串口 / libusb | — | ✅ | 三色 LED + 蜂鸣器 |
 | `agentcore-light` | USB CDC / 蓝牙 SPP / BLE(NUS) | ✅ | ✅ | 文本行协议状态灯；按 VID `4C4A:4155`、Espressif `303A` + 产品名、蓝牙 SPP 端口 + `HELLO` 握手、或带 NUS service 的 BLE 广播自动识别 |
-| `mock` | 虚拟设备 | — | — | 开发与无硬件验证 |
 
 Web 控制台会在每个已连接设备上显示对应的能力徽章。
 

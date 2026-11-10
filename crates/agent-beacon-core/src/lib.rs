@@ -8,7 +8,7 @@ pub mod profile;
 pub mod session;
 
 pub use config::{
-    Config, ConfigError, DeviceAssignment, DeviceBinding, MlightConfig, MockConfig, RoutingConfig,
+    Config, ConfigError, DeviceAssignment, DeviceBinding, MlightConfig, RoutingConfig,
     RoutingStrategy, ServerConfig, ShutdownConfig, Yh50Config,
 };
 pub use effect::{Effect, Mapping};

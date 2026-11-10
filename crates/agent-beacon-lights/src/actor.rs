@@ -9,7 +9,7 @@ use tokio::task::JoinHandle;
 
 use crate::device::{update, DeviceRegistry};
 use crate::transport::Transport;
-use crate::{hex, plan_for, DesiredState, PlanOptions};
+use crate::{plan_for, DesiredState, PlanOptions};
 
 pub type TransportFactory = Arc<dyn Fn() -> Result<Box<dyn Transport>, String> + Send + Sync>;
 
@@ -178,14 +178,6 @@ async fn run(mut config: ActorConfig) {
             match writer.write(&command.bytes) {
                 Ok(()) => {
                     log_reports(writer, &config.id);
-                    if config.profile == DeviceProfile::Mock {
-                        update(&config.registry, &config.id, |info| {
-                            info.mock_commands.push(hex(&command.bytes));
-                            if info.mock_commands.len() > 50 {
-                                info.mock_commands.remove(0);
-                            }
-                        });
-                    }
                 }
                 Err(error) => {
                     mark_error(&config.registry, &config.id, error);
@@ -291,9 +283,50 @@ fn mark_error(registry: &DeviceRegistry, id: &str, error: String) {
 mod tests {
     use super::*;
     use crate::device::{new_registry, snapshot, upsert};
-    use crate::mock::{MockLog, MockTransport};
     use crate::DeviceInfo;
+    use std::sync::Mutex;
     use std::time::Duration;
+
+    #[derive(Clone, Default)]
+    struct RecordingLog {
+        entries: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl RecordingLog {
+        fn record(&self, bytes: &[u8]) {
+            if let Ok(mut entries) = self.entries.lock() {
+                entries.push(crate::hex(bytes));
+            }
+        }
+
+        fn entries(&self) -> Vec<String> {
+            self.entries
+                .lock()
+                .map(|entries| entries.clone())
+                .unwrap_or_default()
+        }
+    }
+
+    struct RecordingTransport {
+        log: RecordingLog,
+    }
+
+    impl RecordingTransport {
+        fn new(log: RecordingLog) -> Self {
+            Self { log }
+        }
+    }
+
+    impl Transport for RecordingTransport {
+        fn write(&mut self, bytes: &[u8]) -> Result<(), String> {
+            self.log.record(bytes);
+            Ok(())
+        }
+
+        fn describe(&self) -> String {
+            "test".to_string()
+        }
+    }
 
     fn desired(effect: Effect, brightness: u8) -> DesiredState {
         DesiredState {
@@ -313,7 +346,7 @@ mod tests {
             &registry,
             DeviceInfo::new("ml:0", "/dev/fake", DeviceProfile::Mlight3Led),
         );
-        let log = MockLog::default();
+        let log = RecordingLog::default();
         let factory_log = log.clone();
         let (desired_tx, desired_rx) = watch::channel(desired(Effect::Busy, 50));
 
@@ -321,7 +354,7 @@ mod tests {
             id: "ml:0".into(),
             port: "/dev/fake".into(),
             profile: DeviceProfile::Mlight3Led,
-            factory: Arc::new(move || Ok(Box::new(MockTransport::new(factory_log.clone())))),
+            factory: Arc::new(move || Ok(Box::new(RecordingTransport::new(factory_log.clone())))),
             desired: desired_rx,
             registry,
         });
@@ -358,50 +391,13 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn mock_actor_applies_effect_and_records_commands() {
-        let registry = new_registry();
-        upsert(
-            &registry,
-            DeviceInfo::new("mock:0", "mock", DeviceProfile::Mock),
-        );
-
-        let log = MockLog::default();
-        let factory_log = log.clone();
-        let (desired_tx, desired_rx) = watch::channel(desired(Effect::Busy, 50));
-
-        let actor = spawn(ActorConfig {
-            id: "mock:0".into(),
-            port: "mock".into(),
-            profile: DeviceProfile::Mock,
-            factory: Arc::new(move || Ok(Box::new(MockTransport::new(factory_log.clone())))),
-            desired: desired_rx,
-            registry: registry.clone(),
-        });
-
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        let devices = snapshot(&registry);
-        assert_eq!(devices.len(), 1);
-        assert!(devices[0].connected);
-        assert_eq!(devices[0].effect, Effect::Busy);
-        assert!(devices[0]
-            .mock_commands
-            .iter()
-            .any(|command| command.starts_with("4D 4F 43 4B")));
-
-        desired_tx.send(desired(Effect::Alert, 50)).unwrap();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        assert_eq!(snapshot(&registry)[0].effect, Effect::Alert);
-
-        actor.abort();
-    }
-    #[tokio::test(start_paused = true)]
     async fn agentcore_sends_state_names_and_scaled_brightness() {
         let registry = new_registry();
         upsert(
             &registry,
             DeviceInfo::new("ac:0", "/dev/fake", DeviceProfile::AgentCore),
         );
-        let log = MockLog::default();
+        let log = RecordingLog::default();
         let factory_log = log.clone();
         let (desired_tx, desired_rx) = watch::channel(desired(Effect::Busy, 50));
 
@@ -409,7 +405,7 @@ mod tests {
             id: "ac:0".into(),
             port: "/dev/fake".into(),
             profile: DeviceProfile::AgentCore,
-            factory: Arc::new(move || Ok(Box::new(MockTransport::new(factory_log.clone())))),
+            factory: Arc::new(move || Ok(Box::new(RecordingTransport::new(factory_log.clone())))),
             desired: desired_rx,
             registry: registry.clone(),
         });
@@ -460,7 +456,7 @@ mod tests {
             &registry,
             DeviceInfo::new("ml:0", "/dev/fake", DeviceProfile::Mlight3Led),
         );
-        let log = MockLog::default();
+        let log = RecordingLog::default();
         let factory_log = log.clone();
         let (desired_tx, desired_rx) = watch::channel(desired(Effect::Busy, 100));
 
@@ -468,7 +464,7 @@ mod tests {
             id: "ml:0".into(),
             port: "/dev/fake".into(),
             profile: DeviceProfile::Mlight3Led,
-            factory: Arc::new(move || Ok(Box::new(MockTransport::new(factory_log.clone())))),
+            factory: Arc::new(move || Ok(Box::new(RecordingTransport::new(factory_log.clone())))),
             desired: desired_rx,
             registry,
         });

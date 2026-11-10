@@ -26,7 +26,7 @@ agent hooks / CLI
 ```text
 crates/
   agent-beacon-core/     # domain models, config, sessions, effects
-  agent-beacon-lights/   # discovery, protocols, transports, device actors, mock
+  agent-beacon-lights/   # discovery, protocols, transports, device actors
   agent-beacon/          # axum API, SSE, embedded web assets, CLI, worker
 web/                     # React + Vite + Tailwind + Zustand console
 desktop/src-tauri/       # Tauri desktop shell (splash, tray, service supervision)
@@ -107,7 +107,6 @@ Useful manual checks:
 
 - `cargo run -p agent-beacon` starts the service.
 - `agent-beacon status` and `agent-beacon devices` print English diagnostics.
-- Enable mock device in the config (`mock.enabled = true`) when no hardware is available.
 - `agent-beacon integrate list` shows managed agent integrations.
 
 ## Configuration and API

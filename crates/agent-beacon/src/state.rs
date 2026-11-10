@@ -291,7 +291,6 @@ impl BeaconState {
                 info.connected = info.connected || existing.connected;
                 info.last_seen_ms = info.last_seen_ms.or(existing.last_seen_ms);
                 info.effect = existing.effect;
-                info.mock_commands = existing.mock_commands.clone();
                 if info.label.is_none() {
                     info.label = existing.label.clone();
                 }

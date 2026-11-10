@@ -30,7 +30,6 @@ const config = {
   mlight: { brightness: 50 },
   yh50: { buzzer_on_alert: false },
   devices: [],
-  mock: { enabled: false },
 }
 
 const snapshot = {
@@ -38,7 +37,6 @@ const snapshot = {
   effect: 'busy',
   sessions: [],
   devices: [
-    { id: 'mock:0', port: 'mock', profile: 'mock', connected: true, effect: 'busy' },
     {
       id: 'ml:0',
       port: '/dev/ttyUSB0',

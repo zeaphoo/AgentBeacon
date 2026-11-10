@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, RefreshCw, Server, Usb } from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
 import { useI18n } from '../i18n'
-import { AGGREGATE_KEYS, EFFECTS, profileLabel } from '../lib/labels'
+import { AGGREGATE_KEYS, EFFECTS, connectionLabel, profileLabel } from '../lib/labels'
 import AgentLogo from '../components/AgentLogo'
+import { agentLogoId } from '../lib/agents'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import {
@@ -142,7 +143,7 @@ export default function Settings() {
           label: item.label,
           connected: item.connected,
         }))
-  ).filter((route) => runtimeById.get(route.device)?.profile !== 'mock')
+  )
   const routeById = new Map(routes.map((route) => [route.device, route]))
   const detectedAgents = (integrations?.entries ?? [])
     .filter((entry) => entry.detected)
@@ -194,27 +195,6 @@ export default function Settings() {
   function profileForDevice(device) {
     const runtime = runtimeById.get(device)
     return bindingForDevice(device)?.profile ?? runtime?.profile ?? null
-  }
-
-  function agentLogoId(agent) {
-    const value = agent.toLowerCase()
-    if (value.includes('claude')) return 'claude-code'
-    if (value.includes('codex')) return 'codex'
-    if (value.includes('gemini')) return 'gemini'
-    if (value.includes('qwen')) return 'qwen'
-    if (value.includes('iflow')) return 'iflow'
-    if (value.includes('qoder')) return 'qoder'
-    if (value.includes('opencode')) return 'opencode'
-    if (value.includes('workbuddy') || value.includes('work buddy')) return 'workbuddy'
-    if (value.includes('codebuddy') || value.includes('code buddy')) return 'codebuddy'
-    if (value.includes('copilot')) return 'github-copilot'
-    if (value.includes('hermes')) return 'hermes'
-    if (value.includes('zcode') || value.includes('z-code')) return 'zcode'
-    if (value.includes('antigravity')) return 'antigravity'
-    if (value.includes('grok')) return 'grok'
-    if (value === 'pi') return 'pi'
-    if (value.includes('dsh')) return 'dsh'
-    return agent
   }
 
   function setStrategy(next) {
@@ -474,6 +454,7 @@ export default function Settings() {
                   {lights.map((light) => {
                     const agents = manual[light.device] ?? []
                     const profile = profileForDevice(light.device)
+                    const port = runtimeById.get(light.device)?.port ?? light.device
                     const available = activeAgents.filter(
                       (agent) => !agents.includes(agent),
                     )
@@ -488,7 +469,10 @@ export default function Settings() {
                             <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-2">
                                 <span className="text-sm font-medium">
-                                  {light.label ?? light.device}
+                                  {light.label ??
+                                    (profile
+                                      ? profileLabel(profile, t)
+                                      : connectionLabel(port, t))}
                                 </span>
                                 <Badge
                                   variant={light.connected ? 'default' : 'secondary'}
@@ -501,13 +485,15 @@ export default function Settings() {
                                 </Badge>
                               </div>
                               <div className="mt-0.5 text-xs text-muted-foreground">
-                                {profile
-                                  ? profileLabel(profile, t)
-                                  : t('settings.unknownProfile')}
+                                {light.label && profile && (
+                                  <>
+                                    {profileLabel(profile, t)}
+                                    <span className="mx-1">·</span>
+                                  </>
+                                )}
+                                <span>{connectionLabel(port, t)}</span>
                                 <span className="mx-1">·</span>
-                                <span className="font-mono">
-                                  {runtimeById.get(light.device)?.port ?? light.device}
-                                </span>
+                                <span className="font-mono">{port}</span>
                               </div>
                             </div>
                           </div>

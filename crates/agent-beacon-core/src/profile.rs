@@ -26,17 +26,14 @@ pub enum DeviceProfile {
     Yh50,
     #[serde(rename = "agentcore-light")]
     AgentCore,
-    #[serde(rename = "mock")]
-    Mock,
 }
 
 impl DeviceProfile {
-    pub const ALL: [DeviceProfile; 5] = [
+    pub const ALL: [DeviceProfile; 4] = [
         DeviceProfile::MlightSingle,
         DeviceProfile::Mlight3Led,
         DeviceProfile::Yh50,
         DeviceProfile::AgentCore,
-        DeviceProfile::Mock,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -45,7 +42,6 @@ impl DeviceProfile {
             DeviceProfile::Mlight3Led => "mlight-3led",
             DeviceProfile::Yh50 => "yh50-rgy-j",
             DeviceProfile::AgentCore => "agentcore-light",
-            DeviceProfile::Mock => "mock",
         }
     }
 
@@ -55,7 +51,6 @@ impl DeviceProfile {
             "mlight-3led" => Some(DeviceProfile::Mlight3Led),
             "yh50-rgy-j" => Some(DeviceProfile::Yh50),
             "agentcore-light" | "agentcore" => Some(DeviceProfile::AgentCore),
-            "mock" => Some(DeviceProfile::Mock),
             _ => None,
         }
     }
@@ -91,7 +86,6 @@ impl DeviceProfile {
                 brightness: true,
                 buzzer: true,
             },
-            DeviceProfile::Mock => DeviceCapabilities::default(),
         }
     }
 
@@ -138,9 +132,5 @@ mod tests {
         let agentcore = DeviceProfile::AgentCore.capabilities();
         assert!(agentcore.brightness);
         assert!(agentcore.buzzer);
-
-        let mock = DeviceProfile::Mock.capabilities();
-        assert!(!mock.brightness);
-        assert!(!mock.buzzer);
     }
 }
