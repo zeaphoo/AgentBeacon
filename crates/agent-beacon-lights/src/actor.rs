@@ -13,6 +13,9 @@ use crate::{hex, plan_for, DesiredState, PlanOptions};
 
 pub type TransportFactory = Arc<dyn Fn() -> Result<Box<dyn Transport>, String> + Send + Sync>;
 
+/// 空闲时多久醒一次去读设备上报。
+const REPORT_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
 #[derive(Clone)]
 pub struct ActorConfig {
     pub id: String,
@@ -71,6 +74,11 @@ async fn run(mut config: ActorConfig) {
             }
         }
 
+        // 设备主动上报（`STATUS:`/`CHG:`）是异步到达的，每轮先读一次再决定要不要写。
+        if let Some(writer) = transport.as_mut() {
+            log_reports(writer, &config.id);
+        }
+
         let desired = config.desired.borrow_and_update().clone();
         let effect = desired.for_device(&config.id);
         let key = (effect, desired.buzzer_on_alert);
@@ -78,8 +86,15 @@ async fn run(mut config: ActorConfig) {
             config.profile.has_brightness_command() && applied_brightness != Some(desired.brightness);
 
         if applied == Some(key) && !brightness_changed {
-            if config.desired.changed().await.is_err() {
-                return;
+            // 设备会主动上报（`CHG:` 每 5 s、`STATUS:` 变更后），所以即使没有新的
+            // 期望状态也要定期醒一次把上报读走，顺便发现断链。
+            tokio::select! {
+                changed = config.desired.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                }
+                _ = tokio::time::sleep(REPORT_POLL_INTERVAL) => {}
             }
             continue;
         }
@@ -231,6 +246,22 @@ fn log_reports(writer: &mut Box<dyn Transport>, id: &str) {
                 firmware = status.firmware.as_deref(),
                 ble_state = status.ble_state,
                 "agentcore status report"
+            ),
+            crate::agentcore::Report::State(state) => {
+                tracing::debug!(device = id, state = %state, "agentcore state echo")
+            }
+            crate::agentcore::Report::Settings(settings) => tracing::debug!(
+                device = id,
+                brightness_level = settings.brightness_level,
+                buzzer = settings.buzzer,
+                stored_in_vm = settings.stored_in_vm,
+                "agentcore settings report"
+            ),
+            crate::agentcore::Report::Sleep(sleep) => tracing::debug!(
+                device = id,
+                idle_sleep_secs = sleep.idle_sleep_secs,
+                sleeping = sleep.sleeping,
+                "agentcore sleep settings report"
             ),
             crate::agentcore::Report::Error(error) => {
                 tracing::warn!(device = id, error = %error, "agentcore rejected a command")

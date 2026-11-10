@@ -39,7 +39,7 @@ AgentBeacon 在本地运行，监听编码 agent 上报的状态，并把它转�
 | `mlight-single` | USB CDC | ✅ | — | 单灯珠 RGB 状态灯 |
 | `mlight-3led` | USB CDC | ✅ | — | 三灯珠 RGB 状态灯 |
 | `yh50-rgy-j` | USB 串口 / libusb | — | ✅ | 三色 LED + 蜂鸣器 |
-| `agentcore-light` | USB CDC / 蓝牙 SPP | ✅ | ✅ | 文本行协议状态灯；按 VID `4C4A:4155`、Espressif `303A` + 产品名、或蓝牙 SPP 端口 + `HELLO` 握手自动识别 |
+| `agentcore-light` | USB CDC / 蓝牙 SPP / BLE(NUS) | ✅ | ✅ | 文本行协议状态灯；按 VID `4C4A:4155`、Espressif `303A` + 产品名、蓝牙 SPP 端口 + `HELLO` 握手、或带 NUS service 的 BLE 广播自动识别 |
 | `mock` | 虚拟设备 | — | — | 开发与无硬件验证 |
 
 Web 控制台会在每个已连接设备上显示对应的能力徽章。
@@ -55,7 +55,10 @@ AgentCore-Light 在 USB CDC 或蓝牙 SPP 上跑同一套文本行协议（`HELL
   { "devices": [{ "port": "COM5", "profile": "agentcore-light" }] }
   ```
 
-  蓝牙需先配对（`bluetoothctl pair <MAC>`）；Linux 上走 RFCOMM 通道 2（`sudo rfcomm bind 0 <MAC> 2`）。注意插着 USB 时设备不广播，且 BLE（NUS）尚未接入 —— 详见[协议文档](docs/AgentCore-Light-serial-protocol.md)。
+  蓝牙需先配对（`bluetoothctl pair <MAC>`）；Linux 上走 RFCOMM 通道 2（`sudo rfcomm bind 0 <MAC> 2`）。
+- **BLE（NUS）** —— 设备广播 `AgentCore-Light-<后缀>`，扫描发现后连 Nordic UART Service，跑的仍是同一套文本协议（写入按 MTU 分片、通知去重），不需要配对。
+
+插着 USB 时设备不广播，测蓝牙要先拔线。已有 BLE 灯连接时后台暂停扫描（BlueZ 的发现过程会打断 LE 连接）。诊断工具：`cargo run -p agent-beacon-lights --example ble_scan`、`--example ble_status -- name:AgentCore-Light-BLE`。详见[协议文档](docs/AgentCore-Light-serial-protocol.md)。
 
 ## 界面
 

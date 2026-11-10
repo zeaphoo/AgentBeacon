@@ -39,7 +39,7 @@ AgentBeacon runs locally, watches the status reported by coding agents, and turn
 | `mlight-single` | USB CDC | ✅ | — | Single-LED RGB status light |
 | `mlight-3led` | USB CDC | ✅ | — | Three-LED RGB status light |
 | `yh50-rgy-j` | USB serial / libusb | — | ✅ | Tri-color LED with buzzer |
-| `agentcore-light` | USB CDC / Bluetooth SPP | ✅ | ✅ | Text-line status light; auto-detected by VID `4C4A:4155`, Espressif `303A` + product name, or Bluetooth SPP port + `HELLO` handshake |
+| `agentcore-light` | USB CDC / Bluetooth SPP / BLE (NUS) | ✅ | ✅ | Text-line status light; auto-detected by VID `4C4A:4155`, Espressif `303A` + product name, Bluetooth SPP port + `HELLO` handshake, or a BLE advertisement with the NUS service |
 | `mock` | Virtual | — | — | Development and hardware-free validation |
 
 The web console displays the supported capabilities as feature badges on each connected device.
@@ -55,7 +55,10 @@ AgentCore-Light speaks a text-line protocol (`HELLO` / `STATUS` / `IDLE` / `BUSY
   { "devices": [{ "port": "COM5", "profile": "agentcore-light" }] }
   ```
 
-  Pair the device first (`bluetoothctl pair <MAC>`); on Linux connect over RFCOMM channel 2 (`sudo rfcomm bind 0 <MAC> 2`). Note the device stops advertising while USB is plugged in, and BLE (NUS) is not wired up yet — see the [protocol document](docs/AgentCore-Light-serial-protocol.md).
+  Pair the device first (`bluetoothctl pair <MAC>`); on Linux connect over RFCOMM channel 2 (`sudo rfcomm bind 0 <MAC> 2`).
+- **BLE (NUS)** — the device advertises `AgentCore-Light-<suffix>`; it is found by scanning, connected over the Nordic UART Service, and driven with the same text protocol (MTU-chunked writes, de-duplicated notifications). No pairing needed.
+
+The device stops advertising while USB is plugged in, so unplug it before testing Bluetooth. Background BLE scanning pauses while a BLE light is connected, because BlueZ's discovery tears down LE links. Diagnostics: `cargo run -p agent-beacon-lights --example ble_scan` and `--example ble_status -- name:AgentCore-Light-BLE`. Details in the [protocol document](docs/AgentCore-Light-serial-protocol.md).
 
 ## UI
 

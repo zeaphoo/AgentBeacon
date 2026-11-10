@@ -4,6 +4,7 @@
 
 pub mod actor;
 pub mod agentcore;
+pub mod ble;
 pub mod device;
 pub mod discovery;
 pub mod mlight;

@@ -16,7 +16,16 @@
 > 蓝牙 SPP 端口（`bluetooth`/`jl_spp`/`rfcomm`/`标准串行` 等，含 `SerialPortType::BluetoothPort`）
 > 一律先做 `HELLO` 握手确认，握手不通过就当普通串口忽略。也可用配置绑定
 > `devices[{ port: "COM5", profile: "agentcore-light" }]` 指定 Windows 上的蓝牙 COM 口。
-> BLE（NUS）暂未接入，原因见 §2.3 与 §11（Linux 侧只有 SPP 可用，BLE 需另加蓝牙栈依赖）。
+>
+> BLE（NUS）走 `ble.rs`：按名称前缀扫描 → 连 NUS Service → 订阅 TX 通知 → 按 MTU 分片写 RX
+> （不支持无响应写时降级为带响应写）。实测要点（Linux/BlueZ）：
+> * 同一台设备会广播两条记录，经典蓝牙那条名字正好是 `AgentCore-Light` 且没有 NUS 特征，
+>   只认 `AgentCore-Light-<suffix>` 或广播了 NUS Service 的那条；
+> * 同一条通知会被 BlueZ 投递两次，300 ms 内的重复行已去重；
+> * `StartDiscovery` 会打断已有的 LE 连接，所以已有 BLE 设备时后台不再扫描
+>   （设备掉线由它自己的 actor 重连；控制台“重新扫描”会释放 BLE 设备再重新发现）；
+> * 诊断：`cargo run -p agent-beacon-lights --example ble_scan`、
+>   `--example ble_status -- name:AgentCore-Light-BLE`。
 
 - 设备方案：杰理 JieLi **AC696N**（USB `0x4C4A:0x4155`，早期版本为 Espressif `0x303A`）
 - 文档版本：v1.0

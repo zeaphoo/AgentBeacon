@@ -179,7 +179,12 @@ pub async fn run(mut cli: Cli) -> i32 {
 }
 
 fn init_tracing(level: &str) {
-    let filter = EnvFilter::try_new(level)
+    // `--log-level` 有默认值，所以 RUST_LOG 要显式优先，否则文档里写的行为不成立。
+    let level = std::env::var("RUST_LOG")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| level.to_string());
+    let filter = EnvFilter::try_new(&level)
         .or_else(|_| EnvFilter::try_new("info"))
         .unwrap_or_else(|_| EnvFilter::new("info"));
     let _ = tracing_subscriber::fmt()

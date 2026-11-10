@@ -28,6 +28,12 @@ where
     }
 }
 
+pub fn remove(registry: &DeviceRegistry, id: &str) {
+    if let Ok(mut devices) = registry.lock() {
+        devices.remove(id);
+    }
+}
+
 pub fn snapshot(registry: &DeviceRegistry) -> Vec<DeviceInfo> {
     let mut devices: Vec<DeviceInfo> = registry
         .lock()

@@ -58,7 +58,7 @@ impl Transport for SerialTransport {
 }
 
 /// 把字节流切成行：`\n` 结尾，读端兼容 `\r\n`。
-fn split_lines(buffer: &mut Vec<u8>, chunk: &[u8]) -> Vec<String> {
+pub(crate) fn split_lines(buffer: &mut Vec<u8>, chunk: &[u8]) -> Vec<String> {
     buffer.extend_from_slice(chunk);
     let mut lines = Vec::new();
     while let Some(position) = buffer.iter().position(|byte| *byte == b'\n') {
