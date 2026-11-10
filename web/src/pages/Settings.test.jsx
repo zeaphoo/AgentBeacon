@@ -6,6 +6,7 @@ vi.mock('../lib/api', () => ({
   api: {
     saveConfig: vi.fn(),
     getState: vi.fn(),
+    getIntegrations: vi.fn(),
   },
 }))
 
@@ -44,9 +45,22 @@ const snapshot = {
 describe('Settings', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useBeaconStore.setState({ snapshot, loading: false, error: null })
+    useBeaconStore.setState({
+      snapshot,
+      loading: false,
+      error: null,
+      integrations: null,
+    })
     api.saveConfig.mockResolvedValue(config)
     api.getState.mockResolvedValue(snapshot)
+    api.getIntegrations.mockResolvedValue({
+      entries: [],
+      pending: [],
+      auto_install: false,
+      onboarded: false,
+      detected: 0,
+      installed: 0,
+    })
   })
 
   it('saves numeric brightness and mapping values', async () => {
@@ -68,6 +82,157 @@ describe('Settings', () => {
     expect(saved.mlight.brightness).toBe(55)
     expect(saved.mapping.error).toBe('alert')
     expect(await screen.findByText('已保存', {}, { timeout: 2500 })).toBeInTheDocument()
+  })
+
+  it('keeps manual lights and lets the user delete stale ones', async () => {
+    const routingSnapshot = {
+      ...snapshot,
+      sessions: [
+        {
+          agent: 'claude',
+          session: 'claude:1',
+          state: 'working',
+          message: null,
+          updated_at_ms: Date.now(),
+          expires_at_ms: Date.now() + 60_000,
+        },
+      ],
+      devices: [
+        {
+          id: 'serial:A',
+          port: '/dev/A',
+          profile: 'mlight-3led',
+          label: '左灯',
+          connected: true,
+          effect: 'busy',
+          last_seen_ms: null,
+        },
+      ],
+      routing: [
+        {
+          device: 'serial:A',
+          label: '左灯',
+          assignment: 'manual',
+          agents: [],
+          sessions: [],
+          aggregate: 'none',
+          auto_effect: 'off',
+          effect: 'off',
+          overridden: false,
+          connected: true,
+          last_seen_ms: null,
+        },
+      ],
+      unassigned_agents: ['claude'],
+      config: {
+        ...config,
+        devices: [
+          {
+            id: 'serial:A',
+            port: '/dev/A',
+            serial: null,
+            profile: 'mlight-3led',
+            label: '左灯',
+          },
+        ],
+        routing: {
+          strategy: 'unified',
+          manual: { 'serial:GONE': ['pi'] },
+        },
+      },
+    }
+    useBeaconStore.setState({ snapshot: routingSnapshot, loading: false, error: null })
+    api.getState.mockResolvedValue(routingSnapshot)
+
+    const user = userEvent.setup()
+    render(<Settings />)
+
+    await user.click(screen.getByRole('button', { name: /按 Agent 手动分配/ }))
+    expect(screen.getAllByText('serial:GONE').length).toBeGreaterThan(0)
+    expect(screen.getByText('pi')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '删除这台灯的配置' }))
+    await waitFor(
+      () => {
+        const saved = api.saveConfig.mock.calls.at(-1)?.[0]
+        expect(saved?.routing.manual?.['serial:GONE']).toBeUndefined()
+        expect(saved?.routing.strategy).toBe('manual_agent')
+      },
+      { timeout: 2500 },
+    )
+
+    await user.click(screen.getByRole('combobox', { name: '添加 Agent · 左灯' }))
+    await user.click(await screen.findByRole('option', { name: 'claude' }))
+    await waitFor(
+      () => {
+        const saved = api.saveConfig.mock.calls.at(-1)?.[0]
+        expect(saved?.routing.manual?.['serial:A']).toEqual(['claude'])
+      },
+      { timeout: 2500 },
+    )
+  })
+
+  it('offers detected agents even before they report a session', async () => {
+    useBeaconStore.setState({
+      snapshot: {
+        ...snapshot,
+        devices: [
+          {
+            id: 'serial:A',
+            port: '/dev/A',
+            profile: 'mlight-3led',
+            label: '左灯',
+            connected: true,
+            effect: 'off',
+            last_seen_ms: null,
+          },
+        ],
+        routing: [
+          {
+            device: 'serial:A',
+            label: '左灯',
+            assignment: 'manual',
+            agents: [],
+            sessions: [],
+            aggregate: 'none',
+            auto_effect: 'off',
+            effect: 'off',
+            overridden: false,
+            connected: true,
+            last_seen_ms: null,
+          },
+        ],
+        config: {
+          ...config,
+          devices: [
+            {
+              id: 'serial:A',
+              port: '/dev/A',
+              serial: null,
+              profile: 'mlight-3led',
+              label: '左灯',
+            },
+          ],
+          routing: { strategy: 'manual_agent', manual: {} },
+        },
+      },
+      integrations: {
+        entries: [
+          { id: 'claude-code', label: 'Claude Code', detected: true },
+          { id: 'codex', label: 'Codex CLI', detected: true },
+          { id: 'gemini', label: 'Gemini CLI', detected: false },
+        ],
+      },
+      loading: false,
+    })
+
+    const user = userEvent.setup()
+    render(<Settings />)
+
+    await user.click(screen.getByRole('combobox', { name: '添加 Agent · 左灯' }))
+    expect(await screen.findByRole('option', { name: 'claude-code' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'codex' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'gemini' })).not.toBeInTheDocument()
   })
 
   it('requires confirmation before enabling the alert buzzer', async () => {

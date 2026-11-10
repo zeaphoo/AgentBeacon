@@ -106,7 +106,25 @@ export default function Dashboard() {
   const AggregateIcon = AGGREGATE_ICONS[aggregateState]
   const sessions = snapshot.sessions ?? []
   const devices = snapshot.devices ?? []
-  const connectedDevices = devices.filter((device) => device.connected).length
+  const runtimeById = new Map(devices.map((device) => [device.id, device]))
+  const routes = snapshot.routing ?? []
+  const lights =
+    routes.length > 0
+      ? routes
+      : devices.map((device) => ({
+          device: device.id,
+          label: device.label,
+          assignment: 'mirror',
+          agents: [],
+          sessions: [],
+          aggregate: snapshot.aggregate,
+          auto_effect: device.effect,
+          effect: device.effect,
+          overridden: false,
+          connected: device.connected,
+          last_seen_ms: device.last_seen_ms,
+        }))
+  const connectedDevices = lights.filter((light) => light.connected).length
 
   async function handleClear() {
     try {
@@ -168,7 +186,7 @@ export default function Dashboard() {
             <Usb className="h-4 w-4" />
             {t('dashboard.devicesSummary', {
               connected: connectedDevices,
-              total: devices.length,
+              total: lights.length,
             })}
           </div>
           <div className="flex items-center gap-2">
@@ -279,48 +297,89 @@ export default function Dashboard() {
             />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {devices.map((device) => (
-                <div key={device.id} className="rounded-lg border border-border/70 bg-background/40 p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 text-sm font-medium">
-                      <Usb className="h-4 w-4" />
-                      {profileLabel(device.profile, t)}
-                    </div>
-                    <Badge variant={device.connected ? 'default' : 'secondary'}>
-                      {device.connected
-                        ? t('dashboard.connected')
-                        : t('dashboard.disconnected')}
-                    </Badge>
-                  </div>
-                  <DeviceFeatures
-                    capabilities={
-                      device.capabilities ??
-                      capabilitiesForProfile(device.profile, snapshot.profiles)
-                    }
-                    className="mt-2"
-                  />
-                  <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                    <div className="truncate">{device.port}</div>
-                    <div>
-                      {t('dashboard.currentEffect', {
-                        effect: effectLabel(device.effect, t),
-                      })}
-                    </div>
-                    {device.last_error && (
-                      <div className="text-danger">
-                        {t('dashboard.deviceError', { error: device.last_error })}
+              {lights.map((light) => {
+                const runtime = runtimeById.get(light.device)
+                const state = AGGREGATE_ICONS[light.aggregate] ? light.aggregate : 'none'
+                const StateIcon = AGGREGATE_ICONS[state]
+                const effect = light.effect ?? runtime?.effect ?? 'off'
+                return (
+                  <div
+                    key={light.device}
+                    data-testid={`device-${light.device}`}
+                    className={cn('aggregate-card rounded-lg border p-4', `aggregate-${state}`)}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div className="aggregate-icon flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border">
+                          <StateIcon className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="truncate text-xs text-muted-foreground">
+                            {light.label ??
+                              (runtime
+                                ? profileLabel(runtime.profile, t)
+                                : light.device)}
+                          </div>
+                          <div className="text-lg font-semibold">
+                            {aggregateLabel(light.aggregate, t)}
+                          </div>
+                        </div>
                       </div>
-                    )}
-                    {device.mock_commands?.length > 0 && (
-                      <div className="truncate font-mono">
-                        {t('dashboard.lastCommand', {
-                          command: device.mock_commands[device.mock_commands.length - 1],
+                      <Badge variant={light.connected ? 'default' : 'secondary'}>
+                        {light.connected
+                          ? t('dashboard.connected')
+                          : t('dashboard.disconnected')}
+                      </Badge>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Badge className={cn('border', TONE_CLASSES[effectTone(effect)])}>
+                        <Lightbulb className="mr-1 h-3 w-3" />
+                        {effectLabel(effect, t)}
+                      </Badge>
+                      {light.overridden && (
+                        <Badge variant="outline">{t('dashboard.overridden')}</Badge>
+                      )}
+                    </div>
+
+                    <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                      <div>
+                        {t('dashboard.showingAgents', {
+                          agents: light.agents?.length
+                            ? light.agents.join(', ')
+                            : t('dashboard.noAgents'),
                         })}
                       </div>
-                    )}
+                      {runtime ? (
+                        <>
+                          <div className="truncate">{runtime.port}</div>
+                          <DeviceFeatures
+                            capabilities={
+                              runtime.capabilities ??
+                              capabilitiesForProfile(runtime.profile, snapshot.profiles)
+                            }
+                            className="mt-1"
+                          />
+                        </>
+                      ) : (
+                        <div className="truncate font-mono">{light.device}</div>
+                      )}
+                      {runtime?.last_error && (
+                        <div className="text-danger">
+                          {t('dashboard.deviceError', { error: runtime.last_error })}
+                        </div>
+                      )}
+                      {runtime?.mock_commands?.length > 0 && (
+                        <div className="truncate font-mono">
+                          {t('dashboard.lastCommand', {
+                            command: runtime.mock_commands[runtime.mock_commands.length - 1],
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </CardContent>

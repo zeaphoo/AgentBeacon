@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 use agent_beacon_core::DeviceProfile;
 use agent_beacon_lights::actor::{spawn, ActorConfig, TransportFactory};
 use agent_beacon_lights::ble::{known_links, BleTransport, KnownLink};
-use agent_beacon_lights::device::{remove, upsert};
 use agent_beacon_lights::discovery::{detect, PortInfo, PortKind};
 use agent_beacon_lights::mock::{MockLog, MockTransport};
 use agent_beacon_lights::transport::{
@@ -90,10 +89,7 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                 if let Some(entry) = actors.remove(&device.id) {
                     entry.handle.abort();
                 }
-                upsert(
-                    state.devices(),
-                    DeviceInfo::new(&device.id, &device.port, device.profile),
-                );
+                state.register_device(DeviceInfo::new(&device.id, &device.port, device.profile));
                 let handle = spawn_actor(&state, &device.id, &device.port, device.profile);
                 actors.insert(
                     device.id,
@@ -114,21 +110,18 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                 if !binding.profile.is_agentcore() {
                     continue;
                 }
-                let Some(port) = binding.port.as_deref() else {
+                let Some(link) = binding.port.as_deref().or(binding.id.as_deref()) else {
                     continue;
                 };
-                if !(port.starts_with("ble:") || port.starts_with("spp:")) {
+                if !(link.starts_with("ble:") || link.starts_with("spp:")) {
                     continue;
                 }
-                let id = port.to_lowercase();
+                let id = link.to_lowercase();
                 if actors.contains_key(&id) {
                     continue;
                 }
                 tracing::info!(port = %id, "binding AgentCore-Light link from config");
-                upsert(
-                    state.devices(),
-                    DeviceInfo::new(&id, &id, DeviceProfile::AgentCore),
-                );
+                state.register_device(DeviceInfo::new(&id, &id, DeviceProfile::AgentCore));
                 let handle = spawn_actor(&state, &id, &id, DeviceProfile::AgentCore);
                 actors.insert(
                     id.clone(),
@@ -177,10 +170,11 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                                 },
                                 "detected AgentCore-Light from known devices (no scan)"
                             );
-                            upsert(
-                                state.devices(),
-                                DeviceInfo::new(&id, &id, DeviceProfile::AgentCore),
-                            );
+                            state.register_device(DeviceInfo::new(
+                                &id,
+                                &id,
+                                DeviceProfile::AgentCore,
+                            ));
                             let handle = spawn_actor(&state, &id, &id, DeviceProfile::AgentCore);
                             actors.insert(
                                 id.clone(),
@@ -232,10 +226,11 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                                 "detected AgentCore-Light over BLE"
                             );
                             let port = format!("ble:{}", discovery.address.to_lowercase());
-                            upsert(
-                                state.devices(),
-                                DeviceInfo::new(&id, &port, DeviceProfile::AgentCore),
-                            );
+                            state.register_device(DeviceInfo::new(
+                                &id,
+                                &port,
+                                DeviceProfile::AgentCore,
+                            ));
                             let handle = spawn_actor(&state, &id, &port, DeviceProfile::AgentCore);
                             actors.insert(
                                 id.clone(),
@@ -258,10 +253,7 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
 
             if config.mock.enabled {
                 if mock_actor.is_none() {
-                    upsert(
-                        state.devices(),
-                        DeviceInfo::new("mock:0", "mock", DeviceProfile::Mock),
-                    );
+                    state.register_device(DeviceInfo::new("mock:0", "mock", DeviceProfile::Mock));
                     let handle = spawn_actor(&state, "mock:0", "mock", DeviceProfile::Mock);
                     mock_actor = Some(ActorEntry {
                         profile: DeviceProfile::Mock,
@@ -271,9 +263,7 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                 }
             } else if let Some(entry) = mock_actor.take() {
                 entry.handle.abort();
-                if let Ok(mut devices) = state.devices().lock() {
-                    devices.remove("mock:0");
-                }
+                state.unregister_device("mock:0");
             }
 
             // 让被 abort 的 actor 有机会结束，避免句柄堆积。
@@ -302,7 +292,7 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                     if let Some(entry) = actors.remove(&id) {
                         entry.handle.abort();
                     }
-                    remove(state.devices(), &id);
+                    state.unregister_device(&id);
                 }
                 last_ble_scan = None;
                 last_known = None;

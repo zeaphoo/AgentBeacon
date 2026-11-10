@@ -57,6 +57,12 @@ export const useBeaconStore = create((set, get) => ({
     return snapshot
   },
 
+  async rebuildRouting() {
+    const snapshot = await api.rebuildRouting()
+    set({ snapshot, error: null })
+    return snapshot
+  },
+
   async scanDevices() {
     await api.scan()
     await new Promise((resolve) => setTimeout(resolve, 900))

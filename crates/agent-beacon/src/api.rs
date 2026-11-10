@@ -34,6 +34,7 @@ pub fn router(state: Arc<BeaconState>) -> Router {
         .route("/api/v1/stream", get(stream))
         .route("/api/v1/devices", get(devices))
         .route("/api/v1/devices/scan", post(scan))
+        .route("/api/v1/routing/rebuild", post(rebuild_routing))
         .route("/api/v1/control", post(control))
         .route("/api/v1/control/auto", post(control_auto))
         .route("/api/v1/config", get(get_config).put(put_config))
@@ -201,6 +202,11 @@ async fn devices(State(state): State<Arc<BeaconState>>) -> Json<serde_json::Valu
 async fn scan(State(state): State<Arc<BeaconState>>) -> Json<serde_json::Value> {
     state.request_scan();
     Json(json!({ "ok": true }))
+}
+
+async fn rebuild_routing(State(state): State<Arc<BeaconState>>) -> Json<Snapshot> {
+    state.rebuild_routing();
+    Json(state.snapshot())
 }
 
 #[derive(Debug, Deserialize)]
@@ -610,6 +616,59 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn routing_snapshot_and_rebuild() {
+        let state = test_state();
+        let mut config = state.config();
+        config.routing.strategy = agent_beacon_core::RoutingStrategy::AutoSession;
+        config.devices.push(agent_beacon_core::DeviceBinding {
+            serial: Some("A".into()),
+            port: None,
+            id: None,
+            profile: agent_beacon_core::DeviceProfile::Mlight3Led,
+            label: Some("Left".into()),
+            brightness: None,
+            buzzer_on_alert: None,
+        });
+        state.set_config(config).unwrap();
+
+        let mut info = agent_beacon_lights::DeviceInfo::new(
+            "serial:A",
+            "/dev/A",
+            agent_beacon_core::DeviceProfile::Mlight3Led,
+        );
+        info.connected = true;
+        info.last_seen_ms = Some(agent_beacon_core::now_ms());
+        state.register_device(info);
+
+        let app = router(state.clone());
+        let response = app
+            .clone()
+            .oneshot(post(
+                "/api/v1/events",
+                r#"{"agent":"claude","state":"working"}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app.clone().oneshot(get("/api/v1/state")).await.unwrap();
+        let body = body_json(response).await;
+        assert!(body["routing"].is_array());
+        assert_eq!(body["routing"][0]["assignment"], "auto");
+        assert_eq!(body["routing"][0]["label"], "Left");
+        assert_eq!(body["routing"][0]["agents"][0], "claude");
+        assert!(body["unassigned_agents"].is_array());
+
+        let response = app
+            .oneshot(post("/api/v1/routing/rebuild", "{}"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response).await;
+        assert!(body["routing"].is_array());
     }
 
     #[tokio::test]

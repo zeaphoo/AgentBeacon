@@ -10,7 +10,7 @@
 
 系统 SHALL 按设备型号选择协议配置（profile）：`mlight-single`（单灯珠，如 `single-rgb-1003`）、`mlight-3led`（三灯珠）、`yh50-rgy-j`、`agentcore-light`、`mock`。当自动识别不可靠时，用户 SHALL 能按设备 id、USB 序列号或端口名绑定 profile。
 
-设备绑定 SHALL 同时承载分配相关设置：`label`（仅展示）、`assignment`（`mirror`/`auto`/`manual`，缺省 `mirror`）、`brightness` 与 `buzzer_on_alert`（每设备覆盖）。`label` MUST NOT 参与设备匹配。本变更不提供 `enabled` / 删除设备：设备只有检测到与未检测到两种状态。
+设备绑定 SHALL 承载展示与覆盖设置：`label`（仅展示）、`brightness` 与 `buzzer_on_alert`（每设备覆盖）。`label` MUST NOT 参与设备匹配。设备角色由全局 `routing.strategy` 推导，不在设备绑定上逐台配置。本变更不提供 `enabled` / 删除设备：设备只有检测到与未检测到两种状态。
 
 #### Scenario: 单灯珠组合命令
 
@@ -24,13 +24,13 @@
 
 #### Scenario: 按序列号绑定并命名
 
-- **WHEN** 配置 `{"serial":"ABC123","profile":"mlight-3led","label":"左灯","assignment":"auto"}`
+- **WHEN** 配置 `{"serial":"ABC123","profile":"mlight-3led","label":"左灯"}`，全局策略为 `auto_session`
 - **THEN** 该设备使用 `mlight-3led` 协议、界面显示「左灯」、参与自动分配
 
 #### Scenario: 手动专用灯
 
-- **WHEN** 配置 `{"serial":"ABC123","profile":"mlight-3led","label":"Claude 专用","assignment":"manual"}`，且 Claude 被 pin 到该设备
-- **THEN** 该设备只显示 Claude 的 session，不接收其他自动 session
+- **WHEN** 全局策略为 `manual_agent`，且 `routing.manual` 把 Claude 分配给该设备
+- **THEN** 该设备只显示 Claude 的 session，不接收其他 Agent
 
 #### Scenario: 设备离线
 
@@ -41,22 +41,22 @@
 
 系统 SHALL 允许手动设置灯效覆盖自动映射。覆盖具有时长（默认 60 秒，范围 1–3600 秒），到期后自动恢复；覆盖期间聚合状态仍正常更新，覆盖可随时取消。覆盖可指定单个设备，未指定时作用于全部设备。
 
-覆盖 MUST 压过设备的分配结果与空分配回退。全局覆盖作用于全部设备；单设备覆盖只作用于该设备。覆盖到期或取消后，设备 MUST 回到自己的分配结果，而不是全局聚合结果。服务退出关灯 MUST 压过一切覆盖。
+覆盖 MUST 压过设备的策略结果。全局覆盖作用于全部设备；单设备覆盖只作用于该设备。覆盖到期或取消后，设备 MUST 回到当前策略的结果，而不是全局聚合结果。服务退出关灯 MUST 压过一切覆盖。
 
 #### Scenario: 临时点亮全部设备
 
 - **WHEN** 用户手动选择 `alert`、时长 30 秒且不指定设备
-- **THEN** 所有设备立即显示 `alert`，30 秒后各自回到自己的分配结果
+- **THEN** 所有设备立即显示 `alert`，30 秒后各自回到当前策略的结果
 
 #### Scenario: 只覆盖一台灯
 
 - **WHEN** 设备 A 分到 Claude、设备 B 分到 Codex，用户只对 A 应用 `alert`
-- **THEN** A 显示 `alert`，B 继续显示自己的分配结果；A 到期后回到自己的分配结果
+- **THEN** A 显示 `alert`，B 继续显示当前策略的结果；A 到期后回到当前策略的结果
 
 #### Scenario: 取消覆盖
 
 - **WHEN** 覆盖期间用户点击「恢复自动」
-- **THEN** 覆盖立即结束，设备在 1 秒内回到各自的自动分配结果
+- **THEN** 覆盖立即结束，设备在 1 秒内回到当前策略的结果
 
 ### Requirement: 设备状态查询
 

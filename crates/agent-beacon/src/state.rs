@@ -5,16 +5,22 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 use agent_beacon_core::{
-    now_ms, Aggregate, Config, DeviceProfile, DeviceProfileInfo, Effect, Event, SessionRegistry,
-    SessionView, ValidationError,
+    aggregate_of, now_ms, Aggregate, Config, DeviceAssignment, DeviceProfile, DeviceProfileInfo,
+    Effect, Event, SessionRegistry, SessionView, ValidationError,
 };
-use agent_beacon_lights::device::{new_registry, snapshot as device_snapshot, DeviceRegistry};
-use agent_beacon_lights::{DesiredState, DeviceInfo};
+use agent_beacon_lights::device::{
+    new_registry, remove as remove_device, snapshot as device_snapshot, DeviceRegistry,
+};
+use agent_beacon_lights::{DesiredState, DeviceDesired, DeviceInfo};
 use serde::Serialize;
 use tokio::sync::{broadcast, watch, Notify};
 
 use crate::config_store::ConfigStore;
 use crate::journal::{HookKind, HookOutcome, HookRecord, Journal, DEFAULT_CAPACITY};
+use crate::routing::{
+    empty_effect, resolve_devices, AssignmentEngine, AssignmentResult, DeviceRouteView,
+    ResolvedDevice,
+};
 use crate::VERSION;
 
 #[derive(Debug, Clone, Serialize)]
@@ -38,6 +44,8 @@ pub struct Snapshot {
     pub aggregate: Aggregate,
     pub sessions: Vec<SessionView>,
     pub devices: Vec<DeviceInfo>,
+    pub routing: Vec<DeviceRouteView>,
+    pub unassigned_agents: Vec<String>,
     pub profiles: Vec<DeviceProfileInfo>,
     pub effect: Effect,
     #[serde(rename = "override")]
@@ -56,6 +64,11 @@ struct Inner {
     config: Config,
     sessions: SessionRegistry,
     manual_override: Option<ManualOverride>,
+    assignment: AssignmentEngine,
+    routes: Vec<DeviceRouteView>,
+    unassigned_agents: Vec<String>,
+    /// 最近一次下发的期望状态，用于避免每 500ms 重复唤醒设备 actor。
+    last_desired: DesiredState,
     /// 最近一次实际下发的聚合/灯效，用于诊断日志精确记录“变化前”。
     last_view: Transition,
 }
@@ -76,7 +89,8 @@ pub struct BeaconState {
 
 impl BeaconState {
     pub fn new(config: Config, store: ConfigStore, port: u16) -> Arc<Self> {
-        let (desired_tx, _) = watch::channel(initial_desired(&config));
+        let initial = initial_desired(&config);
+        let (desired_tx, _) = watch::channel(initial.clone());
         let (events, _) = broadcast::channel(64);
         let (shutdown, _) = watch::channel(false);
         let started_at_ms = now_ms();
@@ -84,11 +98,15 @@ impl BeaconState {
             aggregate: Aggregate::None,
             effect: config.mapping.effect_for(Aggregate::None),
         };
-        Arc::new(Self {
+        let state = Arc::new(Self {
             inner: Mutex::new(Inner {
                 config,
                 sessions: SessionRegistry::with_default_ttl(),
                 manual_override: None,
+                assignment: AssignmentEngine::default(),
+                routes: Vec::new(),
+                unassigned_agents: Vec::new(),
+                last_desired: initial,
                 last_view,
             }),
             devices: new_registry(),
@@ -101,7 +119,9 @@ impl BeaconState {
             store,
             scan: Notify::new(),
             shutdown,
-        })
+        });
+        state.refresh();
+        state
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -185,11 +205,18 @@ impl BeaconState {
             aggregate,
             sessions,
             devices: device_snapshot(&self.devices),
+            routing: inner.routes.clone(),
+            unassigned_agents: inner.unassigned_agents.clone(),
             profiles: DeviceProfile::ALL
                 .into_iter()
                 .map(|profile| profile.info())
                 .collect(),
-            effect: effective_global(&inner, now),
+            effect: effective_global_effect(
+                &inner.config,
+                aggregate,
+                inner.manual_override.as_ref(),
+                now,
+            ),
             manual_override,
             service: ServiceInfo {
                 version: VERSION,
@@ -207,6 +234,82 @@ impl BeaconState {
         let _ = self.events.send(snapshot);
     }
 
+    /// 重新计算分配、路由视图与每设备期望状态；返回是否有可见变化。
+    fn refresh(&self) -> bool {
+        let now = now_ms();
+        let mut inner = self.lock();
+        // 退出关灯后不再被 tick/事件重新点亮。
+        if inner.last_desired.forced_off {
+            return false;
+        }
+        let config = inner.config.clone();
+        let sessions = inner.sessions.sessions_at(now);
+        let devices = resolve_devices(&config, &self.devices);
+        let result = inner.assignment.resolve(&sessions, &devices, &config, now);
+        let global_aggregate = aggregate_of(sessions.iter());
+        let routes = build_routes(
+            &config,
+            &devices,
+            &result,
+            &sessions,
+            inner.manual_override.as_ref(),
+            now,
+        );
+        let desired = build_desired(
+            &config,
+            &devices,
+            &routes,
+            global_aggregate,
+            inner.manual_override.as_ref(),
+            now,
+        );
+
+        let changed = inner.routes != routes
+            || inner.unassigned_agents != result.unassigned_agents
+            || inner.last_desired != desired;
+        inner.routes = routes;
+        inner.unassigned_agents = result.unassigned_agents;
+        let desired_changed = inner.last_desired != desired;
+        if desired_changed {
+            inner.last_desired = desired.clone();
+        }
+        drop(inner);
+        if desired_changed {
+            let _ = self.desired_tx.send_replace(desired);
+        }
+        changed
+    }
+
+    /// 设备 actor 启动时注册；立即刷新一次，避免新设备先闪全局效果。
+    pub fn register_device(&self, mut info: DeviceInfo) {
+        let config = self.config();
+        if let Some(binding) = crate::routing::binding_for_device(&config, &info.id, &info.port) {
+            info.label = binding.label.clone();
+        }
+        if let Ok(mut devices) = self.devices.lock() {
+            if let Some(existing) = devices.get(&info.id) {
+                info.connected = info.connected || existing.connected;
+                info.last_seen_ms = info.last_seen_ms.or(existing.last_seen_ms);
+                info.effect = existing.effect;
+                info.mock_commands = existing.mock_commands.clone();
+                if info.label.is_none() {
+                    info.label = existing.label.clone();
+                }
+            }
+            devices.insert(info.id.clone(), info);
+        }
+        if self.refresh() {
+            self.publish();
+        }
+    }
+
+    pub fn unregister_device(&self, id: &str) {
+        remove_device(&self.devices, id);
+        if self.refresh() {
+            self.publish();
+        }
+    }
+
     pub fn apply_event(&self, event: Event) -> Result<SessionView, ValidationError> {
         let now = now_ms();
         let mut inner = self.lock();
@@ -214,7 +317,6 @@ impl BeaconState {
         let result = inner.sessions.apply(&event, now);
         match result {
             Ok(view) => {
-                refresh_desired(&self.desired_tx, &inner);
                 let after = transition(&inner, now);
                 inner.last_view = after;
                 self.journal.record(event_record(
@@ -226,6 +328,7 @@ impl BeaconState {
                     None,
                 ));
                 drop(inner);
+                self.refresh();
                 self.publish();
                 Ok(view)
             }
@@ -264,7 +367,7 @@ impl BeaconState {
         let mut inner = self.lock();
         let before = inner.last_view;
         inner.sessions.clear();
-        refresh_desired(&self.desired_tx, &inner);
+        inner.assignment.clear();
         let after = transition(&inner, now);
         inner.last_view = after;
         self.journal.record(HookRecord::new(
@@ -275,6 +378,7 @@ impl BeaconState {
             after.effect,
         ));
         drop(inner);
+        self.refresh();
         self.publish();
     }
 
@@ -284,7 +388,15 @@ impl BeaconState {
         let mut inner = self.lock();
         let before = inner.last_view;
         inner.config = config;
-        refresh_desired(&self.desired_tx, &inner);
+        let devices = resolve_devices(&inner.config, &self.devices);
+        if let Ok(mut registry) = self.devices.lock() {
+            for device in devices.iter().filter(|device| device.registered) {
+                if let Some(info) = registry.get_mut(&device.id) {
+                    info.label = device.label.clone();
+                }
+            }
+        }
+        let detail = routing_summary(&inner.config);
         let after = transition(&inner, now);
         inner.last_view = after;
         self.journal.record(
@@ -295,9 +407,10 @@ impl BeaconState {
                 after.aggregate,
                 after.effect,
             )
-            .with_detail("configuration updated"),
+            .with_detail(detail),
         );
         drop(inner);
+        self.refresh();
         self.publish();
         Ok(())
     }
@@ -323,7 +436,6 @@ impl BeaconState {
             expires_at_ms: now.saturating_add(duration_secs.saturating_mul(1000)),
             device,
         });
-        refresh_desired(&self.desired_tx, &inner);
         let after = transition(&inner, now);
         inner.last_view = after;
         self.journal.record(
@@ -337,6 +449,7 @@ impl BeaconState {
             .with_detail(detail),
         );
         drop(inner);
+        self.refresh();
         self.publish();
     }
 
@@ -345,7 +458,6 @@ impl BeaconState {
         let mut inner = self.lock();
         let before = inner.last_view;
         inner.manual_override = None;
-        refresh_desired(&self.desired_tx, &inner);
         let after = transition(&inner, now);
         inner.last_view = after;
         self.journal.record(HookRecord::new(
@@ -356,6 +468,30 @@ impl BeaconState {
             after.effect,
         ));
         drop(inner);
+        self.refresh();
+        self.publish();
+    }
+
+    /// 清空粘性分配并按当前 session 全量重算。
+    pub fn rebuild_routing(&self) {
+        let now = now_ms();
+        let mut inner = self.lock();
+        let before = inner.last_view;
+        inner.assignment.clear();
+        let after = transition(&inner, now);
+        inner.last_view = after;
+        self.journal.record(
+            HookRecord::new(
+                HookKind::Config,
+                before.aggregate,
+                before.effect,
+                after.aggregate,
+                after.effect,
+            )
+            .with_detail("routing rebuilt"),
+        );
+        drop(inner);
+        self.refresh();
         self.publish();
     }
 
@@ -368,7 +504,6 @@ impl BeaconState {
         let before = inner.last_view;
         let expired = inner.sessions.expire_and_collect(now);
         if !expired.is_empty() {
-            refresh_desired(&self.desired_tx, &inner);
             let after = transition(&inner, now);
             inner.last_view = after;
             let detail = expired
@@ -396,7 +531,6 @@ impl BeaconState {
         if override_expired {
             let before = inner.last_view;
             inner.manual_override = None;
-            refresh_desired(&self.desired_tx, &inner);
             let after = transition(&inner, now);
             inner.last_view = after;
             self.journal.record(HookRecord::new(
@@ -410,18 +544,23 @@ impl BeaconState {
         }
 
         drop(inner);
-        if changed {
+        let refreshed = self.refresh();
+        if changed || refreshed {
             self.publish();
         }
-        changed
+        changed || refreshed
     }
 
     /// 退出前把灯全部关掉（不依赖映射）。
     pub fn force_off(&self) {
-        let _ = self.desired_tx.send_replace(DesiredState {
-            effect: Effect::Off,
+        let mut inner = self.lock();
+        let desired = DesiredState {
+            forced_off: true,
             ..DesiredState::default()
-        });
+        };
+        inner.last_desired = desired.clone();
+        drop(inner);
+        let _ = self.desired_tx.send_replace(desired);
     }
 
     pub fn health_json(&self) -> serde_json::Value {
@@ -442,9 +581,15 @@ struct Transition {
 }
 
 fn transition(inner: &Inner, now: u64) -> Transition {
+    let aggregate = inner.sessions.aggregate_at(now);
     Transition {
-        aggregate: inner.sessions.aggregate_at(now),
-        effect: effective_global(inner, now),
+        aggregate,
+        effect: effective_global_effect(
+            &inner.config,
+            aggregate,
+            inner.manual_override.as_ref(),
+            now,
+        ),
     }
 }
 
@@ -482,58 +627,155 @@ fn event_record(
 
 fn initial_desired(config: &Config) -> DesiredState {
     DesiredState {
-        effect: config.mapping.effect_for(Aggregate::None),
-        overrides: HashMap::new(),
-        brightness: config.mlight.brightness,
-        buzzer_on_alert: config.yh50.buzzer_on_alert,
+        devices: HashMap::new(),
+        default: DeviceDesired {
+            effect: config.mapping.effect_for(Aggregate::None),
+            brightness: config.mlight.brightness,
+            buzzer_on_alert: config.yh50.buzzer_on_alert,
+        },
+        forced_off: false,
     }
 }
 
-fn effective_global(inner: &Inner, now: u64) -> Effect {
-    if let Some(item) = &inner.manual_override {
+fn effective_global_effect(
+    config: &Config,
+    aggregate: Aggregate,
+    manual_override: Option<&ManualOverride>,
+    now: u64,
+) -> Effect {
+    if let Some(item) = manual_override {
         if item.expires_at_ms > now && item.device.is_none() {
             return item.effect;
         }
     }
-    inner
-        .config
-        .mapping
-        .effect_for(inner.sessions.aggregate_at(now))
+    config.mapping.effect_for(aggregate)
 }
 
-fn refresh_desired(tx: &watch::Sender<DesiredState>, inner: &Inner) {
-    let now = now_ms();
-    let aggregate = inner.sessions.aggregate_at(now);
-    let mut effect = inner.config.mapping.effect_for(aggregate);
-    let mut overrides = HashMap::new();
-    if let Some(item) = &inner.manual_override {
-        if item.expires_at_ms > now {
-            match &item.device {
-                Some(device) => {
-                    overrides.insert(device.clone(), item.effect);
+fn build_routes(
+    config: &Config,
+    devices: &[ResolvedDevice],
+    result: &AssignmentResult,
+    all_sessions: &[SessionView],
+    manual_override: Option<&ManualOverride>,
+    now: u64,
+) -> Vec<DeviceRouteView> {
+    devices
+        .iter()
+        .map(|device| {
+            let mut sessions = if device.assignment == DeviceAssignment::Mirror {
+                all_sessions.to_vec()
+            } else {
+                result
+                    .by_device
+                    .get(&device.id)
+                    .cloned()
+                    .unwrap_or_default()
+            };
+            sessions.sort_by_key(|view| std::cmp::Reverse(view.updated_at_ms));
+            let empty = sessions.is_empty();
+            let aggregate = aggregate_of(sessions.iter());
+            let auto_effect = if empty {
+                empty_effect(config)
+            } else {
+                config.mapping.effect_for(aggregate)
+            };
+            let mut effect = auto_effect;
+            let mut overridden = false;
+            if let Some(item) = manual_override.filter(|item| item.expires_at_ms > now) {
+                match &item.device {
+                    None => {
+                        effect = item.effect;
+                        overridden = true;
+                    }
+                    Some(id) if id == &device.id => {
+                        effect = item.effect;
+                        overridden = true;
+                    }
+                    _ => {}
                 }
-                None => effect = item.effect,
             }
-        }
+            let mut agents: Vec<String> = sessions.iter().map(|view| view.agent.clone()).collect();
+            agents.sort();
+            agents.dedup();
+            DeviceRouteView {
+                device: device.id.clone(),
+                label: device.label.clone(),
+                assignment: device.assignment,
+                agents,
+                sessions,
+                aggregate,
+                auto_effect,
+                effect,
+                overridden,
+                connected: device.connected,
+                last_seen_ms: device.last_seen_ms,
+            }
+        })
+        .collect()
+}
+
+fn build_desired(
+    config: &Config,
+    devices: &[ResolvedDevice],
+    routes: &[DeviceRouteView],
+    global_aggregate: Aggregate,
+    manual_override: Option<&ManualOverride>,
+    now: u64,
+) -> DesiredState {
+    let route_by_id: HashMap<&str, &DeviceRouteView> = routes
+        .iter()
+        .map(|route| (route.device.as_str(), route))
+        .collect();
+    let mut desired_devices = HashMap::new();
+    for device in devices.iter().filter(|device| device.registered) {
+        let Some(route) = route_by_id.get(device.id.as_str()) else {
+            continue;
+        };
+        desired_devices.insert(
+            device.id.clone(),
+            DeviceDesired {
+                effect: route.effect,
+                brightness: device.brightness.unwrap_or(config.mlight.brightness),
+                buzzer_on_alert: device
+                    .buzzer_on_alert
+                    .unwrap_or(config.yh50.buzzer_on_alert),
+            },
+        );
     }
-    let _ = tx.send_replace(DesiredState {
-        effect,
-        overrides,
-        brightness: inner.config.mlight.brightness,
-        buzzer_on_alert: inner.config.yh50.buzzer_on_alert,
-    });
+    DesiredState {
+        devices: desired_devices,
+        default: DeviceDesired {
+            effect: effective_global_effect(config, global_aggregate, manual_override, now),
+            brightness: config.mlight.brightness,
+            buzzer_on_alert: config.yh50.buzzer_on_alert,
+        },
+        forced_off: false,
+    }
+}
+
+fn routing_summary(config: &Config) -> String {
+    format!(
+        "configuration updated (strategy={}, devices={}, manual_lights={})",
+        config.routing.strategy.as_str(),
+        config.devices.len(),
+        config.routing.manual.len()
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_beacon_core::{AgentState, Config};
+    use agent_beacon_core::{AgentState, Config, DeviceProfile};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
     fn state() -> Arc<BeaconState> {
+        state_with(Config::default())
+    }
+
+    fn state_with(config: Config) -> Arc<BeaconState> {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -541,7 +783,6 @@ mod tests {
             + u128::from(COUNTER.fetch_add(1, Ordering::Relaxed));
         let dir = std::env::temp_dir().join(format!("beacon-state-{unique}"));
         let store = ConfigStore::new(dir.join("config.json"));
-        let config = Config::default();
         store.save(&config).unwrap();
         BeaconState::new(config, store, 6980)
     }
@@ -612,11 +853,144 @@ mod tests {
     fn device_override_only_targets_one_device() {
         let state = state();
         state.apply_event(event(AgentState::Working)).unwrap();
+        state.register_device(DeviceInfo::new(
+            "serial:abc",
+            "/dev/fake",
+            DeviceProfile::Mlight3Led,
+        ));
         state.set_override(Effect::Alert, 30, Some("serial:abc".into()));
         let desired = state.subscribe_desired().borrow().clone();
-        assert_eq!(desired.for_device("serial:abc"), Effect::Alert);
-        assert_eq!(desired.for_device("serial:other"), Effect::Busy);
+        assert_eq!(desired.for_device("serial:abc").effect, Effect::Alert);
+        assert_eq!(desired.for_device("serial:other").effect, Effect::Busy);
         assert_eq!(state.snapshot().effect, Effect::Busy);
+    }
+
+    #[test]
+    fn auto_devices_get_independent_effects() {
+        let mut config = Config::default();
+        for serial in ["A", "B"] {
+            config.devices.push(agent_beacon_core::DeviceBinding {
+                serial: Some(serial.into()),
+                port: None,
+                id: None,
+                profile: DeviceProfile::Mlight3Led,
+                label: None,
+                brightness: None,
+                buzzer_on_alert: None,
+            });
+        }
+        config.routing.strategy = agent_beacon_core::RoutingStrategy::AutoSession;
+        let state = state_with(config);
+        for serial in ["A", "B"] {
+            let mut info = DeviceInfo::new(
+                format!("serial:{serial}"),
+                format!("/dev/{serial}"),
+                DeviceProfile::Mlight3Led,
+            );
+            info.connected = true;
+            info.last_seen_ms = Some(now_ms());
+            state.register_device(info);
+        }
+        state
+            .apply_event(Event {
+                agent: "claude".into(),
+                state: AgentState::Working,
+                session: Some("claude:1".into()),
+                message: None,
+                ttl_secs: None,
+            })
+            .unwrap();
+        state
+            .apply_event(Event {
+                agent: "codex".into(),
+                state: AgentState::Error,
+                session: Some("codex:1".into()),
+                message: None,
+                ttl_secs: None,
+            })
+            .unwrap();
+
+        let snapshot = state.snapshot();
+        let mut effects: Vec<Effect> = snapshot
+            .routing
+            .iter()
+            .filter(|route| route.assignment == DeviceAssignment::Auto)
+            .map(|route| route.effect)
+            .collect();
+        effects.sort_by_key(|effect| effect.as_str());
+        assert_eq!(effects, vec![Effect::Alert, Effect::Busy]);
+        assert!(snapshot.unassigned_agents.is_empty());
+    }
+
+    #[test]
+    fn missing_device_beyond_grace_moves_its_sessions() {
+        let mut config = Config::default();
+        for serial in ["A", "B"] {
+            config.devices.push(agent_beacon_core::DeviceBinding {
+                serial: Some(serial.into()),
+                port: None,
+                id: None,
+                profile: DeviceProfile::Mlight3Led,
+                label: None,
+                brightness: None,
+                buzzer_on_alert: None,
+            });
+        }
+        config.routing.strategy = agent_beacon_core::RoutingStrategy::AutoSession;
+        let state = state_with(config);
+        for serial in ["A", "B"] {
+            let mut info = DeviceInfo::new(
+                format!("serial:{serial}"),
+                format!("/dev/{serial}"),
+                DeviceProfile::Mlight3Led,
+            );
+            info.connected = true;
+            info.last_seen_ms = Some(now_ms());
+            state.register_device(info);
+        }
+        for index in 0..2 {
+            state
+                .apply_event(Event {
+                    agent: "claude".into(),
+                    state: AgentState::Working,
+                    session: Some(format!("claude:{index}")),
+                    message: None,
+                    ttl_secs: None,
+                })
+                .unwrap();
+        }
+        let before = state.snapshot();
+        assert_eq!(
+            before
+                .routing
+                .iter()
+                .filter(|r| !r.sessions.is_empty())
+                .count(),
+            2
+        );
+
+        // B 断线且超过 grace，只迁移 B 上的 session。
+        let old = now_ms().saturating_sub(crate::routing::MISSING_GRACE_MS + 1);
+        {
+            let mut registry = state.devices().lock().unwrap();
+            let info = registry.get_mut("serial:B").unwrap();
+            info.connected = false;
+            info.last_seen_ms = Some(old);
+        }
+        state.refresh();
+        let after = state.snapshot();
+        let a = after
+            .routing
+            .iter()
+            .find(|r| r.device == "serial:A")
+            .unwrap();
+        let b = after
+            .routing
+            .iter()
+            .find(|r| r.device == "serial:B")
+            .unwrap();
+        assert_eq!(a.sessions.len(), 2);
+        assert!(b.sessions.is_empty());
     }
 
     #[test]

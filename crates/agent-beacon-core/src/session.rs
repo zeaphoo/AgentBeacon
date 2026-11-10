@@ -147,8 +147,18 @@ pub struct SessionView {
     pub session: String,
     pub state: AgentState,
     pub message: Option<String>,
+    pub created_at_ms: u64,
     pub updated_at_ms: u64,
     pub expires_at_ms: u64,
+}
+
+/// 聚合任意会话集合；空集合为 `none`。
+pub fn aggregate_of<'a>(sessions: impl IntoIterator<Item = &'a SessionView>) -> Aggregate {
+    sessions
+        .into_iter()
+        .max_by_key(|view| (view.state.rank(), view.updated_at_ms))
+        .map(|view| Aggregate::from_state(view.state))
+        .unwrap_or(Aggregate::None)
 }
 
 /// 会话表。所有方法都显式接收 `now_ms`，测试无需真实等待。
@@ -177,16 +187,24 @@ impl SessionRegistry {
     pub fn apply(&mut self, event: &Event, now_ms: u64) -> Result<SessionView, ValidationError> {
         event.validate()?;
         let ttl = event.ttl_secs.unwrap_or(self.default_ttl_secs);
+        let agent = event.agent.trim().to_string();
+        let session = event.session_id();
+        let key = (agent.clone(), session.clone());
+        let created_at_ms = self
+            .sessions
+            .get(&key)
+            .map(|view| view.created_at_ms)
+            .unwrap_or(now_ms);
         let view = SessionView {
-            agent: event.agent.trim().to_string(),
-            session: event.session_id(),
+            agent,
+            session,
             state: event.state,
             message: event.message.clone().filter(|m| !m.is_empty()),
+            created_at_ms,
             updated_at_ms: now_ms,
             expires_at_ms: now_ms.saturating_add(ttl.saturating_mul(1000)),
         };
-        self.sessions
-            .insert((view.agent.clone(), view.session.clone()), view.clone());
+        self.sessions.insert(key, view.clone());
         Ok(view)
     }
 
@@ -218,12 +236,11 @@ impl SessionRegistry {
 
     /// 聚合活动会话；优先级 `error > waiting > working > idle`，同优先级取最近更新。
     pub fn aggregate_at(&self, now_ms: u64) -> Aggregate {
-        self.sessions
-            .values()
-            .filter(|view| view.expires_at_ms > now_ms)
-            .max_by_key(|view| (view.state.rank(), view.updated_at_ms))
-            .map(|view| Aggregate::from_state(view.state))
-            .unwrap_or(Aggregate::None)
+        aggregate_of(
+            self.sessions
+                .values()
+                .filter(|view| view.expires_at_ms > now_ms),
+        )
     }
 
     pub fn aggregate(&self) -> Aggregate {
@@ -238,7 +255,7 @@ impl SessionRegistry {
             .filter(|view| view.expires_at_ms > now_ms)
             .cloned()
             .collect();
-        views.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
+        views.sort_by_key(|view| std::cmp::Reverse(view.updated_at_ms));
         views
     }
 
@@ -355,6 +372,44 @@ mod tests {
         assert_eq!(expired[0].agent, "claude");
         assert_eq!(expired[1].agent, "codex");
         assert!(registry.is_empty());
+    }
+
+    #[test]
+    fn created_at_is_preserved_across_updates() {
+        let mut registry = SessionRegistry::with_default_ttl();
+        let first = registry
+            .apply(&event("claude", AgentState::Working), 1_000)
+            .unwrap();
+        assert_eq!(first.created_at_ms, 1_000);
+
+        let second = registry
+            .apply(&event("claude", AgentState::Error), 5_000)
+            .unwrap();
+        assert_eq!(second.created_at_ms, 1_000);
+        assert_eq!(second.updated_at_ms, 5_000);
+    }
+
+    #[test]
+    fn created_at_resets_after_expiry() {
+        let mut registry = SessionRegistry::with_default_ttl();
+        registry
+            .apply(&event("claude", AgentState::Working), 1_000)
+            .unwrap();
+        registry.expire(1_000_000);
+        let again = registry
+            .apply(&event("claude", AgentState::Working), 2_000_000)
+            .unwrap();
+        assert_eq!(again.created_at_ms, 2_000_000);
+    }
+
+    #[test]
+    fn aggregate_of_matches_registry() {
+        let mut registry = SessionRegistry::with_default_ttl();
+        registry.apply(&event("a", AgentState::Working), 1).unwrap();
+        registry.apply(&event("b", AgentState::Waiting), 1).unwrap();
+        let sessions = registry.sessions_at(2);
+        assert_eq!(aggregate_of(&sessions), Aggregate::Waiting);
+        assert_eq!(aggregate_of(std::iter::empty()), Aggregate::None);
     }
 
     #[test]

@@ -59,29 +59,44 @@ pub fn plan_for(profile: DeviceProfile, effect: Effect, options: PlanOptions) ->
     }
 }
 
-/// 期望状态：全局灯效 + 按设备的手动覆盖。
-#[derive(Debug, Clone, PartialEq)]
-pub struct DesiredState {
+/// 一台设备的目标状态。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DeviceDesired {
     pub effect: Effect,
-    pub overrides: HashMap<String, Effect>,
     pub brightness: u8,
     pub buzzer_on_alert: bool,
 }
 
-impl Default for DesiredState {
+impl Default for DeviceDesired {
     fn default() -> Self {
         Self {
             effect: Effect::Off,
-            overrides: HashMap::new(),
             brightness: 50,
             buzzer_on_alert: false,
         }
     }
 }
 
+/// 期望状态：每台设备一份目标状态 + 新设备兜底。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DesiredState {
+    /// 已注册设备的目标状态，键为设备 id。
+    pub devices: HashMap<String, DeviceDesired>,
+    /// 新设备在下一轮刷新前使用的默认状态。
+    pub default: DeviceDesired,
+    /// 退出关灯：忽略分配与覆盖，所有设备强制 off。
+    pub forced_off: bool,
+}
+
 impl DesiredState {
-    pub fn for_device(&self, id: &str) -> Effect {
-        self.overrides.get(id).copied().unwrap_or(self.effect)
+    pub fn for_device(&self, id: &str) -> DeviceDesired {
+        if self.forced_off {
+            return DeviceDesired {
+                effect: Effect::Off,
+                ..self.default
+            };
+        }
+        self.devices.get(id).copied().unwrap_or(self.default)
     }
 }
 
@@ -92,8 +107,12 @@ pub struct DeviceInfo {
     pub port: String,
     pub profile: DeviceProfile,
     #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
     pub capabilities: DeviceCapabilities,
     pub connected: bool,
+    #[serde(default)]
+    pub last_seen_ms: Option<u64>,
     pub effect: Effect,
     pub last_error: Option<String>,
     #[serde(default)]
@@ -106,8 +125,10 @@ impl DeviceInfo {
             id: id.into(),
             port: port.into(),
             profile,
+            label: None,
             capabilities: profile.capabilities(),
             connected: false,
+            last_seen_ms: None,
             effect: Effect::Off,
             last_error: None,
             mock_commands: Vec::new(),
@@ -145,11 +166,31 @@ mod tests {
     }
 
     #[test]
-    fn overrides_are_per_device() {
+    fn desired_is_per_device_with_a_default() {
         let mut desired = DesiredState::default();
-        desired.effect = Effect::Calm;
-        desired.overrides.insert("serial:abc".into(), Effect::Alert);
-        assert_eq!(desired.for_device("serial:abc"), Effect::Alert);
-        assert_eq!(desired.for_device("serial:other"), Effect::Calm);
+        desired.default.effect = Effect::Calm;
+        desired.devices.insert(
+            "serial:abc".into(),
+            DeviceDesired {
+                effect: Effect::Alert,
+                ..DeviceDesired::default()
+            },
+        );
+        assert_eq!(desired.for_device("serial:abc").effect, Effect::Alert);
+        assert_eq!(desired.for_device("serial:other").effect, Effect::Calm);
+    }
+
+    #[test]
+    fn forced_off_wins_over_device_desired() {
+        let mut desired = DesiredState::default();
+        desired.devices.insert(
+            "serial:abc".into(),
+            DeviceDesired {
+                effect: Effect::Alert,
+                ..DeviceDesired::default()
+            },
+        );
+        desired.forced_off = true;
+        assert_eq!(desired.for_device("serial:abc").effect, Effect::Off);
     }
 }

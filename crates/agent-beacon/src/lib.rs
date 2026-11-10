@@ -9,6 +9,7 @@ pub mod hermes;
 pub mod hookcmd;
 pub mod integrations;
 pub mod journal;
+pub mod routing;
 pub mod settings_hooks;
 pub mod state;
 pub mod worker;

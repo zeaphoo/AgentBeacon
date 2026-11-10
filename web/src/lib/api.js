@@ -31,6 +31,7 @@ export const api = {
     request('/api/v1/events', { method: 'POST', body: JSON.stringify(event) }),
   clearSessions: () => request('/api/v1/sessions', { method: 'DELETE' }),
   scan: () => request('/api/v1/devices/scan', { method: 'POST' }),
+  rebuildRouting: () => request('/api/v1/routing/rebuild', { method: 'POST' }),
   control: ({ effect, duration_secs, device }) =>
     request('/api/v1/control', {
       method: 'POST',

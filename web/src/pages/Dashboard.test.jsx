@@ -83,6 +83,78 @@ describe('Dashboard', () => {
     expect(screen.queryByText('蜂鸣器')).not.toBeInTheDocument()
   })
 
+  it('shows a status card per light', () => {
+    useBeaconStore.setState({
+      snapshot: {
+        ...snapshot,
+        aggregate: 'error',
+        effect: 'alert',
+        sessions: [],
+        routing: [
+          {
+            device: 'serial:A',
+            label: '左灯',
+            assignment: 'auto',
+            agents: ['claude'],
+            sessions: [],
+            aggregate: 'working',
+            auto_effect: 'busy',
+            effect: 'busy',
+            overridden: false,
+            connected: true,
+            last_seen_ms: null,
+          },
+          {
+            device: 'serial:B',
+            label: '右灯',
+            assignment: 'auto',
+            agents: ['codex'],
+            sessions: [],
+            aggregate: 'error',
+            auto_effect: 'alert',
+            effect: 'alert',
+            overridden: false,
+            connected: true,
+            last_seen_ms: null,
+          },
+        ],
+        devices: [
+          {
+            id: 'serial:A',
+            port: '/dev/A',
+            profile: 'mlight-3led',
+            label: '左灯',
+            connected: true,
+            effect: 'busy',
+            last_error: null,
+            mock_commands: [],
+          },
+          {
+            id: 'serial:B',
+            port: '/dev/B',
+            profile: 'agentcore-light',
+            label: '右灯',
+            connected: true,
+            effect: 'alert',
+            last_error: null,
+            mock_commands: [],
+          },
+        ],
+      },
+      loading: false,
+    })
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByTestId('device-serial:A')).toHaveTextContent('左灯')
+    expect(screen.getByTestId('device-serial:A')).toHaveTextContent('显示：claude')
+    expect(screen.getByTestId('device-serial:B')).toHaveTextContent('右灯')
+    expect(screen.getByTestId('device-serial:B')).toHaveTextContent('显示：codex')
+  })
+
   it('shows an empty state when there are no sessions', () => {
     useBeaconStore.setState({
       snapshot: { ...snapshot, sessions: [], devices: [] },

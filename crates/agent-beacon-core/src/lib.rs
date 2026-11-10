@@ -8,12 +8,14 @@ pub mod profile;
 pub mod session;
 
 pub use config::{
-    Config, ConfigError, DeviceBinding, MlightConfig, MockConfig, ServerConfig, ShutdownConfig,
-    Yh50Config,
+    Config, ConfigError, DeviceAssignment, DeviceBinding, MlightConfig, MockConfig, RoutingConfig,
+    RoutingStrategy, ServerConfig, ShutdownConfig, Yh50Config,
 };
 pub use effect::{Effect, Mapping};
 pub use profile::{DeviceCapabilities, DeviceProfile, DeviceProfileInfo};
-pub use session::{AgentState, Aggregate, Event, SessionRegistry, SessionView, ValidationError};
+pub use session::{
+    aggregate_of, AgentState, Aggregate, Event, SessionRegistry, SessionView, ValidationError,
+};
 
 /// 服务默认端口。
 pub const DEFAULT_PORT: u16 = 6980;

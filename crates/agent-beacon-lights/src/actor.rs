@@ -44,9 +44,10 @@ async fn run(mut config: ActorConfig) {
                     backoff = 1;
                     applied = None;
                     let desired = config.desired.borrow().clone();
+                    let target = desired.for_device(&config.id);
                     let mut failed = None;
                     if config.profile.has_brightness_command() {
-                        let bytes = brightness_bytes(config.profile, desired.brightness);
+                        let bytes = brightness_bytes(config.profile, target.brightness);
                         if let Err(error) = opened.write(&bytes) {
                             failed = Some(error);
                         }
@@ -57,11 +58,12 @@ async fn run(mut config: ActorConfig) {
                         continue;
                     }
                     if config.profile.has_brightness_command() {
-                        applied_brightness = Some(desired.brightness);
+                        applied_brightness = Some(target.brightness);
                     }
                     update(&config.registry, &config.id, |info| {
                         info.connected = true;
                         info.last_error = None;
+                        info.last_seen_ms = Some(agent_beacon_core::now_ms());
                     });
                     transport = Some(opened);
                 }
@@ -80,10 +82,11 @@ async fn run(mut config: ActorConfig) {
         }
 
         let desired = config.desired.borrow_and_update().clone();
-        let effect = desired.for_device(&config.id);
-        let key = (effect, desired.buzzer_on_alert);
-        let brightness_changed =
-            config.profile.has_brightness_command() && applied_brightness != Some(desired.brightness);
+        let target = desired.for_device(&config.id);
+        let effect = target.effect;
+        let key = (effect, target.buzzer_on_alert);
+        let brightness_changed = config.profile.has_brightness_command()
+            && applied_brightness != Some(target.brightness);
 
         if applied == Some(key) && !brightness_changed {
             // 设备会主动上报（`CHG:` 每 5 s、`STATUS:` 变更后），所以即使没有新的
@@ -104,7 +107,7 @@ async fn run(mut config: ActorConfig) {
                 applied_brightness = None;
                 continue;
             };
-            if let Err(error) = writer.write(&brightness_bytes(config.profile, desired.brightness)) {
+            if let Err(error) = writer.write(&brightness_bytes(config.profile, target.brightness)) {
                 mark_error(&config.registry, &config.id, error);
                 transport = None;
                 applied = None;
@@ -112,7 +115,7 @@ async fn run(mut config: ActorConfig) {
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 continue;
             }
-            applied_brightness = Some(desired.brightness);
+            applied_brightness = Some(target.brightness);
 
             if applied == Some(key) {
                 // Brightness-only change: put the light back into its current
@@ -147,8 +150,8 @@ async fn run(mut config: ActorConfig) {
             config.profile,
             effect,
             PlanOptions {
-                brightness: desired.brightness,
-                buzzer_on_alert: desired.buzzer_on_alert,
+                brightness: target.brightness,
+                buzzer_on_alert: target.buzzer_on_alert,
             },
         );
 
@@ -205,6 +208,7 @@ async fn run(mut config: ActorConfig) {
             info.effect = effect;
             info.connected = true;
             info.last_error = None;
+            info.last_seen_ms = Some(agent_beacon_core::now_ms());
         });
     }
 }
@@ -274,6 +278,10 @@ fn log_reports(writer: &mut Box<dyn Transport>, id: &str) {
 fn mark_error(registry: &DeviceRegistry, id: &str, error: String) {
     tracing::warn!(device = id, error = %error, "device unavailable");
     update(registry, id, |info| {
+        // 只在 online -> offline 的瞬间记录断开时间；重试期间不要不断刷新宽限期。
+        if info.connected {
+            info.last_seen_ms = Some(agent_beacon_core::now_ms());
+        }
         info.connected = false;
         info.last_error = Some(error);
     });
@@ -287,6 +295,17 @@ mod tests {
     use crate::DeviceInfo;
     use std::time::Duration;
 
+    fn desired(effect: Effect, brightness: u8) -> DesiredState {
+        DesiredState {
+            default: crate::DeviceDesired {
+                effect,
+                brightness,
+                buzzer_on_alert: false,
+            },
+            ..DesiredState::default()
+        }
+    }
+
     #[tokio::test(start_paused = true)]
     async fn latest_wins_aborts_stale_plan() {
         let registry = new_registry();
@@ -296,10 +315,7 @@ mod tests {
         );
         let log = MockLog::default();
         let factory_log = log.clone();
-        let (desired_tx, desired_rx) = watch::channel(DesiredState {
-            effect: Effect::Busy,
-            ..DesiredState::default()
-        });
+        let (desired_tx, desired_rx) = watch::channel(desired(Effect::Busy, 50));
 
         let actor = spawn(ActorConfig {
             id: "ml:0".into(),
@@ -311,12 +327,7 @@ mod tests {
         });
 
         tokio::time::sleep(Duration::from_millis(100)).await;
-        desired_tx
-            .send(DesiredState {
-                effect: Effect::Alert,
-                ..DesiredState::default()
-            })
-            .unwrap();
+        desired_tx.send(desired(Effect::Alert, 50)).unwrap();
         tokio::time::sleep(Duration::from_millis(1_500)).await;
 
         let entries = log.entries();
@@ -356,10 +367,7 @@ mod tests {
 
         let log = MockLog::default();
         let factory_log = log.clone();
-        let (desired_tx, desired_rx) = watch::channel(DesiredState {
-            effect: Effect::Busy,
-            ..DesiredState::default()
-        });
+        let (desired_tx, desired_rx) = watch::channel(desired(Effect::Busy, 50));
 
         let actor = spawn(ActorConfig {
             id: "mock:0".into(),
@@ -380,12 +388,7 @@ mod tests {
             .iter()
             .any(|command| command.starts_with("4D 4F 43 4B")));
 
-        desired_tx
-            .send(DesiredState {
-                effect: Effect::Alert,
-                ..DesiredState::default()
-            })
-            .unwrap();
+        desired_tx.send(desired(Effect::Alert, 50)).unwrap();
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert_eq!(snapshot(&registry)[0].effect, Effect::Alert);
 
@@ -400,11 +403,7 @@ mod tests {
         );
         let log = MockLog::default();
         let factory_log = log.clone();
-        let (desired_tx, desired_rx) = watch::channel(DesiredState {
-            effect: Effect::Busy,
-            brightness: 50,
-            ..DesiredState::default()
-        });
+        let (desired_tx, desired_rx) = watch::channel(desired(Effect::Busy, 50));
 
         let actor = spawn(ActorConfig {
             id: "ac:0".into(),
@@ -421,31 +420,32 @@ mod tests {
         assert!(
             entries
                 .iter()
-                .any(|entry| entry == "42 52 49 47 48 54 4E 45 53 53 5F 4C 45 56 45 4C 3A 31 35 30 0A"),
+                .any(|entry| entry
+                    == "42 52 49 47 48 54 4E 45 53 53 5F 4C 45 56 45 4C 3A 31 35 30 0A"),
             "{entries:?}"
         );
-        assert!(entries.iter().any(|entry| entry == "42 55 53 59 0A"), "{entries:?}");
+        assert!(
+            entries.iter().any(|entry| entry == "42 55 53 59 0A"),
+            "{entries:?}"
+        );
 
-        desired_tx
-            .send(DesiredState {
-                effect: Effect::Attention,
-                brightness: 100,
-                ..DesiredState::default()
-            })
-            .unwrap();
+        desired_tx.send(desired(Effect::Attention, 100)).unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         let entries = log.entries();
         // "WAIT_CONFIRM\n"
         assert!(
-            entries.iter().any(|entry| entry == "57 41 49 54 5F 43 4F 4E 46 49 52 4D 0A"),
+            entries
+                .iter()
+                .any(|entry| entry == "57 41 49 54 5F 43 4F 4E 46 49 52 4D 0A"),
             "{entries:?}"
         );
         // "BRIGHTNESS_LEVEL:300\n"
         assert!(
             entries
                 .iter()
-                .any(|entry| entry == "42 52 49 47 48 54 4E 45 53 53 5F 4C 45 56 45 4C 3A 33 30 30 0A"),
+                .any(|entry| entry
+                    == "42 52 49 47 48 54 4E 45 53 53 5F 4C 45 56 45 4C 3A 33 30 30 0A"),
             "{entries:?}"
         );
         assert_eq!(snapshot(&registry)[0].effect, Effect::Attention);
@@ -462,11 +462,7 @@ mod tests {
         );
         let log = MockLog::default();
         let factory_log = log.clone();
-        let (desired_tx, desired_rx) = watch::channel(DesiredState {
-            effect: Effect::Busy,
-            brightness: 100,
-            ..DesiredState::default()
-        });
+        let (desired_tx, desired_rx) = watch::channel(desired(Effect::Busy, 100));
 
         let actor = spawn(ActorConfig {
             id: "ml:0".into(),
@@ -480,13 +476,7 @@ mod tests {
         // Let the initial effect plan finish.
         tokio::time::sleep(Duration::from_millis(1_000)).await;
 
-        desired_tx
-            .send(DesiredState {
-                effect: Effect::Busy,
-                brightness: 50,
-                ..DesiredState::default()
-            })
-            .unwrap();
+        desired_tx.send(desired(Effect::Busy, 50)).unwrap();
         tokio::time::sleep(Duration::from_millis(1_000)).await;
 
         let entries = log.entries();
@@ -519,5 +509,4 @@ mod tests {
 
         actor.abort();
     }
-
 }

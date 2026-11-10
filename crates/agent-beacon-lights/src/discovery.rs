@@ -128,6 +128,13 @@ pub fn classify(info: &PortInfo) -> Option<DeviceProfile> {
     }
 }
 
+fn id_matches(binding: &DeviceBinding, info: &PortInfo) -> bool {
+    let Some(id) = binding.id.as_deref().map(str::trim) else {
+        return false;
+    };
+    !id.is_empty() && id == device_id(info)
+}
+
 fn serial_matches(binding: &DeviceBinding, info: &PortInfo) -> bool {
     let Some(serial) = binding.serial.as_deref().map(str::trim) else {
         return false;
@@ -150,7 +157,12 @@ pub fn resolve_profile(
 ) -> DeviceProfile {
     bindings
         .iter()
-        .find(|binding| serial_matches(binding, info))
+        .find(|binding| id_matches(binding, info))
+        .or_else(|| {
+            bindings
+                .iter()
+                .find(|binding| serial_matches(binding, info))
+        })
         .or_else(|| bindings.iter().find(|binding| port_matches(binding, info)))
         .map(|binding| binding.profile)
         .unwrap_or(default)
@@ -163,7 +175,11 @@ fn bound_agentcore(info: &PortInfo, bindings: &[DeviceBinding]) -> Option<Device
     bindings
         .iter()
         .filter(|binding| binding.profile.is_agentcore())
-        .find(|binding| serial_matches(binding, info) || port_matches(binding, info))
+        .find(|binding| {
+            id_matches(binding, info)
+                || serial_matches(binding, info)
+                || port_matches(binding, info)
+        })
         .map(|binding| binding.profile)
 }
 
@@ -197,6 +213,18 @@ mod tests {
             serial: serial.map(str::to_string),
             product: None,
             kind: PortKind::Usb,
+        }
+    }
+
+    fn binding(serial: Option<&str>, port: Option<&str>, profile: DeviceProfile) -> DeviceBinding {
+        DeviceBinding {
+            serial: serial.map(str::to_string),
+            port: port.map(str::to_string),
+            id: None,
+            profile,
+            label: None,
+            brightness: None,
+            buzzer_on_alert: None,
         }
     }
 
@@ -243,7 +271,12 @@ mod tests {
 
     #[test]
     fn identifies_agentcore_usb_cdc() {
-        let info = named_port("/dev/ttyACM0", AGENTCORE_VID, AGENTCORE_PID, "AgentCore-Light");
+        let info = named_port(
+            "/dev/ttyACM0",
+            AGENTCORE_VID,
+            AGENTCORE_PID,
+            "AgentCore-Light",
+        );
         assert_eq!(classify(&info), Some(DeviceProfile::AgentCore));
         let device = detect(&info, &[]).unwrap();
         assert!(!device.probe_required, "USB PID 已确认，不必再握手");
@@ -293,29 +326,33 @@ mod tests {
             ..bluetooth_port("COM9")
         };
         assert_eq!(classify(&info), None);
-        let bindings = vec![DeviceBinding {
-            serial: None,
-            port: Some("COM9".into()),
-            profile: DeviceProfile::AgentCore,
-        }];
+        let bindings = vec![binding(None, Some("COM9"), DeviceProfile::AgentCore)];
         let device = detect(&info, &bindings).unwrap();
         assert!(device.probe_required, "靠绑定认出来的端口也要握手");
+    }
+
+    #[test]
+    fn id_binding_beats_serial_and_port() {
+        let info = port("/dev/ttyUSB0", 0x1A86, 0x7523, Some("ABC123"));
+        let bindings = vec![
+            binding(Some("ABC123"), None, DeviceProfile::Yh50),
+            DeviceBinding {
+                id: Some("serial:ABC123".into()),
+                ..binding(None, None, DeviceProfile::MlightSingle)
+            },
+        ];
+        assert_eq!(
+            resolve_profile(DeviceProfile::Mlight3Led, &info, &bindings),
+            DeviceProfile::MlightSingle
+        );
     }
 
     #[test]
     fn serial_binding_beats_port_binding() {
         let info = port("/dev/ttyUSB0", 0x1A86, 0x7523, Some("ABC123"));
         let bindings = vec![
-            DeviceBinding {
-                serial: None,
-                port: Some("/dev/ttyUSB0".into()),
-                profile: DeviceProfile::MlightSingle,
-            },
-            DeviceBinding {
-                serial: Some("ABC123".into()),
-                port: None,
-                profile: DeviceProfile::Yh50,
-            },
+            binding(None, Some("/dev/ttyUSB0"), DeviceProfile::MlightSingle),
+            binding(Some("ABC123"), None, DeviceProfile::Yh50),
         ];
         assert_eq!(
             resolve_profile(DeviceProfile::Mlight3Led, &info, &bindings),
@@ -334,11 +371,11 @@ mod tests {
     #[test]
     fn detect_returns_binding_override() {
         let info = port("/dev/ttyACM0", 0x2E8A, 0x0003, None);
-        let bindings = vec![DeviceBinding {
-            serial: None,
-            port: Some("/dev/ttyACM0".into()),
-            profile: DeviceProfile::MlightSingle,
-        }];
+        let bindings = vec![binding(
+            None,
+            Some("/dev/ttyACM0"),
+            DeviceProfile::MlightSingle,
+        )];
         let device = detect(&info, &bindings).unwrap();
         assert_eq!(device.profile, DeviceProfile::MlightSingle);
     }

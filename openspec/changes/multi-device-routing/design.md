@@ -48,147 +48,91 @@
 
 ## Decisions
 
-### D1. 手动单位是 agent，自动单位是 session
+### D1. 四种全局策略
 
-- **session 不适合作为配置单位**：id 常是随机 UUID，agent 重启/开新窗口/切换任务都会变化；用户无法提前为未来的 session 绑定灯。
-- **agent 是稳定身份**：`claude-code`、`codex`、`pi` 这些名字跨 session、跨重启基本不变。
-- **自动分配必须落到 session**：只有一个 agent、多个 session、多台灯时，如果按 agent 分，所有 session 只能挤在一台灯；只有按 session 分，才能把多盏灯都用起来。
+多灯策略是**全局单选**，不按设备分别配置：
 
-因此：
+| 策略 | 行为 | 适用 |
+| --- | --- | --- |
+| `unified`（统一显示） | 所有灯显示同一个全局聚合 | 单灯、只想看一眼 |
+| `auto_agent`（按 Agent 自动分配） | 每个 Agent 自动分到一台灯；Agent 多于灯时一台灯显示多个 Agent | Agent 数量不稳定，想按 Agent 区分 |
+| `manual_agent`（按 Agent 手动分配） | 用户手动把 Agent 分到灯 | 「Claude 必须在左边这盏」 |
+| `auto_session`（按 Session 自动分配） | 同一 Agent 的多个 session 自动分散到不同灯 | 一个 Agent 开多个会话，想用满多盏灯 |
 
-- `routing.pins` 的键是 **agent**，值为设备 id；固定一个 agent = 它的所有 session 都去那台灯。
-- 没有固定的 agent，其 session 进入自动池，由算法逐 session 分配。
-- 控制台不出现 session 绑定控件；session 只作为 agent 下的只读明细展示。
+选择策略是用户在「设置 → 多灯控制策略」里唯一必须做的操作。只有 `manual_agent` 需要展开详细配置。
 
-### D2. 每台设备是 `mirror`、`auto` 或 `manual`
+### D2. 策略决定设备角色
+
+服务内部仍然给每台设备推导一个角色，但它由全局策略决定，不写进配置：
 
 ```rust
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DeviceAssignment {
-    /// 跟随全部会话（默认，向后兼容）。
-    #[default]
-    Mirror,
-    /// 参与自动分配：接收算法分到的 session。
-    Auto,
-    /// 只接收被 pin 到这台设备的 agent，不参与自动分配。
-    Manual,
+match strategy {
+    Unified => DeviceAssignment::Mirror,
+    AutoAgent | AutoSession => DeviceAssignment::Auto,
+    ManualAgent => DeviceAssignment::Manual,
 }
 ```
 
-- 默认 `Mirror`，旧配置不写 `assignment` 时行为与现在一致。
-- `Mirror` 设备不参与自动分配，也不占用 session；它永远显示全局聚合。
-- `Auto` 设备参与自动分配；可以接收自动 session，也可以接收 pin 到它的固定 agent。
-- `Manual` 设备只接收 pin 到它的固定 agent，不接收自动 session；适合「这盏灯只给 Claude」的专用灯。
-- 可以同时存在三种设备；为什么不做全局 `mode`：一台灯想镜像全局、一台想自动分摊、一台想专用是常见组合，逐设备设置更灵活。
+- `Mirror`：显示全部活动 session。
+- `Auto`：参与自动分配（具体按 Agent 还是按 session 由策略决定）。
+- `Manual`：只显示 `routing.manual` 里分配给它的 Agent。
 
-### D3. 自动算法：最少会话优先 + 粘性
+### D3. `auto_agent`：Agent 级最少负载 + 粘性
 
-自动分配给**每个活动 session** 选一台 `auto` 设备。规则：
+- 活动 Agent 按名字排序。
+- 已有有效归属的 Agent 保持不动；失去设备的 Agent 重新选择。
+- 新 Agent 选择**当前 Agent 数最少**的可用灯，数量相同按设备 id 升序。
+- 一个 Agent 的所有 session 都去同一台灯；一台灯可以有多个 Agent。
+- 新增 session 不移动已有 Agent；session 过期只影响该 Agent 的聚合。
 
-1. 活动 session 按 `(created_at_ms, agent, session)` 升序排序。
-2. 被固定的 agent，其全部 session 先强制放到 pin 目标设备（目标必须是启用的 `auto` 或 `manual` 设备）。
-3. 未被固定的 session，按排序依次选择**当前已分配 session 数最少**的 `auto` 设备。`manual` 设备不进入自动池。
-4. 数量相同时按设备 id 升序决胜，保证确定性。
-5. 已有有效分配的 session **保持不动**（粘性）；只有新 session、失去设备的孤儿 session、或显式重建时才重新选灯。
+### D4. `auto_session`：Session 级最少负载 + 粘性
 
-**为什么用「最少会话优先」而不是纯哈希：**
+- 活动 session 按 `(created_at_ms, agent, session)` 排序。
+- 已有有效归属的 session 保持不动。
+- 新 session 选择**当前 session 数最少**的可用灯，数量相同按设备 id 升序。
+- 同一个 Agent 的多个 session 可以落在不同灯；一台灯可以混合多个 Agent 的 session。
+- 这是为了处理「只有一个 Agent、但有多个 session、又有多台灯」的场景。
 
-- 纯 rendezvous/一致性哈希是稳定的，但**不保证分散**。3 个 session、3 台灯时，3 个 session 有约 1/9 的概率全落到同一台灯，另外两台全灭，看起来像坏了。
-- 最少会话优先在少量 session 时也能保证「能分就分」：3 个 session、3 台灯一定 1/1/1；4 个 session、3 台灯一定 2/1/1。
-- 粘性避免了「每来一个 session 就把已有归属全部重排」：新 session 只占一个空位/最少位，已有 session 不动。
+### D5. `manual_agent`：按灯配置 Agent
 
-**为什么不用轮询（round-robin）：**
-
-- 轮询在 session 增删时会整体错位：删掉一个前面的 session，后面所有 session 的归属都会变。
-- 最少会话优先 + 粘性只在必要时移动。
-
-**为什么不用状态优先级：**
-
-- 状态每秒都可能变；按 `error` 优先重新分配会让同一盏灯在不同 agent 之间跳来跳去，用户无法建立「这盏灯是谁」的认知。
-
-**分配示例：**
-
-| 场景 | 结果 |
-| --- | --- |
-| 3 台灯，1 个 agent 3 个 session | 灯 A/B/C 各 1 个 session |
-| 2 台灯，1 个 agent 3 个 session | 灯 A 2 个、灯 B 1 个 |
-| 3 台灯，4 个 agent 各 1 个 session | 灯 A 2 个、B 1 个、C 1 个 |
-| 1 台灯，1 个 agent 3 个 session | 灯 A 聚合 3 个 session |
-| 2 台灯，Claude 2 个 session、Codex 2 个 session | 4 个 session 按 2/2 分，agent 可混合 |
-
-### D4. agent 固定（pins）
+配置结构：
 
 ```rust
 pub struct RoutingConfig {
-    /// 没有任何 session 可显示时的回退方式。
-    pub empty_fallback: EmptyAssignmentFallback,
-    /// agent -> 设备 id；固定后该 agent 的全部 session 都去这台设备。
-    pub pins: HashMap<String, String>,
+    pub strategy: RoutingStrategy,
+    /// 设备 id -> Agent 列表；保留离线/已失效灯的配置。
+    pub manual: HashMap<String, Vec<String>>,
 }
 ```
 
-- 固定目标必须是 `assignment: auto` 或 `assignment: manual` 的设备；`mirror` 设备不需要固定（它本来就显示全部）。
-- 固定后，该 agent 的所有 session 都去目标设备，即使目标设备已经有其他 session；一台灯可以同时接收多个固定 agent。
-- 固定到 `auto` 设备时，该设备的固定 session 计入负载，自动 session 会自然避开已经很忙的灯；固定到 `manual` 设备时，它不参与自动负载计算，只显示自己的固定 agent。
-- 目标设备不存在、长时间离线或为 `mirror` 时，pin 视为**未解析**：该 agent 的 session 回到自动池，快照的 `unresolved_pins` 会列出它，控制台提示「固定目标不可用」。
-- 没有 session 级 pin。用户如果想拆分一个 agent 的多个 session，应该取消固定，让自动算法处理。
+- 设置页列出所有灯：已检测到的灯 + 配置中的离线灯 + `manual` 里保留但当前不存在的灯。
+- 每台灯可以添加/移除 Agent；同一个 Agent 只能分到一台灯。
+- 未检测到的灯保留其配置并标记；用户可以显式删除该灯（同时删除对应的 `devices` 绑定）。
+- 不存在于设备列表里的 `manual` 条目仍保留在配置和 UI 中，但其 Agent 视为未分配，直到灯重新出现。
+- 空灯（没有分到任何 session）显示 `mapping.none`，默认熄灭；不再单独配置空分配回退。
 
-### D5. 设备在线状态与孤儿迁移
+### D6. 在线状态与孤儿迁移
 
-当前实现没有「删除设备」或「停用设备」：设备只有**检测到**和**检测不到**两种状态。本变更不引入 `enabled` / delete，只使用设备是否在线。
+设备只有**检测到**和**检测不到**两种状态，没有删除/停用设备。
 
-- `connected: true`：actor 已打开传输，设备可用。
-- `connected: false`：actor 尚未打开或失去连接；`DeviceInfo` 记录 `last_seen_ms`（最后一次成功打开的时间），`None` 表示从未连接。
-- 配置绑定可以提前存在（例如先按序列号写好），但设备在首次连接前不参与自动分配，避免把 session 分到看不见的灯上。
+- `connected: true`：actor 已打开传输。
+- `connected: false`：打不开或失去连接；记录 `last_seen_ms`（断开时间）。
+- 短暂离线（≤ `MISSING_GRACE_SECS`，默认 60 秒）保留归属，避免拔插抖动导致重排。
+- 超过 grace：
+  - `auto_agent` / `auto_session`：只把该设备上的 Agent/session 变为孤儿并重新分配，其他设备不动。
+  - `manual_agent`：该灯的配置保留，Agent 仍属于它；如果灯已不在设备列表里，这些 Agent 视为未分配，并在 UI 中可删除。
+- 设备恢复：重新加入；已有归属保持原样；需要立即平衡时点「重新分配」。
+- 没有「删除/停用」设备操作；删除策略里的灯只会移除 `manual` 条目（以及必要的绑定）。
 
-自动分配集合 `D`：
+### D6b. 聚合与空灯
 
-- `assignment: auto` 且 `connected: true` 的设备；
-- `assignment: auto`、`connected: false`，但 `last_seen_ms` 在 `MISSING_GRACE_SECS`（默认 60 秒）内的设备（短暂离线，保留归属）；
-- 从未连接过的 auto 设备不进入 `D`；
-- 超过 grace 仍未连接：视为不可用，其 session 变为孤儿并迁移。
-
-**核心原则：只迁移孤儿 session，不做整体重排。**
-
-| 变化 | 行为 |
-| --- | --- |
-| 设备短暂离线（≤ grace） | 保留已有归属，其他灯不动 |
-| 设备长时间离线（> grace） | auto 设备上的 session 变为孤儿，迁移到剩余在线 auto 设备；manual 设备上的 pin 变为未解析，session 回到自动池 |
-| 离线设备恢复 | 重新加入 `D`；已有 session 保持原归属；新 session 可使用它；需要立即回迁/平衡时点「重新分配」 |
-| 配置 `auto`→`mirror` | 该设备上的自动 session 变为孤儿并迁移；其他 session 不动 |
-| 配置 `auto`→`manual` | 该设备上的自动 session 变为孤儿并迁移；pin 到它的 session 保留；其他 session 不动 |
-| 配置 `manual`→`auto` | 设备加入 `D`；pin 到它的 session 保留；其他 session 不动 |
-| 设备首次被检测到 | 加入 `D`；已有 session 不动；新 session 可使用它 |
-| pin 新增/改目标 | 该 agent 的 session 迁移到新目标；其他 session 不动 |
-| pin 删除或目标长时间不可用 | 该 agent 的 session 进入自动池；其他 session 不动 |
-| 显式「重新分配」 | 清空分配表并全量重算 |
-
-没有「删除/停用」操作；如果不想让某台设备参与自动分配，把它的 `assignment` 改为 `mirror`，或者直接拔掉。配置绑定仍可编辑（profile/label/assignment/pins），但 UI 不提供「删除设备」按钮。
-
-实现上用一张 `session -> device` 的粘性表；每次变化只校验有效性并迁移孤儿，不重建整张表。`MISSING_GRACE_SECS` 先用常量（60 秒），后续需要再做成设置。
-
-**为什么设备减少时不整体重排：** 一台设备不可用只需要安顿它原来的 session；把其他灯上的 session 也搬走会让用户看到「明明没动的灯突然换内容」，而且没有任何收益。整体平衡留给显式的「重新分配」。
-
-### D6. 聚合与回退
-
-每台设备的会话集合：
+每台设备的 session 集合：
 
 - `Mirror`：全部活动 session。
-- `Auto`：分配表中属于该设备的 session（固定 + 自动）。
-- `Manual`：只包含 pin 到该设备的 agent 的 session，不接收自动 session。
+- `Auto`：分配表中属于该设备的 session。
+- `Manual`：`routing.manual` 分配给该设备的 Agent 的 session。
 
-聚合：
-
-- 对集合内的 session 取 `error > waiting > working > idle`，同优先级取最近更新；空集合为 `None`。
-- 每台设备独立聚合；全局聚合仍是全部 session 的聚合，不受分配影响。
-- `auto_effect = mapping.effect_for(device_aggregate)`。
-- 空集合时按 `routing.empty_fallback`：
-  - `none`（默认）：`mapping.effect_for(None)`，默认 `off`；
-  - `global`：跟随全局聚合；
-  - `off`：强制 `off`，不受 `mapping.none` 影响。
-
-为什么默认 `none` 而不是 `global`：一台被自动分配但暂时没有 session 的灯显示别人的 `error` 会误导；`global` 留给明确想要「空闲时看全局」的用户。
+聚合复用 `error > waiting > working > idle`，同优先级取最近更新；空集合为 `none`，灯效为 `mapping.none`（默认 off）。全局聚合仍是全部 session 的聚合，不受策略影响。
 
 ### D7. 每设备目标状态（DeviceDesired）
 
@@ -253,19 +197,16 @@ impl DesiredState {
       "label": "左灯",
       "assignment": "auto",
       "agents": ["claude-code", "codex"],
-      "pinned_agents": ["claude-code"],
       "sessions": ["…分配到这台灯的 session…"],
       "aggregate": "error",
       "auto_effect": "alert",
       "effect": "alert",
       "overridden": false,
-      "fallback": null,
       "connected": true,
       "last_seen_ms": 1762700100000
     }
   ],
-  "unassigned_agents": [],
-  "unresolved_pins": []
+  "unassigned_agents": []
 }
 ```
 
@@ -273,70 +214,66 @@ impl DesiredState {
 
 - `routing`：每台已配置或已发现的设备一条，包括当前未检测到的设备；同一设备 id 只出现一次；带 `connected` 与 `last_seen_ms`。
 - `agents`：当前在这台灯上有活动 session 的 agent 去重列表。
-- `pinned_agents`：配置里固定到这台灯的 agent（即使当前没有活动 session，也保留，供 UI 显示「等待 Claude」）。
 - `auto_effect`：分配后聚合映射的灯效；`effect`：叠加手动覆盖后的最终灯效。
-- `fallback`：空集合时给出 `none` / `global` / `off`，非空为 `null`。
-- `unassigned_agents`：没有出现在任何启用设备 session 集合中的 agent；存在 `mirror` 设备时为空（mirror 覆盖全部 agent）。
-- `unresolved_pins`：目标不存在、超过 grace 未检测到或为 `mirror` 的 pin，每项 `{ agent, device }`。
+- `unassigned_agents`：没有出现在任何设备 session 集合中的 agent；统一显示模式下为空。
+- 配置里的 `routing.strategy` 与 `routing.manual` 通过 `config` 字段返回，设置页据此渲染四种策略。
 
 `SessionView` 增加 `created_at_ms`，用于自动分配的稳定排序；`updated_at_ms` 仍表示最近一次事件时间。
 
 `GET /api/v1/devices` 保持既有字段，增加 `label`；详细分配信息通过 `GET /api/v1/state` 的 `routing` 提供。
 
-新增 `POST /api/v1/routing/rebuild`：清空粘性分配并按当前 session 重新计算，供控制台「重新分配」按钮使用。该操作不修改配置。
+新增 `POST /api/v1/routing/rebuild`：清空粘性分配并按当前策略重新计算，供「重新分配」按钮使用。该操作不修改配置。
 
 ### D9. 控制台
 
 **状态页：**
 
-- 顶部全局聚合卡片保持不变。
-- 设备列表显示：标签、分配方式（镜像/自动/手动）、分到的 agent、session 数、当前灯效、连接状态、最近错误。
-- `unassigned_agents` 非空时显示「没有被任何灯分配的 agent」区块。
-- `unresolved_pins` 非空时显示「固定目标不可用」提示。
+- 顶部「当前聚合状态」始终表示全部会话的聚合，与当前策略无关。
+- 每台灯一张状态卡片，展示该灯自己的 `routing[].aggregate` / `routing[].effect`、正在显示的 Agent、连接状态与设备信息；视觉结构参考顶部聚合卡片（状态图标、状态名称、灯效 badge、状态色调）。
+- 离线灯显示为未连接，并显示其最近一次分配/回退状态。
 
-**灯具页：**
+**设置页：多灯控制策略**
 
-- 设备列表合并 `snapshot.devices` 与 `config.devices`：已发现设备可编辑；已配置但当前未检测到的绑定显示为「未连接」，不提供删除/停用按钮。把 `assignment` 改为 `mirror` 可让它退出自动分配，或直接拔掉设备。
-- 每台设备一行：标签、profile、分配方式（`镜像全局` / `自动分配` / `仅手动固定`）、亮度/蜂鸣（仅能力支持时）。
-- **Agent 分配面板**（不再有 session 选择器）：
-  - 列出当前活动 agent，显示它有几个 session、这些 session 当前落在哪些灯上。
-  - 每个 agent 一个「自动 / 固定到设备」选择器；固定写入 `routing.pins`，取消固定从 pins 删除。
-  - 固定后显示「所有 session 固定到 左灯」；自动时显示「由算法分配到当前 session 最少的灯」。固定前提示：固定会把该 agent 的所有 session 放在同一台灯，取消固定可恢复自动分散。
-  - 只允许固定到 `auto` 或 `manual` 设备；没有这两类设备时提示先开启自动分配或创建手动灯。
-  - `manual` 设备只显示 pin 到它的 agent；如果它没有 pin，会一直处于空分配回退。
-- 「全部设为自动分配」按钮：把当前所有已发现设备写成 `assignment: auto`（需要时创建绑定）。
-- 「重新分配」按钮：调用 `POST /api/v1/routing/rebuild`，用于新增灯后立即平衡。
-- 分配预览：每台灯显示分到的 agent/session、聚合状态、灯效；空灯显示回退方式。
-- 说明文案：「同一 agent 的多个 session 会自动分散到不同的灯；固定 agent 会让它的所有 session 留在同一台灯；设备长时间离线（超过 grace）时只迁移原本在该设备上的 session，其他灯不动；设备恢复在线不会自动搬走旧 session，需要立即平衡时点「重新分配」。」
+多灯配置**不放在灯具页**。灯具页保持原有的手动灯效与设备型号管理；设置页新增一张独立的「多灯控制策略」卡片：
 
-**设置页：**
-
-- 「空分配时」：`使用无会话映射（默认关闭）` / `跟随全局聚合` / `强制熄灭`。
-- 现有映射、默认覆盖时长、退出关灯、全局亮度、全局蜂鸣保持不变；说明可被每设备覆盖。
+1. 四个策略按钮，单选：
+   - 统一显示
+   - 按 Agent 自动分配
+   - 按 Agent 手动分配
+   - 按 Session 自动分配
+2. 每个按钮下方显示一句简短说明；选中后卡片底部显示该策略的详细说明。
+3. 只有「按 Agent 手动分配」才展开详细配置：
+   - 列出所有灯：已检测到的灯、配置中的离线灯、`routing.manual` 里保留但当前不存在的灯。
+   - 每台灯显示在线/离线/配置已失效，以及已分配的 Agent。
+   - 每台灯提供「添加 Agent」选择器；同一个 Agent 只能出现在一台灯上。
+   - Agent 以 chip 展示，可单独移除。
+   - 未检测到的灯显示「删除这台灯的配置」；删除会移除 `routing.manual` 条目和对应的 `devices` 绑定。
+   - 没有分到 Agent 的灯显示为未分配；空灯使用 `mapping.none`（默认熄灭）。
+4. 自动策略（`auto_agent` / `auto_session`）只显示说明、当前未分配 Agent 和「重新分配」按钮。
+5. 统一显示不提供额外配置。
 
 ### D10. 诊断
 
-- `journal` 的 `Config` 记录追加分配摘要（例如 `routing: 3 devices, 2 auto, pins=1`）。
-- 设备 actor 日志补充 `assignment`、分到的 agent 数与最终 `effect`。
-- `POST /api/v1/routing/rebuild` 记录一条 `Config` 或专门的 journal 记录，detail 注明「routing rebuilt」。
-- 不新增 `HookKind`；分配是派生状态，不是 hook 事件。
-- 快照的 `routing`、`unassigned_agents`、`unresolved_pins` 是最强的诊断入口。
+- `journal` 的 `Config` 记录追加摘要（例如 `strategy=manual_agent devices=3 manual_lights=2`）。
+- 设备 actor 日志补充角色、分到的 Agent 数与最终 `effect`。
+- `POST /api/v1/routing/rebuild` 记录一条 `Config` journal，detail 注明「routing rebuilt」。
+- 快照的 `routing`、`unassigned_agents`、`config.routing.manual` 是最强的诊断入口。
 
 ### D11. 兼容与迁移
 
-- 旧配置（没有 `routing`、`devices[]` 没有 `assignment`）：`empty_fallback = none`、`pins = {}`、`assignment = mirror`，行为与现在逐字节一致。
-- `Config` 顶层已有 `#[serde(default)]`；新增字段也带默认值，因此不需要 `config_version` 迁移，`version` 保持 `1`。
-- 旧前端/旧 API 客户端忽略 `routing`、`unassigned_agents`、`unresolved_pins`、`created_at_ms` 即可。
+- 旧配置（没有 `routing`）：按 `strategy = unified`、`manual = {}` 加载，行为与现在一致。
+- `Config` 顶层已有 `#[serde(default)]`；`version` 保持 `1`。
+- 旧前端/旧 API 客户端忽略 `routing`、`unassigned_agents`、`created_at_ms` 即可。
 - 旧的 `DesiredState` 字段只在 crate 内部使用，可以安全替换；`agent-beacon-lights` 的测试同步更新。
 - 旧的手动覆盖 API 不变；全局覆盖仍然影响所有设备。
-- 本变更**不保留**上一轮设计里的 `SessionScope` / session 绑定字段；如果那份设计尚未实现，直接采用本设计；如果已经实现，需要一次配置迁移：删除 `scope`，按 agent 生成 `pins` 或 `assignment`。
+- 本变更不提供 session 手动绑定；session 只作为自动分配的输入。
 
 ### D12. 分阶段实施
 
 | 阶段 | 内容 | 可独立验收 |
 | --- | --- | --- |
-| P1 核心 | `DeviceAssignment`、`RoutingConfig`、`created_at_ms`、最少会话优先分配、pins、`DeviceDesired`、快照 `routing`/`unassigned_agents`/`unresolved_pins`、测试 | 3 台 mock 灯 + 1 个 agent 3 个 session，自动分成 1/1/1 |
-| P2 控制台 | 灯具页分配方式、agent 固定面板、重新分配、状态页分配视图、设置页回退 | 不碰配置文件也能完成「Claude 固定左灯，其余自动」 |
+| P1 核心 | `RoutingStrategy`、`routing.manual`、四种分配算法、`created_at_ms`、`DeviceDesired`、快照 `routing`/`unassigned_agents`、测试 | 四种策略可切换，session/Agent 分配正确 |
+| P2 设置页 | 四策略单选、手动模式灯/Agent 编辑、离线灯保留与删除、重新分配 | 不碰配置文件也能完成手动映射 |
 | P3 增强 | 每设备亮度/蜂鸣 UI、分配历史/诊断、权重、设备离线提示优化 | 按需 |
 | 后续 | 单设备多通道、灯组、按权重调度 | 不在本变更 |
 
@@ -347,9 +284,10 @@ impl DesiredState {
   "version": 1,
   "mapping": { "none": "off", "idle": "calm", "working": "busy", "waiting": "attention", "error": "alert" },
   "routing": {
-    "empty_fallback": "none",
-    "pins": {
-      "claude-code": "serial:E6614C03A1B2C3D4"
+    "strategy": "manual_agent",
+    "manual": {
+      "serial:E6614C03A1B2C3D4": ["claude-code", "codex"],
+      "ble:af:c3:a4:e1:d8:95": ["pi"]
     }
   },
   "devices": [
@@ -357,7 +295,6 @@ impl DesiredState {
       "serial": "E6614C03A1B2C3D4",
       "profile": "mlight-3led",
       "label": "左灯",
-      "assignment": "auto",
       "brightness": 80,
       "buzzer_on_alert": null
     },
@@ -366,22 +303,16 @@ impl DesiredState {
       "port": "ble:af:c3:a4:e1:d8:95",
       "profile": "agentcore-light",
       "label": "右灯",
-      "assignment": "auto",
       "buzzer_on_alert": false
     },
     {
       "port": "/dev/ttyUSB0",
       "profile": "yh50-rgy-j",
-      "label": "总览",
-      "assignment": "mirror"
+      "label": "总览"
     }
   ]
 }
 ```
-
-- 左灯固定 Claude 的所有 session；Codex、Pi 的 session 在左灯与右灯之间按「最少会话」自动分配；总览灯始终显示全局聚合。
-- 如果 Claude 有 3 个 session，它们都在左灯聚合；如果用户希望 Claude 的 session 也分散，删除 pin 即可。
-- 如果希望某台灯只服务固定 agent，把它的 `assignment` 设为 `manual`，再把对应 agent pin 到它；`manual` 设备不接收自动 session。例如把总览设备改成 `manual` 并把 `codex` pin 到它，Codex 就只在那台灯上显示。
 
 ## 算法示例
 
@@ -405,24 +336,43 @@ C4(t4): 负载 A1 B1 C1 → 平手，按 id 升序 → A
 已有 C1/C2/C3 不动
 ```
 
-**场景：固定 Claude 到 A**
+**场景：按 Agent 手动分配**
 
 ```
-pins: { claude-code: A }
-C1/C2/C3 全部 → A
-B、C 没有 session → 按 empty_fallback 处理
-取消固定 → Claude 的 session 进入自动池，重新按 1/1/1 分配
+strategy = manual_agent
+manual: { A: [claude], B: [codex] }
+Claude 的 C1/C2/C3 全部 → A
+Codex 的 X1/X2 → B
+C 没有分配 Agent → 空灯，显示 off
+删除 A 的配置 → Claude 变为未分配
 ```
 
-**场景：2 个 agent、各 2 个 session、2 台灯**
+**场景：按 Agent 自动分配**
 
 ```
-C1(t1) → A
-X1(t2) → B
-C2(t3) → 负载 A1 B1 → A（平手按 id）
-X2(t4) → 负载 A2 B1 → B
-结果：A=C1+C2, B=X1+X2
-agent 自然聚在同一台灯，但不保证；如需保证请 pin
+strategy = auto_agent
+A/B/C 三台灯
+Claude(2 sessions), Codex(1), Pi(1)
+→ Claude → A, Codex → B, Pi → C
+Claude 的 2 个 session 都在 A
+新增 Agent Q → 当前 Agent 数最少的灯（平手按 id）
+```
+
+**场景：按 Session 自动分配**
+
+```
+strategy = auto_session
+A/B/C 三台灯
+Claude 的 C1/C2/C3
+→ C1→A, C2→B, C3→C
+新增 C4 → 当前 session 数最少的灯（平手按 id）
+```
+
+**场景：统一显示**
+
+```
+strategy = unified
+所有灯显示全部会话的全局聚合
 ```
 
 ## 备选方案
@@ -455,24 +405,24 @@ agent 自然聚在同一台灯，但不保证；如需保证请 pin
 
 1. **粘性分配的「历史依赖」**：同一组 session 在服务重启后可能得到与之前不同的归属（因为内存分配表清空，按 `created_at_ms` 重新排序）。用户通常不会感知；如果需要跨重启完全一致，可以把分配表持久化到配置，但会引入写放大。
 2. **设备增加不会自动搬走旧 session**：新增一盏灯后，已有 session 仍留在原灯，新 session 才会优先使用新灯；这是为了稳定。需要立即平衡时点「重新分配」。设备长时间离线时只迁移原本落在它上面的 session，其他灯不动。
-3. **离线设备有 60 秒宽限**：短暂拔插/蓝牙抖动不会立即引发重排；超过 `MISSING_GRACE_SECS` 后，auto 设备上的 session 才迁移到其他在线灯，manual 设备上的 pin 才变成未解析。UI 用 `connected: false` 和 `last_seen_ms` 提示；想立即排除一台离线设备，把它的 `assignment` 改为 `mirror`。
-4. **固定 agent 会让其他灯空闲**：这是手动约束的代价；取消固定即可恢复自动分散。
+3. **离线设备有 60 秒宽限**：短暂拔插/蓝牙抖动不会立即引发重排；超过 `MISSING_GRACE_SECS` 后，auto 模式下的 Agent/session 才迁移到其他在线灯。manual 模式保留离线灯的配置；如果灯已不在设备列表里，其 Agent 视为未分配，可在设置页删除该灯。
+4. **手动分配会让未分配 Agent 的灯空闲**：这是手动约束的本意；切换到自动策略即可恢复。
 5. **少量 session 的负载差最大为 1**：这是「最少会话优先」的保证；如果用户希望按权重分配，后续再加 `weight`。
 6. **agent 名字大小写/拼写变化**：会被视为新 agent，pin 不生效。UI 从活动值中选择，手输只校验非空。
 7. **session id 默认值**：不传 session 的 agent 只有一条 `{agent}:default`，无法分散；需要 agent 侧提供稳定/唯一的 session id 才能利用多灯。
 8. **端口绑定的稳定性**：没有序列号的设备按端口绑定，重插后端口变化会导致设备 id 变化；旧 id 上的 session 会成为孤儿并迁移到剩余 auto 设备。UI 提示优先按序列号/id 绑定。
-9. **`manual` 设备没有 pin 会一直空**：这是手动模式的本意；UI 应提示「仅手动固定」设备需要至少一个 pin，否则按空分配回退。
-10. **`auto` 设备会同时收到 pin 和自动 session**：如果希望某台灯只服务固定 agent，应使用 `manual`，而不是 `auto` + pin。
-11. **`mapping.none` 被改成非 off**：空分配回退 `none` 会跟着变；文档说明 `none` 是「无会话映射」，需要强制熄灭时选 `off`。
+9. **手动模式下没有 Agent 的灯会一直空**：这是手动模式的本意；UI 会显示「还没有分配 Agent」，空灯按 `mapping.none` 处理。
+10. **同一个 Agent 只能属于一台灯**：手动映射是分区；把 Agent 添加到另一台灯会从原灯移除。想同时显示在多个灯，使用自动策略或后续的灯组能力。
+11. **空灯使用 `mapping.none`**：不再提供单独的空分配回退设置；需要强制熄灭时把 `mapping.none` 设为 `off`。
 12. **OpenSpec 归档顺序**：当前 `openspec/specs/` 为空，`bootstrap-agent-beacon` 尚未归档；本变更对 `light-control` / `web-console` / `beacon-service` 使用 MODIFIED 增量，需先归档 bootstrap（或把其基线 specs 物化到 `openspec/specs/`）再归档本变更。`openspec validate --strict` 会因此给出 INFO 提示，但不影响本变更本身的校验。
 
 ## 测试计划
 
 - **core**：`SessionView.created_at_ms` 保留与刷新；`aggregate_of` 覆盖优先级、同优先级最近更新、空集合。
-- **config**：默认值、旧配置（无 `routing`、无 `assignment`）行为不变、非法 `assignment`/亮度/空 agent pin 被拒绝。
-- **assignment**：3 session/3 灯 → 1/1/1；4 session/3 灯 → 2/1/1；1 agent 3 session/1 灯 → 全在一台；新增 session 不移动已有；过期 session 只移除自己；pin 后全部去目标设备；取消 pin 后进入自动池；unresolved pin 回到自动池；manual 设备只收 pin 到的 agent；短暂离线保留归属，超过 grace 后只迁移原设备上的 session；设备恢复后重新加入分配集合；从未连接的设备不参与自动分配。
-- **state**：每设备 `DeviceDesired` 不同；mirror 设备跟随全局；auto 设备空集合三种回退；manual 设备只显示 pin 到的 agent；全局/单设备覆盖与分配优先级；`forced_off` 压过一切；新设备注册后立即拿到正确效果；离线 grace 结束后 auto 设备退出分配集合。
+- **config**：默认值、旧配置（无 `routing`）行为不变、非法策略/亮度/空 Agent/重复 Agent 被拒绝。
+- **assignment**：统一显示；`auto_agent` 一个 Agent 一台灯、4 Agent/3 灯 → 2/1/1；`auto_session` 3 session/3 灯 → 1/1/1、4/3 → 2/1/1；`manual_agent` 按灯配置、一个 Agent 只属于一台灯、失效灯 Agent 未分配；新增 session/Agent 不移动已有；短暂离线保留归属，超过 grace 后只迁移原设备上的内容。
+- **state**：每设备 `DeviceDesired` 不同；统一显示跟随全局；auto/manual 空集合显示 `mapping.none`；全局/单设备覆盖与分配优先级；`forced_off` 压过一切；新设备注册后立即拿到正确效果；离线 grace 结束后 auto 设备退出分配集合。
 - **lights**：actor 读取每设备亮度/蜂鸣；`forced_off` 下发 off；设备重连重放各自效果。
-- **API**：快照包含 `routing`、`unassigned_agents`、`unresolved_pins`；`POST /api/v1/routing/rebuild` 触发重新分配；`PUT /api/v1/config` 保存 pin 后立即生效；旧客户端字段不受影响。
-- **web**：灯具页分配方式与 agent 固定；没有 session 选择器；状态页分配视图；设置页回退选择。
-- **e2e**：3 台 mock 灯 + 1 个 agent 3 个 session，断言三台灯各拿到一个 session、mock 命令不同；把该 agent pin 到灯 A 后，A 聚合 3 个 session，B/C 回退 off；取消 pin 后恢复 1/1/1。
+- **API**：快照包含 `routing`、`unassigned_agents`、`config.routing`；`POST /api/v1/routing/rebuild` 触发重新分配；`PUT /api/v1/config` 保存策略/manual 后立即生效；旧客户端字段不受影响。
+- **web**：设置页四种策略单选；只有手动模式显示灯/Agent 编辑；离线灯保留与删除；没有 session 选择器；灯具页保持原样。
+- **e2e**：四种策略切换；`auto_session` 下 3 台 mock 灯各拿到一个 session；`auto_agent` 下同一 Agent 的多个 session 落在同一台灯；`manual_agent` 下离线灯配置保留、删除后 Agent 未分配。
