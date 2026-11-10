@@ -9,6 +9,7 @@ pub mod device;
 pub mod discovery;
 pub mod mlight;
 pub mod mock;
+pub mod spp;
 pub mod transport;
 pub mod yh50;
 

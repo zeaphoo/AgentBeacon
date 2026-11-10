@@ -55,10 +55,14 @@ AgentCore-Light speaks a text-line protocol (`HELLO` / `STATUS` / `IDLE` / `BUSY
   { "devices": [{ "port": "COM5", "profile": "agentcore-light" }] }
   ```
 
-  Pair the device first (`bluetoothctl pair <MAC>`); on Linux connect over RFCOMM channel 2 (`sudo rfcomm bind 0 <MAC> 2`).
-- **BLE (NUS)** — the device advertises `AgentCore-Light-<suffix>`; it is found by scanning, connected over the Nordic UART Service, and driven with the same text protocol (MTU-chunked writes, de-duplicated notifications). No pairing needed.
+  Pair the device once (`bluetoothctl pair <MAC>`), then either let the worker find its Bluetooth serial port or bind the RFCOMM address directly — `spp:AA:BB:CC:DD:EE:FF` — which needs neither root nor a `/dev/rfcomm*` node:
 
-The device stops advertising while USB is plugged in, so unplug it before testing Bluetooth. Background BLE scanning pauses while a BLE light is connected, because BlueZ's discovery tears down LE links. Diagnostics: `cargo run -p agent-beacon-lights --example ble_scan` and `--example ble_status -- name:AgentCore-Light-BLE`. Details in the [protocol document](docs/AgentCore-Light-serial-protocol.md).
+  ```json
+  { "devices": [{ "port": "spp:AF:C3:A4:E1:D8:95", "profile": "agentcore-light" }] }
+  ```
+- **BLE (NUS)** — connected over the Nordic UART Service and driven with the same text protocol (MTU-chunked writes, de-duplicated notifications).
+
+Discovery tries the transports in order of reliability: USB CDC (while plugged in) → devices **BlueZ already knows** (pairing is enough; no advertising, no scan) → SPP over RFCOMM → advertising scan as a last resort. That matters because the light stops advertising as soon as something is connected to it, so scanning alone can never find an already-connected device. Background scanning also pauses while a BLE light is connected, because BlueZ's discovery tears down LE links. Diagnostics: `cargo run -p agent-beacon-lights --example bt_links` (known devices, no scan), `--example spp_probe -- AA:BB:CC:DD:EE:FF`, `--example ble_scan`, `--example ble_status -- name:AgentCore-Light-BLE`. Details in the [protocol document](docs/AgentCore-Light-serial-protocol.md).
 
 ## UI
 

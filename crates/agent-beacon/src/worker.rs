@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use agent_beacon_core::DeviceProfile;
 use agent_beacon_lights::actor::{spawn, ActorConfig, TransportFactory};
-use agent_beacon_lights::ble::BleTransport;
+use agent_beacon_lights::ble::{known_links, BleTransport, KnownLink};
 use agent_beacon_lights::device::{remove, upsert};
 use agent_beacon_lights::discovery::{detect, PortInfo, PortKind};
 use agent_beacon_lights::mock::{MockLog, MockTransport};
@@ -36,6 +36,12 @@ struct ActorEntry {
 const BLE_SCAN_WINDOW: Duration = Duration::from_secs(3);
 const BLE_SCAN_INTERVAL: Duration = Duration::from_secs(15);
 
+/// 已知链路（BlueZ 已认识的设备）刷新节奏。
+///
+/// 这一步**不触发 BLE 发现**，只是读 BlueZ 的设备对象，所以不存在「扫描打断 LE 连接」
+/// 的问题，可以比广播扫描勤快得多：设备连上之后就不再广播，靠它才能发现。
+const KNOWN_LINK_INTERVAL: Duration = Duration::from_secs(10);
+
 pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut actors: HashMap<String, ActorEntry> = HashMap::new();
@@ -48,6 +54,10 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
         let mut ble_scanning = false;
         let mut last_ble_scan: Option<Instant> = None;
         let mut ble_unavailable = false;
+        // 已认识的链路（不扫描）：与广播扫描分开跑，互不阻塞。
+        let (known_tx, mut known_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut known_running = false;
+        let mut last_known: Option<Instant> = None;
 
         loop {
             let config = state.config();
@@ -98,9 +108,99 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
             // 端口拔掉后清掉探测结果，重新插上时会再握手一次。
             probes.retain(|port, _| current_ports.contains(port));
 
-            // 有 BLE 设备在用时不扫描：BlueZ 在发现过程中会打断 LE 连接
-            // （实测连接被 `Not connected` 掉线）。设备掉线由它自己的 actor 负责重连。
-            let has_ble_actor = actors.keys().any(|id| id.starts_with("ble:"));
+            // 配置里显式绑定的 BLE / SPP 链路：这两类端口系统不会枚举出来，
+            // 只能按 `devices[{ port: "ble:…" / "spp:…" }]` 直接起 actor。
+            for binding in config.devices.iter() {
+                if !binding.profile.is_agentcore() {
+                    continue;
+                }
+                let Some(port) = binding.port.as_deref() else {
+                    continue;
+                };
+                if !(port.starts_with("ble:") || port.starts_with("spp:")) {
+                    continue;
+                }
+                let id = port.to_lowercase();
+                if actors.contains_key(&id) {
+                    continue;
+                }
+                tracing::info!(port = %id, "binding AgentCore-Light link from config");
+                upsert(
+                    state.devices(),
+                    DeviceInfo::new(&id, &id, DeviceProfile::AgentCore),
+                );
+                let handle = spawn_actor(&state, &id, &id, DeviceProfile::AgentCore);
+                actors.insert(
+                    id.clone(),
+                    ActorEntry {
+                        profile: DeviceProfile::AgentCore,
+                        port: id,
+                        handle,
+                    },
+                );
+            }
+
+            // 先看 BlueZ 已经认识的设备：**不扫描**，所以既不会打断已有 LE 连接，
+            // 也能看到「已经连着、早就不广播」的设备（这正是只靠扫描发现不了的那类）。
+            if !known_running && last_known.is_none_or(|at| at.elapsed() >= KNOWN_LINK_INTERVAL) {
+                last_known = Some(Instant::now());
+                known_running = true;
+                let sender = known_tx.clone();
+                tokio::task::spawn_blocking(move || {
+                    let _ = sender.send(known_links());
+                });
+            }
+            let mut known_ble = false;
+            while let Ok(result) = known_rx.try_recv() {
+                known_running = false;
+                match result {
+                    Ok(links) => {
+                        let ble_available =
+                            links.iter().any(|link| matches!(link, KnownLink::Ble(_)));
+                        known_ble |= ble_available;
+                        for link in links {
+                            let id = link.device_id();
+                            // BLE 优先：能走 NUS 就不走 SPP（SPP 会占用设备的经典蓝牙链路）。
+                            if matches!(link, KnownLink::Spp { .. }) && ble_available {
+                                continue;
+                            }
+                            if actors.contains_key(&id) {
+                                continue;
+                            }
+                            tracing::info!(
+                                address = link.address(),
+                                name = link.name(),
+                                link = if matches!(link, KnownLink::Ble(_)) {
+                                    "ble"
+                                } else {
+                                    "spp"
+                                },
+                                "detected AgentCore-Light from known devices (no scan)"
+                            );
+                            upsert(
+                                state.devices(),
+                                DeviceInfo::new(&id, &id, DeviceProfile::AgentCore),
+                            );
+                            let handle = spawn_actor(&state, &id, &id, DeviceProfile::AgentCore);
+                            actors.insert(
+                                id.clone(),
+                                ActorEntry {
+                                    profile: DeviceProfile::AgentCore,
+                                    port: id,
+                                    handle,
+                                },
+                            );
+                        }
+                    }
+                    Err(error) => {
+                        tracing::debug!(error = %error, "cannot list known Bluetooth devices");
+                    }
+                }
+            }
+
+            // 广播扫描只作为最后兜底：设备已知（配对过/连着）时它根本不广播，扫也没用，
+            // 而 BlueZ 的发现过程还会打断已有的 LE 连接（实测连接被 `Not connected` 掉线）。
+            let has_ble_actor = known_ble || actors.keys().any(|id| id.starts_with("ble:"));
             if !has_ble_actor
                 && !ble_scanning
                 && last_ble_scan.is_none_or(|at| at.elapsed() >= BLE_SCAN_INTERVAL)
@@ -136,8 +236,7 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                                 state.devices(),
                                 DeviceInfo::new(&id, &port, DeviceProfile::AgentCore),
                             );
-                            let handle =
-                                spawn_actor(&state, &id, &port, DeviceProfile::AgentCore);
+                            let handle = spawn_actor(&state, &id, &port, DeviceProfile::AgentCore);
                             actors.insert(
                                 id.clone(),
                                 ActorEntry {
@@ -206,6 +305,7 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                     remove(state.devices(), &id);
                 }
                 last_ble_scan = None;
+                last_known = None;
             }
         }
     })
@@ -238,6 +338,15 @@ fn spawn_actor(
             Arc::new(move || {
                 let target = selector.clone();
                 in_blocking(move || BleTransport::open(&target))
+                    .map(|transport| Box::new(transport) as Box<dyn Transport>)
+            })
+        }
+        DeviceProfile::AgentCore if port.starts_with("spp:") => {
+            // 免 root 的 SPP 直连：自己开 RFCOMM socket，不依赖 /dev/rfcomm* 节点。
+            let target = port.trim_start_matches("spp:").to_string();
+            Arc::new(move || {
+                let target = target.clone();
+                in_blocking(move || AgentCoreTransport::open_spp(&target))
                     .map(|transport| Box::new(transport) as Box<dyn Transport>)
             })
         }

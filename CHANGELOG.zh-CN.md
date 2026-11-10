@@ -24,6 +24,10 @@
 - 新增 PromLight 硬件控制协议文档（BLE HID，`5E 5E` 二进制帧 / READ-WRITE-LED / 应答与错误码 / 持久参数 / 电量），供后续接入该设备时参照。
 
 - 新增 AgentCore-Light 状态灯支持（`agentcore-light` profile）：文本行协议 + `HELLO` 握手、`IDLE`/`BUSY`/`SUCCESS`/`ERROR`/`WAIT_CONFIRM` 状态、`BRIGHTNESS_LEVEL`（百分比 ×3）与蜂鸣器映射，并有后台读线程消费设备的 `STATUS`/`CHG` 上报。
+- AgentCore-Light 设备发现改为**先读 BlueZ 已知设备、再退回广播扫描**（每 10 s 一次，不触发 BLE 发现）：设备连上后就不再广播，只靠扫描永远发现不了「已经连着」的灯；顺带避免发现过程打断已有 LE 连接。
+- 新增 AgentCore-Light 的 **SPP（RFCOMM）免 root 直连**：`spp:AA:BB:CC:DD:EE:FF[:通道]`，自己开 `AF_BLUETOOTH/BTPROTO_RFCOMM` socket，不依赖 `/dev/rfcomm*` 节点、不需要 root，作为 BLE 不可用时的兜底链路。
+- `devices[{ port: "ble:…" / "spp:…" }]` 现在会被直接用作链路绑定：这两类端口系统不会枚举出来，之前写进配置也不会生效。BLE 优先于 SPP。
+- 新增诊断工具 `--example bt_links`（已知设备，不扫描）与 `--example spp_probe`（SPP 直连握手）。
 - 新增 AgentCore-Light 的 BLE（Nordic UART Service）链路：按广播名发现，连 NUS 后跑同一套文本协议；写入按 MTU 分片、无响应写不可用时降级为带响应写、通知去重，并有后台通知读取线程。
 - `crates/agent-beacon-lights/examples` 新增 `ble_scan` / `ble_status` 诊断工具。
 - AgentCore-Light 自动识别：USB CDC 按 `4C4A:4155`（Espressif `303A` 需产品名关键字）认定，蓝牙 SPP 端口先做一次 `HELLO` 握手确认后才挂 actor。

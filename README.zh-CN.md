@@ -55,10 +55,14 @@ AgentCore-Light 在 USB CDC 或蓝牙 SPP 上跑同一套文本行协议（`HELL
   { "devices": [{ "port": "COM5", "profile": "agentcore-light" }] }
   ```
 
-  蓝牙需先配对（`bluetoothctl pair <MAC>`）；Linux 上走 RFCOMM 通道 2（`sudo rfcomm bind 0 <MAC> 2`）。
-- **BLE（NUS）** —— 设备广播 `AgentCore-Light-<后缀>`，扫描发现后连 Nordic UART Service，跑的仍是同一套文本协议（写入按 MTU 分片、通知去重），不需要配对。
+  蓝牙只需配对一次（`bluetoothctl pair <MAC>`）。也可以直接绑定 RFCOMM 地址 `spp:AA:BB:CC:DD:EE:FF`，**不需要 root、也不需要 `/dev/rfcomm*` 节点**：
 
-插着 USB 时设备不广播，测蓝牙要先拔线。已有 BLE 灯连接时后台暂停扫描（BlueZ 的发现过程会打断 LE 连接）。诊断工具：`cargo run -p agent-beacon-lights --example ble_scan`、`--example ble_status -- name:AgentCore-Light-BLE`。详见[协议文档](docs/AgentCore-Light-serial-protocol.md)。
+  ```json
+  { "devices": [{ "port": "spp:AF:C3:A4:E1:D8:95", "profile": "agentcore-light" }] }
+  ```
+- **BLE（NUS）** —— 连 Nordic UART Service，跑的仍是同一套文本协议（写入按 MTU 分片、通知去重）。
+
+发现顺序按可靠性排：USB CDC（插着线）→ **BlueZ 已认识的设备**（配对过就够，不广播、不扫描）→ SPP（RFCOMM）→ 广播扫描兜底。这点很关键：设备一旦被连上就不再广播，只靠扫描永远发现不了一台「已经连着」的灯。已有 BLE 灯连接时后台仍暂停广播扫描（BlueZ 的发现过程会打断 LE 连接）。诊断工具：`cargo run -p agent-beacon-lights --example bt_links`（已知设备，不扫描）、`--example spp_probe -- AA:BB:CC:DD:EE:FF`、`--example ble_scan`、`--example ble_status -- name:AgentCore-Light-BLE`。详见[协议文档](docs/AgentCore-Light-serial-protocol.md)。
 
 ## 界面
 

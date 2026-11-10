@@ -26,6 +26,10 @@ English | [中文](CHANGELOG.zh-CN.md)
 ### Fixed
 
 - AgentCore-Light device support (`agentcore-light` profile): text-line protocol with `HELLO` handshake, `IDLE`/`BUSY`/`SUCCESS`/`ERROR`/`WAIT_CONFIRM` states, `BRIGHTNESS_LEVEL` (percent ×3) and buzzer mapping, plus a background reader that drains the device's `STATUS`/`CHG` reports.
+- AgentCore-Light discovery now reads the devices **BlueZ already knows** before falling back to advertising scans (every 10 s, no BLE discovery triggered): a light that is already connected stops advertising, so scanning alone can never find it — and skipping discovery also avoids tearing down existing LE links.
+- New **root-free SPP (RFCOMM) transport** for AgentCore-Light: `spp:AA:BB:CC:DD:EE:FF[:channel]` opens an `AF_BLUETOOTH/BTPROTO_RFCOMM` socket directly, with no `/dev/rfcomm*` node and no root, as the fallback when BLE is unavailable.
+- `devices[{ port: "ble:…" / "spp:…" }]` is now honoured as a link binding; these ports are never enumerated by the system, so such bindings were previously ignored. BLE is preferred over SPP.
+- New diagnostics: `--example bt_links` (known devices, no scan) and `--example spp_probe` (SPP handshake).
 - AgentCore-Light BLE (Nordic UART Service) transport: discovered by advertisement name, driven with the same text protocol, MTU-chunked writes with a write-with-response fallback, duplicate-notification filtering, and a background notification reader.
 - `ble_scan` / `ble_status` diagnostics under `crates/agent-beacon-lights/examples`.
 - Automatic AgentCore-Light detection over USB CDC (`4C4A:4155`; Espressif `303A` also needs a product-name keyword) and Bluetooth SPP (bluetooth serial ports are verified with a one-off `HELLO` handshake before an actor is attached).

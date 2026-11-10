@@ -23,13 +23,23 @@
 >   只认 `AgentCore-Light-<suffix>` 或广播了 NUS Service 的那条；
 > * 同一条通知会被 BlueZ 投递两次，300 ms 内的重复行已去重；
 > * `StartDiscovery` 会打断已有的 LE 连接，所以已有 BLE 设备时后台不再扫描
->   （设备掉线由它自己的 actor 重连；控制台“重新扫描”会释放 BLE 设备再重新发现）；
-> * 诊断：`cargo run -p agent-beacon-lights --example ble_scan`、
->   `--example ble_status -- name:AgentCore-Light-BLE`。
+>   （设备掉线由它自己的 actor 重连；控制台“重新扫描”会释放 BLE 设备再重新发现）。
+>
+> **发现顺序（重要）**：`worker.rs` 每 10 s 先读一遍 BlueZ 已认识的设备（`ble::known_links()`，
+> **不触发发现**），把 BLE 那条起成 `ble:<addr>` actor、经典那条作为 SPP 兜底目标；
+> 只有在「BlueZ 里一台都不认识」时才退回 3 s 广播扫描。这样「设备已经连着、早就不广播」
+> 也能被发现——这正是只靠扫描发现不了的场景（详见 §2.4）。
+>
+> SPP 走 `spp.rs`：**免 root**、不需 `/dev/rfcomm*` 节点，直接对经典蓝牙地址开
+> `AF_BLUETOOTH/BTPROTO_RFCOMM` socket（`transport.rs` 的 `AgentCoreTransport::open_spp`），
+> 端口名形如 `spp:aa:bb:cc:dd:ee:ff`（可带通道号），也可以写进配置绑定。
+>
+> 诊断：`--example ble_scan`、`--example bt_links`（已知链路，不扫描）、
+> `--example spp_probe -- AA:BB:CC:DD:EE:FF`（SPP 直连）。
 
 - 设备方案：杰理 JieLi **AC696N**（USB `0x4C4A:0x4155`，早期版本为 Espressif `0x303A`）
-- 文档版本：v1.0
-- 整理日期：2026-11-09
+- 文档版本：v1.1（补 §2.4 发现顺序与 SPP 直连实现）
+- 整理日期：2026-11-10
 
 ---
 
@@ -98,6 +108,10 @@ Linux 权限：当前用户需在 `dialout` 组（`sudo usermod -aG dialout $USE
      这条路径**必须 root**，因为 `rfcomm` 走 `RFCOMMCREATEDEV` ioctl 让内核建 TTY 设备，
      内核里用 `capable(CAP_NET_ADMIN)` 检查，且建出来的节点是 `root:dialout 660`。
 - 前提都是设备**已配对**（`bluetoothctl pair`，这一步走 D-Bus/polkit，不需要 root）。
+- **AgentBeacon 用的是第 1 种**（`crates/agent-beacon-lights/src/spp.rs`）：不建 TTY、不需要 root、
+  不依赖 udev。实测握手 220 ms 左右即可拿到 `HELLO:OK`。
+- 设备一次只接受一条 SPP 通道：断开后约需 1.5 s 才能再次连上（否则 `connect` 返回
+  `Device or resource busy`）。actor 的重连退避从 1 s 起指数增长，正好覆盖这个间隔。
 
 ### 2.3 BLE（NUS）
 
@@ -115,6 +129,24 @@ Linux 权限：当前用户需在 `dialout` 组（`sudo usermod -aG dialout $USE
   BLE `<MAC+1>`（广播名 `AgentCore-Light-BLE`，NUS 用），第三个字节起不同 —— 需要分别记录。
 - 已验证：BLE 上 `STATUS` / 设置类命令 / `SOUND:` / 报错 / `CHG:` 心跳全部与串口一致，
   主机**不需要** `HELLO`，直接 `STATUS` 即可。
+
+### 2.4 发现顺序与保底（实现建议）
+
+设备有三条链路，可靠性从高到低。要「总是能检测到」，就按这个顺序找，不要只依赖广播：
+
+| 顺序 | 链路 | 依赖 | 备注 |
+| --- | --- | --- | --- |
+| 1 | USB CDC | 插着线 | 此时设备不广播，别指望蓝牙 |
+| 2 | BLE（NUS） | **已配对**（不需要广播） | BlueZ 的 `Device1` 对象常驻，`Adapter::peripherals()` 直接能列出来 |
+| 3 | SPP（RFCOMM） | **已配对**（不需要广播） | BLE 连不上时的兜底，免 root |
+| 4 | 广播扫描 | 设备在广播 | 只作为「还没配对过」的首次发现 |
+
+关键事实：**设备一旦被连上就不再广播**，所以「已连接/刚连过」的状态下，广播扫描必然一无所获；
+但 BlueZ 里它的 `Device1` 记录还在，`GetManagedObjects` 能直接读到地址、名字和 UUID 列表。
+这就是为什么实现里要先查「已知设备」再考虑扫描。
+
+对同一台设备，经典蓝牙与 BLE 的**地址不同**（第三个字节起就不同），名字也不同
+（`AgentCore-Light` vs `AgentCore-Light-BLE`），所以两条链路要分别记录、分别绑定。
 
 > **重要（实测）**：设备插着 USB 时**不广播**——`STATUS` 里 `BLE_ADV:0`，`hcitool lescan`
 > 与经典蓝牙 inquiry 都扫不到它（`bluetoothctl devices` 里的条目是历史缓存）。
@@ -401,6 +433,9 @@ python3 scripts/agentcore_probe.py --service transport serial
 - 固件可能还有未文档化命令，可用「是否返回 `ERR UNKNOWN`」二分试探（读命令安全）。
 - USB 连接时设备不广播 BLE/经典蓝牙，也没有协议命令能打开广播；蓝牙测试需拔掉 USB。
   缓存地址（如 `AA:BB:CC:DD:EE:FF`）只在设备可见时才能连上。
-- SPP 已实测通过（通道 2，`--spp` 免 root）。`rfcomm bind` 的 root 需求只是"建 TTY 节点"这一步。
-- 厂商 Linux 版上位机**不支持 BLE**（其 BLE 路径是 Windows WinRT / 蓝牙助手），
-  Linux 上拔掉 USB 后只有 SPP（需先 `rfcomm bind`）可用。
+- SPP 已实测通过（通道 2）。AgentBeacon 用免 root 的 RFCOMM socket 直连，不需要 `rfcomm bind`；
+  `rfcomm bind` 的 root 需求只是"建内核 TTY 节点"这一步，与本实现无关。
+- 厂商 Linux 版上位机**不支持 BLE**（其 BLE 路径是 Windows WinRT / 蓝牙助手）；
+  AgentBeacon 的 Linux BLE 走 BlueZ + btleplug，同样可用。
+- 同时跑两个 AgentBeacon 实例会抢同一台设备的 BLE 连接（后启动的那个报
+  `Operation already in progress`），属预期行为——只应有一个实例在跑。

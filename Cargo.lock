@@ -68,6 +68,7 @@ dependencies = [
  "agent-beacon-core",
  "btleplug",
  "futures-util",
+ "libc",
  "rusb",
  "serde",
  "serde_json",

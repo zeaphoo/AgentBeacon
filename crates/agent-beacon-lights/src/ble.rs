@@ -29,8 +29,8 @@ use std::time::{Duration, Instant};
 use btleplug::api::{
     Central, CharPropFlags, Characteristic, Manager as _, Peripheral as _, ScanFilter, WriteType,
 };
-use futures_util::StreamExt as _;
 use btleplug::platform::{Adapter, Manager, Peripheral};
+use futures_util::StreamExt as _;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use uuid::Uuid;
 
@@ -42,6 +42,8 @@ pub const NUS_TX: Uuid = Uuid::from_u128(0x6e400003_b5a3_f393_e0a9_e50e24dcca9e)
 
 /// 广播名 / 本地名前缀；改名后仍是这个前缀（`SET_BT_NAME` 限制）。
 pub const NAME_PREFIX: &str = "agentcore-light";
+/// 经典蓝牙 Serial Port Profile：同一台设备的经典那条记录用这个服务，只能走 SPP。
+pub const SPP_SERVICE: Uuid = Uuid::from_u128(0x0000_1101_0000_1000_8000_0080_5f9b_34fb);
 /// 默认 MTU 分片大小（协议文档 §2.3）。
 const DEFAULT_CHUNK: usize = 20;
 const SCAN_TIMEOUT: Duration = Duration::from_secs(10);
@@ -85,6 +87,95 @@ pub fn looks_like_ble(name: Option<&str>, advertises_nus: bool) -> bool {
         return false;
     }
     name_matches(name)
+}
+
+/// BlueZ 里**已经有记录**的链路：不需要设备广播、也不需要扫描。
+///
+/// 这是「设备已经连上/配对过就扫不到」那个缺口的正解：设备不广播，但 BlueZ 的
+/// `Device1` 对象一直在，`Adapter::peripherals()` 能直接列出来（Linux 后端就是
+/// `get_devices_on_adapter`，返回该适配器上的全部设备，含经典蓝牙设备）。
+///
+/// macOS / Windows 上系统只把「本次发现过的」设备交给应用程序，这个函数通常返回空，
+/// 调用方应当退回广播扫描。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KnownLink {
+    /// 带 NUS 服务的 LE 设备：直接连 GATT。
+    Ble(BleDiscovery),
+    /// 经典蓝牙 + Serial Port 服务的设备：只能走 SPP（RFCOMM）。
+    Spp {
+        address: String,
+        name: Option<String>,
+    },
+}
+
+impl KnownLink {
+    /// 设备 id，与广播扫描保持一致（`ble:<address>` / `spp:<address>`）。
+    pub fn device_id(&self) -> String {
+        match self {
+            Self::Ble(discovery) => discovery.device_id(),
+            Self::Spp { address, .. } => format!("spp:{}", address.to_lowercase()),
+        }
+    }
+
+    /// 传输层用的 port：`ble:<address>` 或 `spp:<address>`。
+    pub fn port(&self) -> String {
+        self.device_id()
+    }
+
+    pub fn address(&self) -> &str {
+        match self {
+            Self::Ble(discovery) => &discovery.address,
+            Self::Spp { address, .. } => address,
+        }
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Self::Ble(discovery) => discovery.name.as_deref(),
+            Self::Spp { name, .. } => name.as_deref(),
+        }
+    }
+}
+
+/// 列出 BlueZ 已知的 AgentCore-Light 链路（不扫描、不需要广播）。
+pub fn known_links() -> Result<Vec<KnownLink>, String> {
+    let runtime = runtime()?;
+    runtime.block_on(async move {
+        let adapter = first_adapter().await?;
+        let peripherals = adapter
+            .peripherals()
+            .await
+            .map_err(|error| format!("failed to list known Bluetooth devices: {error}"))?;
+        let mut found = Vec::new();
+        for peripheral in peripherals {
+            let Some(properties) = peripheral.properties().await.ok().flatten() else {
+                continue;
+            };
+            let name = properties
+                .local_name
+                .clone()
+                .or_else(|| properties.advertisement_name.clone())
+                .filter(|name| !name.trim().is_empty());
+            let address = peripheral.address().to_string();
+            let advertises_nus = properties.services.contains(&NUS_SERVICE);
+            let advertises_spp = properties.services.contains(&SPP_SERVICE);
+            if advertises_nus {
+                found.push(KnownLink::Ble(BleDiscovery { address, name }));
+                continue;
+            }
+            // 经典蓝牙那条：名字恰好是 `AgentCore-Light`（或带 SPP 服务）。
+            let classic = advertises_spp
+                || name
+                    .as_deref()
+                    .is_some_and(|name| name.trim().eq_ignore_ascii_case("AgentCore-Light"));
+            if classic && name.as_deref().is_some_and(name_matches) {
+                found.push(KnownLink::Spp { address, name });
+            }
+        }
+        found.sort_by_key(|link| link.device_id());
+        found.dedup_by(|left, right| left.device_id() == right.device_id());
+        Ok(found)
+    })
 }
 
 /// 扫描一次广播，返回所有像 AgentCore-Light 的设备（按名字前缀或 NUS service 判断）。
@@ -262,6 +353,32 @@ async fn connect(
     selector: &str,
 ) -> Result<(Peripheral, Characteristic, Characteristic, String), String> {
     let adapter = first_adapter().await?;
+
+    // 先看 BlueZ 已经认识的设备：设备连上之后就不再广播，只靠扫描是永远扫不到的。
+    let known = adapter
+        .peripherals()
+        .await
+        .map_err(|error| format!("failed to list known Bluetooth devices: {error}"))?;
+    let mut target = None;
+    for peripheral in known {
+        if !matches_selector(&peripheral, selector).await {
+            continue;
+        }
+        let advertises_nus = peripheral
+            .properties()
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|properties| properties.services.contains(&NUS_SERVICE));
+        if advertises_nus {
+            target = Some(peripheral);
+            break;
+        }
+    }
+    if let Some(peripheral) = target {
+        return connect_peripheral(peripheral, selector).await;
+    }
+
     adapter
         .start_scan(ScanFilter::default())
         .await
@@ -307,6 +424,14 @@ async fn connect(
             "{selector} not found in BLE scan; the device stops advertising while USB is plugged in"
         )
     })?;
+    connect_peripheral(peripheral, selector).await
+}
+
+/// 连接选定的设备、发现服务并订阅 NUS TX。
+async fn connect_peripheral(
+    peripheral: Peripheral,
+    selector: &str,
+) -> Result<(Peripheral, Characteristic, Characteristic, String), String> {
     peripheral
         .connect_with_timeout(CONNECT_TIMEOUT)
         .await

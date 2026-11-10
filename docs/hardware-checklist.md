@@ -33,6 +33,19 @@
 - [ ] 拔插后重连并重放最后灯效
 - [ ] 验证闪光频率是否同时作用于蜂鸣器、上电默认状态、未知字段容错（协议文档 §9）
 
+## AgentCore-Light（`4C4A:4155` / 蓝牙）
+
+- [x] USB CDC 自动识别，`HELLO:OK` 握手后挂 actor
+- [x] BLE（NUS）扫描发现，名称前缀命中，通知去重生效
+- [x] **已连接（不广播）时仍能发现**：`known_links()` 从 BlueZ 直接列出，日志出现
+      `detected AgentCore-Light from known devices (no scan)`
+- [x] **SPP 免 root 直连**：`spp:AA:BB:CC:DD:EE:FF` 绑定后 `connected: true`，
+      `POST /api/v1/control` 的效果能下发（`--example spp_probe` 单独验证）
+- [ ] BLE 与 SPP 同一台设备同时可达时，只连 BLE（SPP 不抢经典蓝牙链路）
+- [ ] 设备断开后 actor 自动重连（SPP 断开约 1.5 s 内重连会 `EBUSY`，退避应覆盖）
+- [ ] 拔掉 USB 后 ≤15 s 内切到蓝牙链路；插回 USB 后切回 USB
+- [ ] 两个实例同时跑时第二个实例的报错可读（`Operation already in progress`），不崩溃
+
 ## 跨平台
 
 - [ ] Linux：`dialout` 权限、udev 规则（libusb 直连）
