@@ -45,14 +45,12 @@ fn main() {
             let hidden = std::env::args().any(|arg| arg == "--hidden");
             let prefs = Prefs::load(&handle);
             let port = config::service_port();
-            let log_path = handle
-                .path()
-                .app_data_dir()
+            let log_path = config::data_dir()
                 .map(|dir| {
                     let _ = std::fs::create_dir_all(&dir);
                     dir.join("agent-beacon.log")
                 })
-                .unwrap_or_else(|_| std::path::PathBuf::from("agent-beacon.log"));
+                .unwrap_or_else(|| std::path::PathBuf::from("agent-beacon.log"));
 
             let supervisor = Arc::new(Supervisor::new(port, hidden, prefs.clone(), log_path));
             app.manage(Arc::clone(&supervisor));

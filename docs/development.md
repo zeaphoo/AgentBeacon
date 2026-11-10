@@ -111,11 +111,13 @@ Useful manual checks:
 
 ## Configuration and API
 
-The service owns its config file:
+Everything lives in one application data directory named after the bundle identifier `net.quadhub.agent-beacon`:
 
-- Linux: `~/.config/agent-beacon/config.json`
-- macOS: `~/Library/Application Support/agent-beacon/config.json`
-- Windows: `%APPDATA%\agent-beacon\config.json`
+- Linux: `~/.local/share/net.quadhub.agent-beacon/`
+- macOS: `~/Library/Application Support/net.quadhub.agent-beacon/`
+- Windows: `%APPDATA%\net.quadhub.agent-beacon\`
+
+`config.json` (owned by the service), the desktop shell's `desktop-prefs.json`, and `agent-beacon.log` all sit in that directory, so the CLI, the service and the app share one data root. Configs written by older versions under `~/.config/agent-beacon/` are copied over on first start.
 
 The default listen address is `127.0.0.1:6980`. Configuration can be updated through the console or `PUT /api/v1/config`.
 

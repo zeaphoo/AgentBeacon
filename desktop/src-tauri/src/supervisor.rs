@@ -365,7 +365,7 @@ impl Supervisor {
         {
             let mut prefs = self.prefs.lock().unwrap_or_else(|p| p.into_inner());
             prefs.autostart = actual;
-            prefs.save(app)?;
+            prefs.save()?;
         }
         Ok(actual)
     }

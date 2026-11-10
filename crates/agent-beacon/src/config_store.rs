@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use agent_beacon_core::{Config, ConfigError};
+use agent_beacon_core::{Config, ConfigError, APP_IDENTIFIER};
 
 pub struct ConfigStore {
     path: PathBuf,
@@ -14,9 +14,11 @@ impl ConfigStore {
         Self { path }
     }
 
+    /// 服务配置落在应用自己的数据根：`<data_dir>/<APP_IDENTIFIER>/config.json`。
+    ///
+    /// 桌面壳用的是同一个目录，因此 CLI、服务与桌面应用共用一份配置。
     pub fn default_path() -> Result<PathBuf, String> {
-        let base = dirs::config_dir().ok_or_else(|| "cannot resolve user config directory".to_string())?;
-        Ok(base.join("agent-beacon").join("config.json"))
+        Ok(data_dir()?.join("config.json"))
     }
 
     pub fn path(&self) -> &Path {
@@ -26,6 +28,7 @@ impl ConfigStore {
     /// 读取配置；文件不存在时写入默认配置并返回。
     pub fn load_or_create(&self) -> Result<Config, String> {
         if !self.path.exists() {
+            migrate_legacy_config(&self.path);
             let config = Config::default();
             config.validate().map_err(config_error)?;
             self.save(&config)?;
@@ -70,6 +73,32 @@ fn config_error(error: ConfigError) -> String {
     format!("invalid config: {error}")
 }
 
+/// 应用数据根：Linux `$XDG_DATA_HOME`（默认 `~/.local/share`）、
+/// macOS `~/Library/Application Support`、Windows `%APPDATA%`。
+pub fn data_dir() -> Result<PathBuf, String> {
+    let base = dirs::data_dir()
+        .ok_or_else(|| "cannot resolve user data directory".to_string())?;
+    Ok(base.join(APP_IDENTIFIER))
+}
+
+/// 旧版本把配置放在 config 目录；升级后复制到新的应用数据根。
+fn migrate_legacy_config(target: &Path) {
+    let Some(base) = dirs::config_dir() else {
+        return;
+    };
+    let legacy = base.join("agent-beacon").join("config.json");
+    if !legacy.exists() {
+        return;
+    }
+    let Some(parent) = target.parent() else {
+        return;
+    };
+    if fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let _ = fs::copy(&legacy, target);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,6 +127,15 @@ mod tests {
         let again = store.load_or_create().unwrap();
         assert_eq!(config, again);
         let _ = fs::remove_dir_all(store.path().parent().unwrap());
+    }
+
+    #[test]
+    fn default_path_lives_under_the_application_data_root() {
+        let path = ConfigStore::default_path().unwrap();
+        assert_eq!(path.file_name().unwrap(), "config.json");
+        let dir = path.parent().unwrap();
+        assert_eq!(dir.file_name().unwrap(), APP_IDENTIFIER);
+        assert_eq!(dir.parent().unwrap(), dirs::data_dir().unwrap());
     }
 
     #[test]

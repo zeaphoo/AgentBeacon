@@ -17,6 +17,11 @@ pub use session::{
     aggregate_of, AgentState, Aggregate, Event, SessionRegistry, SessionView, ValidationError,
 };
 
+/// 应用标识：桌面 Bundle ID，也是平台数据目录下的应用数据根名。
+///
+/// 服务、CLI 与桌面壳都用它定位同一份配置与日志。
+pub const APP_IDENTIFIER: &str = "net.quadhub.agent-beacon";
+
 /// 服务默认端口。
 pub const DEFAULT_PORT: u16 = 6980;
 

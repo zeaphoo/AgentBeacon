@@ -111,11 +111,13 @@ pnpm --dir web test
 
 ## 配置与 API
 
-配置文件由服务独占写入：
+所有数据都放在以 Bundle ID `net.quadhub.agent-beacon` 命名的应用数据目录里：
 
-- Linux：`~/.config/agent-beacon/config.json`
-- macOS：`~/Library/Application Support/agent-beacon/config.json`
-- Windows：`%APPDATA%\agent-beacon\config.json`
+- Linux：`~/.local/share/net.quadhub.agent-beacon/`
+- macOS：`~/Library/Application Support/net.quadhub.agent-beacon/`
+- Windows：`%APPDATA%\net.quadhub.agent-beacon\`
+
+服务独占写入的 `config.json`、桌面壳的 `desktop-prefs.json` 与 `agent-beacon.log` 都在这个目录，CLI、服务与桌面应用共用同一份数据根。旧版本写在 `~/.config/agent-beacon/` 的配置会在首次启动时复制过来。
 
 默认监听 `127.0.0.1:6980`。可通过控制台或 `PUT /api/v1/config` 修改配置。
 
