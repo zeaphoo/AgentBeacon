@@ -204,6 +204,7 @@ curl -X DELETE http://127.0.0.1:6980/api/v1/hooks   # 不重启服务即可清�
 - [YH50-RGY-J 串口协议](YH50-RGY-J-serial-protocol.md)
 - [AgentCore-Light 协议（USB / 蓝牙 SPP / BLE）](AgentCore-Light-serial-protocol.md)
 - [PromLight 协议（BLE HID）](PromLight-ble-hid-protocol.md)
+- [AgentPulse 协议（USB 串口 / BLE）](AgentPulse-serial-protocol.md)
 - [硬件验收清单](hardware-checklist.md)
 
 设备发现优先使用 USB 序列号而不是端口名，因此重插后绑定仍可保留。设置页支持按设备覆盖型号。

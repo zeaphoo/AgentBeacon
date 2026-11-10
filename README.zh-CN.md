@@ -136,6 +136,7 @@ AgentCore-Light 在 USB CDC 或蓝牙 SPP 上跑同一套文本行协议（`HELL
 - [YH50-RGY-J 协议](docs/YH50-RGY-J-serial-protocol.md)
 - [AgentCore-Light 协议](docs/AgentCore-Light-serial-protocol.md)
 - [PromLight 协议（BLE HID）](docs/PromLight-ble-hid-protocol.md)
+- [AgentPulse 协议（USB 串口 / BLE）](docs/AgentPulse-serial-protocol.md)
 - [硬件验收清单](docs/hardware-checklist.md)
 
 ## 项目状态

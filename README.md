@@ -136,6 +136,7 @@ The built-in integrations are shipped with the service and can be installed or u
 - [YH50-RGY-J protocol](docs/YH50-RGY-J-serial-protocol.md)
 - [AgentCore-Light protocol](docs/AgentCore-Light-serial-protocol.md)
 - [PromLight protocol (BLE HID)](docs/PromLight-ble-hid-protocol.md)
+- [AgentPulse protocol (USB CDC / BLE)](docs/AgentPulse-serial-protocol.md)
 - [Hardware checklist](docs/hardware-checklist.md)
 
 ## Project status
