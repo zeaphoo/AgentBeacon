@@ -15,9 +15,17 @@
   <a href="README.zh-CN.md">中文</a>
 </p>
 
-![AgentBeacon dashboard](docs/assets/dashboard.png)
+![AgentBeacon dashboard (English UI)](docs/assets/dashboard-en.png)
 
-AgentBeacon runs locally, watches the status reported by coding agents, and turns it into a simple light signal. It includes a Rust service, a React web console, and a Tauri desktop app.
+## Overview
+
+AgentBeacon turns coding-agent status into a light on your desk.
+
+- **What it does** — aggregates `idle` / `working` / `waiting` / `error` from Pi, Claude Code, Codex CLI, Gemini CLI and more, then drives the light.
+- **Cross-platform** — one Rust service, React console, and Tauri desktop app for Linux, macOS, and Windows.
+- **Many devices** — MLight, YH50-RGY-J, AgentCore-Light, PromLight over USB CDC, serial, Bluetooth SPP, and BLE.
+
+Runs fully local on `127.0.0.1:6980` — no account, no telemetry.
 
 ## Features
 
@@ -141,7 +149,7 @@ The built-in integrations are shipped with the service and can be installed or u
 
 ## Project status
 
-This is a pre-release (`0.1.0-rc.1`). APIs, configuration fields, and packaging details may change before a stable release.
+This is a pre-release (`0.2.0-rc.1`). APIs, configuration fields, and packaging details may change before a stable release.
 
 ## License
 

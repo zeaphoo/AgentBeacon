@@ -15,9 +15,17 @@
   <a href="README.md">English</a>
 </p>
 
-![AgentBeacon 控制台](docs/assets/dashboard.png)
+![AgentBeacon 控制台（中文界面）](docs/assets/dashboard-zh-CN.png)
 
-AgentBeacon 在本地运行，监听编码 agent 上报的状态，并把它转换成直观的灯光信号。项目包含 Rust 常驻服务、React Web 控制台和 Tauri 桌面应用。
+## 项目简介
+
+AgentBeacon 把编码 agent 的状态变成桌面上的一束光。
+
+- **功能** — 聚合 Pi、Claude Code、Codex CLI、Gemini CLI 等 agent 的 `idle` / `working` / `waiting` / `error` 状态，并驱动状态灯。
+- **跨平台** — 一套 Rust 服务 + React 控制台 + Tauri 桌面应用，覆盖 Linux / macOS / Windows。
+- **多设备** — 支持 MLight、YH50-RGY-J、AgentCore-Light、PromLight，走 USB CDC、串口、蓝牙 SPP 与 BLE。
+
+服务默认监听 `127.0.0.1:6980`，全本地运行 —— 无需账号，不上报遥测。
 
 ## 特性
 
@@ -141,7 +149,7 @@ AgentCore-Light 在 USB CDC 或蓝牙 SPP 上跑同一套文本行协议（`HELL
 
 ## 项目状态
 
-当前为预发布版本（`0.1.0-rc.1`）。稳定版发布前，API、配置字段和打包方式可能继续调整。
+当前为预发布版本（`0.2.0-rc.1`）。稳定版发布前，API、配置字段和打包方式可能继续调整。
 
 ## 许可证
 
