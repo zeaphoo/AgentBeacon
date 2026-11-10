@@ -21,6 +21,7 @@ English | [中文](CHANGELOG.zh-CN.md)
 - Integration installers now merge into existing configuration: `settings.json` hooks and `config.toml` `notify` are tagged, preserved on upgrade, and removed on uninstall without touching user-defined entries.
 - Hook diagnostics journal with `agent-beacon hooks`, `GET/DELETE /api/v1/hooks`, and `hook journal` service log entries.
 - Device protocol reference for AgentCore-Light (USB CDC / Bluetooth SPP / BLE NUS), plus a standalone probe script `scripts/agentcore_probe.py` for exercising it without the service.
+- Hardware control protocol reference for PromLight (BLE HID: `5E 5E` binary frames, READ/WRITE/LED commands, ACK and error codes, persistent parameters, battery via BLE Battery Service).
 
 ### Fixed
 

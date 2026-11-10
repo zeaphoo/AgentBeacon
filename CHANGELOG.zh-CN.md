@@ -21,6 +21,7 @@
 - 集成安装器改为合并写入：`settings.json` 的 hooks 与 `config.toml` 的 `notify` 会带标记保留，升级时原地更新，卸载时只删除自己的条目，不影响用户已有配置。
 - 新增 hook 诊断日志：`agent-beacon hooks`、`GET/DELETE /api/v1/hooks`，并在服务日志中输出 `hook journal`。
 - 新增 AgentCore-Light 设备协议文档（USB CDC / 蓝牙 SPP / BLE NUS），以及无需依赖的调试脚本 `scripts/agentcore_probe.py`。
+- 新增 PromLight 硬件控制协议文档（BLE HID，`5E 5E` 二进制帧 / READ-WRITE-LED / 应答与错误码 / 持久参数 / 电量），供后续接入该设备时参照。
 
 - 新增 AgentCore-Light 状态灯支持（`agentcore-light` profile）：文本行协议 + `HELLO` 握手、`IDLE`/`BUSY`/`SUCCESS`/`ERROR`/`WAIT_CONFIRM` 状态、`BRIGHTNESS_LEVEL`（百分比 ×3）与蜂鸣器映射，并有后台读线程消费设备的 `STATUS`/`CHG` 上报。
 - 新增 AgentCore-Light 的 BLE（Nordic UART Service）链路：按广播名发现，连 NUS 后跑同一套文本协议；写入按 MTU 分片、无响应写不可用时降级为带响应写、通知去重，并有后台通知读取线程。
