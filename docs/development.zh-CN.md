@@ -160,7 +160,7 @@ CLI help 与诊断输出使用英文。
 
 ### 集成安装方式
 
-`agent-beacon integrate install` 由 `Target::kind()` 分发到五种写入方式：
+`agent-beacon integrate install` 由 `Target::kind()` 与各 target 的 hook 形态分发到以下写入方式：
 
 | 类型 | 目标 | 写入内容 |
 | --- | --- | --- |
@@ -168,6 +168,8 @@ CLI help 与诊断输出使用英文。
 | Cordis patch | `dsh` | JS hook + `~/.dsh/cordis.patch.yml` 里的 `BEGIN/END` 块 |
 | 插件目录 | `hermes` | `~/.hermes/plugins/agent-beacon/` 下的 `plugin.yaml` + python 模块，带 `# @agent-beacon-integration` / `# @agent-beacon-version` 标记 |
 | JSON hooks（嵌套） | `claude-code`、`qoder`、`codebuddy`、`workbuddy`、`github-copilot`、`gemini`、`qwen`、`iflow` | 追加到 `settings.json` 的 `hooks`，命令尾部带 `# agent-beacon-hook:<target>:<version>` 标记；`github-copilot` 结构相同但事件名是 camelCase |
+| JSON hooks（命名块） | `antigravity` | `~/.gemini/config/hooks.json` 里的受管 `agent-beacon` 块；工具事件用 `{ matcher, hooks }`，其余事件直接把 handler 放进事件数组 |
+| JSON hooks（独立文件） | `grok` | 受管的 `~/.grok/hooks/agent-beacon.json`，内含 Claude 式 `hooks` 对象 |
 | JSON hooks（process） | `zcode` | `~/.zcode/cli/config.json` 里的 `{ type: "process", command, enabled, timeoutMs }` 条目；命令不走 shell，标记放在 `--marker agent-beacon-hook:<target>:<version>` |
 | Codex notify | `codex` | `config.toml` 里被 `# >>> agent-beacon-hook:codex` 注释包裹的 `notify` 数组 |
 
@@ -175,7 +177,7 @@ CLI help 与诊断输出使用英文。
 
 JSON hooks 与 Codex 安装器采用合并写入：用户已有的 hook 与其它配置键保持不变，卸载时只删除带标记的条目。`integrate install` 不带目标时，会安装所有配置目录存在的目标。
 
-所有 hook 都调用 `agent-beacon hook`：它读取 agent 载荷（JSON hooks 走 stdin，Codex notify 走最后一个参数），提取 `session_id`、事件名与工具名，在 `--state auto` 时推导状态，然后上报到 `/api/v1/events`。它始终返回 0，服务不在时不会阻塞 agent。
+所有 hook 都调用 `agent-beacon hook`：它读取 agent 载荷（JSON hooks 走 stdin，Codex notify 走最后一个参数），提取会话 ID、事件名与工具名，在 `--state auto` 时推导状态，然后上报到 `/api/v1/events`。它同时识别 Claude 式 `session_id` / `tool_name` 与 Antigravity 式 `conversationId` / `toolCall.name`，并且始终返回 0，服务不在时不会阻塞 agent。
 
 ### 排查灯效变化
 

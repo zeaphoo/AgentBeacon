@@ -24,6 +24,7 @@ pub enum Target {
     ClaudeCode,
     Codex,
     Gemini,
+    Antigravity,
     Qwen,
     Iflow,
     Qoder,
@@ -32,6 +33,7 @@ pub enum Target {
     GitHubCopilot,
     Hermes,
     ZCode,
+    Grok,
 }
 
 /// 安装方式的差异：文件型插件、插件目录、DSH patch、JSON hooks、Codex notify。
@@ -46,13 +48,14 @@ enum Kind {
 }
 
 impl Target {
-    pub const ALL: [Target; 14] = [
+    pub const ALL: [Target; 16] = [
         Target::Pi,
         Target::OpenCode,
         Target::Dsh,
         Target::ClaudeCode,
         Target::Codex,
         Target::Gemini,
+        Target::Antigravity,
         Target::Qwen,
         Target::Iflow,
         Target::Qoder,
@@ -61,6 +64,7 @@ impl Target {
         Target::GitHubCopilot,
         Target::Hermes,
         Target::ZCode,
+        Target::Grok,
     ];
 
     pub fn id(self) -> &'static str {
@@ -71,6 +75,7 @@ impl Target {
             Target::ClaudeCode => "claude-code",
             Target::Codex => "codex",
             Target::Gemini => "gemini",
+            Target::Antigravity => "antigravity",
             Target::Qwen => "qwen",
             Target::Iflow => "iflow",
             Target::Qoder => "qoder",
@@ -79,6 +84,7 @@ impl Target {
             Target::GitHubCopilot => "github-copilot",
             Target::Hermes => "hermes",
             Target::ZCode => "zcode",
+            Target::Grok => "grok",
         }
     }
 
@@ -90,6 +96,7 @@ impl Target {
             Target::ClaudeCode => "Claude Code",
             Target::Codex => "Codex CLI",
             Target::Gemini => "Gemini CLI",
+            Target::Antigravity => "Google Antigravity",
             Target::Qwen => "Qwen Code",
             Target::Iflow => "iFlow CLI",
             Target::Qoder => "Qoder CLI",
@@ -98,6 +105,7 @@ impl Target {
             Target::GitHubCopilot => "GitHub Copilot",
             Target::Hermes => "Hermes Agent",
             Target::ZCode => "ZCode",
+            Target::Grok => "Grok Build",
         }
     }
 
@@ -109,13 +117,15 @@ impl Target {
             Target::Hermes => Kind::PluginDir,
             Target::ClaudeCode
             | Target::Gemini
+            | Target::Antigravity
             | Target::Qwen
             | Target::Iflow
             | Target::Qoder
             | Target::CodeBuddy
             | Target::WorkBuddy
             | Target::GitHubCopilot
-            | Target::ZCode => Kind::JsonHooks,
+            | Target::ZCode
+            | Target::Grok => Kind::JsonHooks,
         }
     }
 
@@ -182,6 +192,7 @@ impl Target {
             "claude-code" | "claude" => Some(Target::ClaudeCode),
             "codex" | "codex-cli" => Some(Target::Codex),
             "gemini" | "gemini-cli" => Some(Target::Gemini),
+            "antigravity" | "google-antigravity" => Some(Target::Antigravity),
             "qwen" | "qwen-code" => Some(Target::Qwen),
             "iflow" | "iflow-cli" => Some(Target::Iflow),
             "qoder" | "qoder-cli" => Some(Target::Qoder),
@@ -190,6 +201,7 @@ impl Target {
             "github-copilot" | "copilot" | "copilot-cli" => Some(Target::GitHubCopilot),
             "hermes" | "hermes-agent" => Some(Target::Hermes),
             "zcode" | "z-code" => Some(Target::ZCode),
+            "grok" | "grok-build" | "grok-cli" => Some(Target::Grok),
             _ => None,
         }
     }
@@ -229,6 +241,11 @@ impl Target {
             }
             Target::Codex => config_dir("AGENT_BEACON_CODEX_DIR", "CODEX_HOME", ".codex"),
             Target::Gemini => config_dir("AGENT_BEACON_GEMINI_DIR", "GEMINI_CONFIG_DIR", ".gemini"),
+            Target::Antigravity => config_dir(
+                "AGENT_BEACON_ANTIGRAVITY_DIR",
+                "ANTIGRAVITY_HOME",
+                ".gemini",
+            ),
             Target::Qwen => config_dir("AGENT_BEACON_QWEN_DIR", "QWEN_CONFIG_DIR", ".qwen"),
             Target::Iflow => config_dir("AGENT_BEACON_IFLOW_DIR", "IFLOW_CONFIG_DIR", ".iflow"),
             Target::Qoder => config_dir("AGENT_BEACON_QODER_DIR", "QODER_CONFIG_DIR", ".qoder"),
@@ -245,6 +262,7 @@ impl Target {
             }
             Target::Hermes => crate::hermes::plugin_dir(None),
             Target::ZCode => config_dir("AGENT_BEACON_ZCODE_DIR", "ZCODE_CONFIG_DIR", ".zcode/cli"),
+            Target::Grok => config_dir("AGENT_BEACON_GROK_DIR", "GROK_HOME", ".grok"),
         }
     }
 }

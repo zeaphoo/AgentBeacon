@@ -85,7 +85,7 @@ pub struct HooksArgs {
 
 #[derive(Debug, Args)]
 pub struct HookArgs {
-    /// Agent name: claude-code | codex | gemini | qwen | iflow | qoder | codebuddy | workbuddy | github-copilot | hermes | zcode.
+    /// Agent name: claude-code | codex | gemini | antigravity | qwen | iflow | qoder | codebuddy | workbuddy | github-copilot | hermes | zcode | grok.
     #[arg(long)]
     pub agent: String,
     /// State to report: idle | working | waiting | error | auto (derive from the event).
@@ -126,7 +126,7 @@ pub enum IntegrateAction {
     List,
     /// Install plugins; installs all detected targets when target is omitted.
     Install {
-        /// pi | opencode | dsh | claude-code | codex | gemini | qwen | iflow | qoder | codebuddy | workbuddy | github-copilot | hermes | zcode | all
+        /// pi | opencode | dsh | claude-code | codex | gemini | antigravity | qwen | iflow | qoder | codebuddy | workbuddy | github-copilot | hermes | zcode | grok | all
         target: Option<String>,
         /// Overwrite files not managed by agent-beacon.
         #[arg(long)]
@@ -134,12 +134,12 @@ pub enum IntegrateAction {
     },
     /// Upgrade installed plugins; upgrades all targets when target is omitted.
     Upgrade {
-        /// pi | opencode | dsh | claude-code | codex | gemini | qwen | iflow | qoder | codebuddy | workbuddy | github-copilot | hermes | zcode | all
+        /// pi | opencode | dsh | claude-code | codex | gemini | antigravity | qwen | iflow | qoder | codebuddy | workbuddy | github-copilot | hermes | zcode | grok | all
         target: Option<String>,
     },
     /// Uninstall a plugin.
     Uninstall {
-        /// pi | opencode | dsh | claude-code | codex | gemini | qwen | iflow | qoder | codebuddy | workbuddy | github-copilot | hermes | zcode
+        /// pi | opencode | dsh | claude-code | codex | gemini | antigravity | qwen | iflow | qoder | codebuddy | workbuddy | github-copilot | hermes | zcode | grok
         target: String,
     },
 }

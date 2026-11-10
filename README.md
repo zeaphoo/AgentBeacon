@@ -34,7 +34,7 @@ Runs fully local on `127.0.0.1:6980` — no account, no telemetry.
 - **Device capabilities** — brightness and buzzer features are shown per device and per supported model.
 - **Web console** — status overview, manual light control, automatic settings save, device bindings, and supported-device reference.
 - **Desktop app** — splash screen, tray controls, launch at login, and supervised local service for Linux, macOS, and Windows.
-- **Agent integrations** — installer-managed hooks and plugins for Pi, OpenCode, DeepSeek Harness, Claude Code, Codex CLI, Qoder CLI, and the Gemini CLI family (Gemini / Qwen Code / iFlow); any agent via CLI or HTTP.
+- **Agent integrations** — installer-managed hooks and plugins for Pi, OpenCode, DeepSeek Harness, Claude Code, Codex CLI, Qoder CLI, the Gemini CLI family (Gemini / Qwen Code / iFlow), Google Antigravity, Grok Build, and more; any agent via CLI or HTTP.
 - **Hardware-free testing** — optional mock device validates the full report → aggregate → light pipeline.
 - **Hook diagnostics** — a bounded journal of hook events and state transitions, readable through `agent-beacon hooks` or `GET /api/v1/hooks`.
 - **Bilingual and themeable UI** — Chinese/English, light/dark themes, system-language initialization, and system-following theme mode.
@@ -100,6 +100,8 @@ Language and theme selectors are available directly in the navbar. The status ca
    agent-beacon integrate install claude-code  # Claude Code
    agent-beacon integrate install codex        # Codex CLI
    agent-beacon integrate install gemini       # Gemini CLI (also qwen, iflow)
+   agent-beacon integrate install antigravity  # Google Antigravity
+   agent-beacon integrate install grok         # Grok Build
    agent-beacon integrate install qoder        # Qoder CLI
    agent-beacon integrate install codebuddy    # CodeBuddy (also workbuddy)
    agent-beacon integrate install github-copilot  # GitHub Copilot
@@ -125,6 +127,8 @@ For building from source, packaging, testing, and architecture details, see the 
 | Claude Code | `settings.json` hooks | [Claude Code](docs/integrations/claude-code.md) |
 | Qoder CLI | `settings.json` hooks | [Qoder CLI](docs/integrations/qoder.md) |
 | Gemini CLI · Qwen Code · iFlow | `settings.json` hooks | [Gemini family](docs/integrations/gemini.md) |
+| Google Antigravity | `hooks.json` lifecycle hooks | [Antigravity](docs/integrations/antigravity.md) |
+| Grok Build | `~/.grok/hooks` lifecycle hooks | [Grok Build](docs/integrations/grok.md) |
 | CodeBuddy | `settings.json` hooks (Claude-style) | [CodeBuddy](docs/integrations/codebuddy.md) |
 | WorkBuddy | `settings.json` hooks (CodeBuddy runtime) | [WorkBuddy](docs/integrations/workbuddy.md) |
 | GitHub Copilot | `settings.json` hooks (camelCase events) | [GitHub Copilot](docs/integrations/github-copilot.md) |

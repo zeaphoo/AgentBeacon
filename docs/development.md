@@ -160,7 +160,7 @@ The CLI help and diagnostics are English.
 
 ### Integration install mechanisms
 
-`agent-beacon integrate install` supports five underlying strategies, dispatched from `Target::kind()`:
+`agent-beacon integrate install` supports the following strategies, dispatched from `Target::kind()` and `Target`-specific hook shapes:
 
 | Kind | Targets | What is written |
 | --- | --- | --- |
@@ -168,6 +168,8 @@ The CLI help and diagnostics are English.
 | Cordis patch | `dsh` | A JS hook plus a `BEGIN/END` block in `~/.dsh/cordis.patch.yml` |
 | Plugin directory | `hermes` | A managed `plugin.yaml` + python module in `~/.hermes/plugins/agent-beacon/`, marked with `# @agent-beacon-integration` / `# @agent-beacon-version` |
 | JSON hooks (nested) | `claude-code`, `qoder`, `codebuddy`, `workbuddy`, `github-copilot`, `gemini`, `qwen`, `iflow` | Commands appended to `settings.json` `hooks`, tagged with a trailing `# agent-beacon-hook:<target>:<version>` comment. `github-copilot` uses the same shape with camelCase event names |
+| JSON hooks (named) | `antigravity` | A managed `agent-beacon` block in `~/.gemini/config/hooks.json`; tool events use `{ matcher, hooks }`, other events place the handler directly under the event |
+| JSON hooks (dedicated file) | `grok` | A managed `~/.grok/hooks/agent-beacon.json` with a Claude-style `hooks` object |
 | JSON hooks (process) | `zcode` | `{ type: "process", command, enabled, timeoutMs }` entries in `~/.zcode/cli/config.json`; the tag rides in `--marker agent-beacon-hook:<target>:<version>` because argv is not shell-parsed |
 | Codex notify | `codex` | A `notify` array wrapped in `# >>> agent-beacon-hook:codex` comments in `config.toml` |
 
@@ -175,7 +177,7 @@ Installation is also available from the web console (`POST /api/v1/integrations/
 
 The JSON-hooks and Codex installers merge instead of overwriting: user-defined hooks and unrelated keys are preserved, and uninstall only removes tagged entries. `integrate install` without a target installs every target whose config directory exists.
 
-All hook commands run `agent-beacon hook`, which reads the agent payload (stdin for JSON hooks, trailing argument for Codex notify), extracts `session_id` / event name / tool name, derives the state when `--state auto` is used, and posts to `/api/v1/events`. It always exits 0 so a missing service never blocks the agent.
+All hook commands run `agent-beacon hook`, which reads the agent payload (stdin for JSON hooks, trailing argument for Codex notify), extracts the session ID / event name / tool name, derives the state when `--state auto` is used, and posts to `/api/v1/events`. It understands both Claude-style `session_id` / `tool_name` and Antigravity-style `conversationId` / `toolCall.name`, and always exits 0 so a missing service never blocks the agent.
 
 ### Diagnosing light changes
 

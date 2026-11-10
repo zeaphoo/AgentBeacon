@@ -34,7 +34,7 @@ AgentBeacon 把编码 agent 的状态变成桌面上的一束光。
 - **设备能力** — 按设备和型号展示是否支持亮度调节、蜂鸣器等特性。
 - **Web 控制台** — 状态总览、手动灯光控制、设置自动保存、灯具页的设备绑定与支持型号列表。
 - **桌面应用** — 启动页、托盘菜单、开机自启动和本地服务托管，覆盖 Linux、macOS 与 Windows。
-- **Agent 集成** — 为 Pi、OpenCode、DeepSeek Harness、Claude Code、Codex CLI、Qoder CLI 以及 Gemini CLI 家族（Gemini / Qwen Code / iFlow）提供安装器管理的 hook 与插件；其他 agent 可通过 CLI 或 HTTP 接入。
+- **Agent 集成** — 为 Pi、OpenCode、DeepSeek Harness、Claude Code、Codex CLI、Qoder CLI、Gemini CLI 家族（Gemini / Qwen Code / iFlow）、Google Antigravity、Grok Build 等提供安装器管理的 hook 与插件；其他 agent 可通过 CLI 或 HTTP 接入。
 - **无硬件测试** — 可选 mock 设备验证「上报 → 聚合 → 设备命令」完整链路。
 - **Hook 诊断日志** — 保留最近的 hook 事件与状态迁移，可用 `agent-beacon hooks` 或 `GET /api/v1/hooks` 查看。
 - **中英文与主题** — 中文/English、浅色/深色主题、按系统语言初始化、主题可跟随系统。
@@ -100,6 +100,8 @@ AgentCore-Light 在 USB CDC 或蓝牙 SPP 上跑同一套文本行协议（`HELL
    agent-beacon integrate install claude-code  # Claude Code
    agent-beacon integrate install codex        # Codex CLI
    agent-beacon integrate install gemini       # Gemini CLI（qwen、iflow 同理）
+   agent-beacon integrate install antigravity  # Google Antigravity
+   agent-beacon integrate install grok         # Grok Build
    agent-beacon integrate install qoder        # Qoder CLI
    agent-beacon integrate install codebuddy    # CodeBuddy（同理 workbuddy）
    agent-beacon integrate install github-copilot  # GitHub Copilot
@@ -125,6 +127,8 @@ AgentCore-Light 在 USB CDC 或蓝牙 SPP 上跑同一套文本行协议（`HELL
 | Claude Code | `settings.json` hooks | [Claude Code](docs/integrations/claude-code.md) |
 | Qoder CLI | `settings.json` hooks | [Qoder CLI](docs/integrations/qoder.md) |
 | Gemini CLI · Qwen Code · iFlow | `settings.json` hooks | [Gemini 家族](docs/integrations/gemini.md) |
+| Google Antigravity | `hooks.json` 生命周期 hooks | [Antigravity](docs/integrations/antigravity.md) |
+| Grok Build | `~/.grok/hooks` 生命周期 hooks | [Grok Build](docs/integrations/grok.md) |
 | CodeBuddy | `settings.json` hooks（Claude 式） | [CodeBuddy](docs/integrations/codebuddy.md) |
 | WorkBuddy | `settings.json` hooks（CodeBuddy 运行时） | [WorkBuddy](docs/integrations/workbuddy.md) |
 | GitHub Copilot | `settings.json` hooks（camelCase 事件） | [GitHub Copilot](docs/integrations/github-copilot.md) |

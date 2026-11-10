@@ -1,14 +1,17 @@
 //! 通过 agent 自己的 hooks 配置接入的 agent。
 //!
-//! 目前两种文件形态：
+//! 目前三种文件形态：
 //!
-//! * `settings.json` 家族（Claude Code、Qoder CLI、CodeBuddy、WorkBuddy、
-//!   GitHub Copilot，以及 Gemini CLI 家族 Gemini / Qwen Code / iFlow）——配置目录里的
-//!   `settings.json` 有一个 `hooks` 对象，键是生命周期事件名，值是一组
-//!   `{ matcher, hooks: [{ type: "command", command }] }`。
+//! * `settings.json` / hook 文件家族（Claude Code、Qoder CLI、CodeBuddy、WorkBuddy、
+//!   GitHub Copilot、Gemini CLI 家族 Gemini / Qwen Code / iFlow，以及 Grok Build）——
+//!   文件里有一个 `hooks` 对象，键是生命周期事件名，值是一组
+//!   `{ matcher, hooks: [{ type: "command", command }] }`。Grok Build 使用
+//!   `~/.grok/hooks/agent-beacon.json` 这份独立文件。
 //! * `config.json` 家族（ZCode）——`~/.zcode/cli/config.json` 的 `hooks` 同样是
 //!   “事件名 -> 数组”，但数组元素本身就是 `{ type: "process", command, enabled, timeoutMs }`，
 //!   命令按进程参数执行（不走 shell），所以标记用 `--marker` 参数而不是行尾注释。
+//! * Antigravity（`~/.gemini/config/hooks.json`）——顶层按 hook 名分组，事件数组里：
+//!   `PreToolUse` / `PostToolUse` 用 `{ matcher, hooks: [...] }`，其余事件直接放 handler。
 //!
 //! 安装时只新增/替换带 `agent-beacon-hook:<target>:<version>` 标记的命令，
 //! 用户自己配置的其它 hook、以及同一个事件下的其它命令都会原样保留。
@@ -136,6 +139,27 @@ const COPILOT_SPECS: &[HookSpec] = &[
     ending("sessionEnd"),
 ];
 
+/// Google Antigravity：`~/.gemini/config/hooks.json`，工具事件之外没有 matcher。
+const ANTIGRAVITY_SPECS: &[HookSpec] = &[
+    spec("SessionStart", "idle"),
+    spec("PreInvocation", "working"),
+    matched("PreToolUse", "working"),
+    matched("PostToolUse", "working"),
+    spec("PostInvocation", "working"),
+    spec("Stop", "idle"),
+];
+
+/// Grok Build：`~/.grok/hooks/agent-beacon.json`，Claude 式事件名。
+const GROK_SPECS: &[HookSpec] = &[
+    spec("SessionStart", "idle"),
+    spec("UserPromptSubmit", "working"),
+    matched("PreToolUse", "working"),
+    matched("PostToolUse", "working"),
+    spec("Stop", "idle"),
+    spec("SubagentStop", "idle"),
+    ending("StopCancelled"),
+];
+
 /// ZCode：`~/.zcode/cli/config.json`，Claude 式事件名 + process 型命令。
 const ZCODE_SPECS: &[HookSpec] = &[
     spec("SessionStart", "idle"),
@@ -153,8 +177,10 @@ pub fn specs(target: Target) -> &'static [HookSpec] {
         // CodeBuddy 用 Claude 式 hooks；WorkBuddy 桌面版复用 CodeBuddy 的 hook 运行时。
         Target::Qoder | Target::CodeBuddy | Target::WorkBuddy => QODER_SPECS,
         Target::Gemini | Target::Qwen | Target::Iflow => GEMINI_SPECS,
+        Target::Antigravity => ANTIGRAVITY_SPECS,
         Target::GitHubCopilot => COPILOT_SPECS,
         Target::ZCode => ZCODE_SPECS,
+        Target::Grok => GROK_SPECS,
         _ => &[],
     }
 }
@@ -166,19 +192,31 @@ enum Shape {
     Nested,
     /// `{ event: [ { type: "process", command, enabled, timeoutMs } ] }`
     Process,
+    /// `{ "<hook name>": { event: [handler] } }`，工具事件才带 matcher 分组。
+    Antigravity,
 }
 
 fn shape(target: Target) -> Shape {
     match target {
         Target::ZCode => Shape::Process,
+        Target::Antigravity => Shape::Antigravity,
         _ => Shape::Nested,
     }
 }
 
 fn config_file(target: Target) -> &'static str {
     match target {
+        Target::Antigravity => "config/hooks.json",
+        Target::Grok => "hooks/agent-beacon.json",
         Target::ZCode => "config.json",
         _ => "settings.json",
+    }
+}
+
+fn hooks_key(target: Target) -> &'static str {
+    match shape(target) {
+        Shape::Antigravity => "agent-beacon",
+        _ => "hooks",
     }
 }
 
@@ -207,11 +245,29 @@ fn settings_dir(target: Target, override_dir: Option<&Path>) -> Result<PathBuf, 
         .unwrap_or_else(|| PathBuf::from(".")))
 }
 
-/// agent 是否装过（配置目录存在）。
+/// agent 是否装过。
+///
+/// 大多数 agent 直接看配置目录；Grok / Antigravity 的 hook 文件在子目录里，
+/// 所以要看 agent 自己的 home（Grok 的 `~/.grok`、Antigravity 的 `~/.gemini/antigravity*`）。
 pub fn available(target: Target) -> bool {
-    settings_dir(target, None)
-        .map(|dir| dir.exists())
-        .unwrap_or(false)
+    match target {
+        Target::Grok => target
+            .default_dir()
+            .map(|dir| dir.exists())
+            .unwrap_or(false),
+        Target::Antigravity => {
+            let Ok(base) = target.default_dir() else {
+                return false;
+            };
+            ["antigravity", "antigravity-cli", "antigravity-ide"]
+                .iter()
+                .any(|name| base.join(name).exists())
+                || base.join("config").exists()
+        }
+        _ => settings_dir(target, None)
+            .map(|dir| dir.exists())
+            .unwrap_or(false),
+    }
 }
 
 fn binary() -> String {
@@ -285,12 +341,14 @@ fn write_settings(path: &Path, settings: &Map<String, Value>) -> Result<(), Stri
 
 /// 在 `hooks` 对象里安装（或刷新）本集成的命令，返回是否已经是当前版本。
 fn apply_specs(settings: &mut Map<String, Value>, target: Target) -> Result<bool, String> {
-    if shape(target) == Shape::Process {
-        return apply_process_specs(settings, target);
+    match shape(target) {
+        Shape::Process => return apply_process_specs(settings, target),
+        Shape::Antigravity => return apply_antigravity_specs(settings),
+        Shape::Nested => {}
     }
     let prefix = marker_prefix(target);
     let hooks_value = settings
-        .entry("hooks".to_string())
+        .entry(hooks_key(target).to_string())
         .or_insert_with(|| Value::Object(Map::new()));
     let hooks = hooks_value
         .as_object_mut()
@@ -409,6 +467,138 @@ fn apply_process_specs(settings: &mut Map<String, Value>, target: Target) -> Res
     Ok(up_to_date)
 }
 
+/// Antigravity：工具事件用 `{ matcher, hooks: [...] }` 分组，其余事件直接放 handler。
+fn apply_antigravity_specs(settings: &mut Map<String, Value>) -> Result<bool, String> {
+    let target = Target::Antigravity;
+    let prefix = marker_prefix(target);
+    let hooks_value = settings
+        .entry(hooks_key(target).to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    let hooks = hooks_value
+        .as_object_mut()
+        .ok_or_else(|| "hooks key `agent-beacon` must be an object".to_string())?;
+
+    let mut up_to_date = true;
+    for spec in specs(target) {
+        let entry = hooks
+            .entry(spec.event.to_string())
+            .or_insert_with(|| Value::Array(Vec::new()));
+        let handlers = entry
+            .as_array_mut()
+            .ok_or_else(|| format!("hook event {} must be an array", spec.event))?;
+        let command = hook_command(target, spec);
+        let mut replaced = false;
+
+        for item in handlers.iter_mut() {
+            let Some(object) = item.as_object_mut() else {
+                continue;
+            };
+            if let Some(matcher) = spec.matcher {
+                let Some(commands) = object.get_mut("hooks").and_then(Value::as_array_mut) else {
+                    continue;
+                };
+                for hook in commands.iter_mut() {
+                    let Some(hook_object) = hook.as_object_mut() else {
+                        continue;
+                    };
+                    let current = hook_object.get("command").and_then(Value::as_str);
+                    if !current.is_some_and(|text| text.contains(&prefix)) {
+                        continue;
+                    }
+                    if !current.is_some_and(|text| text.contains(&marker(target))) {
+                        up_to_date = false;
+                    }
+                    hook_object.insert("type".to_string(), json!("command"));
+                    hook_object.insert("command".to_string(), json!(command));
+                    object.insert("matcher".to_string(), json!(matcher));
+                    replaced = true;
+                    break;
+                }
+            } else {
+                if object.contains_key("hooks") {
+                    continue;
+                }
+                let current = object.get("command").and_then(Value::as_str);
+                if !current.is_some_and(|text| text.contains(&prefix)) {
+                    continue;
+                }
+                if !current.is_some_and(|text| text.contains(&marker(target))) {
+                    up_to_date = false;
+                }
+                object.insert("type".to_string(), json!("command"));
+                object.insert("command".to_string(), json!(command));
+                replaced = true;
+            }
+            if replaced {
+                break;
+            }
+        }
+        if replaced {
+            continue;
+        }
+
+        up_to_date = false;
+        if let Some(matcher) = spec.matcher {
+            handlers.push(json!({
+                "matcher": matcher,
+                "hooks": [{ "type": "command", "command": command }],
+            }));
+        } else {
+            handlers.push(json!({ "type": "command", "command": command }));
+        }
+    }
+    Ok(up_to_date)
+}
+
+fn remove_antigravity_specs(settings: &mut Map<String, Value>) -> bool {
+    let target = Target::Antigravity;
+    let prefix = marker_prefix(target);
+    let key = hooks_key(target);
+    let Some(hooks_value) = settings.get_mut(key) else {
+        return false;
+    };
+    let Some(hooks) = hooks_value.as_object_mut() else {
+        return false;
+    };
+
+    let mut changed = false;
+    let events: Vec<String> = hooks.keys().cloned().collect();
+    for event in events {
+        let Some(Value::Array(handlers)) = hooks.get_mut(&event) else {
+            continue;
+        };
+        handlers.retain_mut(|item| {
+            let Some(object) = item.as_object_mut() else {
+                return true;
+            };
+            if let Some(commands) = object.get_mut("hooks").and_then(Value::as_array_mut) {
+                let before = commands.len();
+                commands.retain(|hook| {
+                    let text = hook.get("command").and_then(Value::as_str).unwrap_or("");
+                    !text.contains(&prefix)
+                });
+                if commands.len() != before {
+                    changed = true;
+                }
+                return !commands.is_empty();
+            }
+            let text = object.get("command").and_then(Value::as_str).unwrap_or("");
+            if text.contains(&prefix) {
+                changed = true;
+                return false;
+            }
+            true
+        });
+        if handlers.is_empty() {
+            hooks.remove(&event);
+        }
+    }
+    if hooks.is_empty() {
+        settings.remove(key);
+    }
+    changed
+}
+
 fn remove_process_specs(settings: &mut Map<String, Value>, target: Target) -> bool {
     let prefix = marker_prefix(target);
     let Some(Value::Object(hooks)) = settings.get_mut("hooks") else {
@@ -444,8 +634,12 @@ fn remove_specs(settings: &mut Map<String, Value>, target: Target) -> bool {
     if shape(target) == Shape::Process {
         return remove_process_specs(settings, target);
     }
+    if shape(target) == Shape::Antigravity {
+        return remove_antigravity_specs(settings);
+    }
     let prefix = marker_prefix(target);
-    let Some(hooks_value) = settings.get_mut("hooks") else {
+    let key = hooks_key(target);
+    let Some(hooks_value) = settings.get_mut(key) else {
         return false;
     };
     let Some(hooks) = hooks_value.as_object_mut() else {
@@ -483,7 +677,7 @@ fn remove_specs(settings: &mut Map<String, Value>, target: Target) -> bool {
         }
     }
     if hooks.is_empty() {
-        settings.remove("hooks");
+        settings.remove(key);
     }
     changed
 }
@@ -538,11 +732,15 @@ pub fn install(
     _force: bool,
 ) -> Result<(Outcome, PathBuf), String> {
     let dir = settings_dir(target, override_dir)?;
-    if !dir.exists() {
+    let base = match override_dir {
+        Some(dir) => dir.to_path_buf(),
+        None => target.default_dir()?,
+    };
+    if !dir.exists() && !base.exists() {
         return Err(format!(
             "{} config directory not found: {}. Run {} once first.",
             target.label(),
-            dir.display(),
+            base.display(),
             target.label()
         ));
     }
@@ -787,6 +985,113 @@ mod tests {
         let entries = settings["hooks"]["SessionStart"].as_array().unwrap();
         assert_eq!(entries.len(), 1);
         assert!(!settings.to_string().contains("hook --agent zcode"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn antigravity_uses_named_hook_with_mixed_handler_shapes() {
+        let dir = temp_dir("antigravity");
+        let path = dir.join("config").join("hooks.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{
+  "my-hook": {
+    "SessionStart": [
+      { "type": "command", "command": "echo hello" }
+    ]
+  }
+}"#,
+        )
+        .unwrap();
+
+        let (outcome, written) = install(Target::Antigravity, Some(&dir), false).unwrap();
+        assert_eq!(outcome, Outcome::Installed);
+        assert_eq!(written, path);
+
+        let settings: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            settings["my-hook"]["SessionStart"][0]["command"],
+            "echo hello"
+        );
+        let session = &settings["agent-beacon"]["SessionStart"][0];
+        assert!(session["command"]
+            .as_str()
+            .unwrap()
+            .contains("hook --agent antigravity"));
+        assert!(
+            session.get("hooks").is_none(),
+            "non-tool events use a direct handler"
+        );
+        let tool = &settings["agent-beacon"]["PreToolUse"][0];
+        assert_eq!(tool["matcher"], "*");
+        assert!(tool["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains("hook --agent antigravity"));
+        assert_eq!(
+            status(Target::Antigravity, Some(&dir)).unwrap().state,
+            State::UpToDate
+        );
+
+        let (outcome, _) = install(Target::Antigravity, Some(&dir), false).unwrap();
+        assert_eq!(outcome, Outcome::UpToDate);
+        let text = fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            text.matches("hook --agent antigravity").count(),
+            ANTIGRAVITY_SPECS.len()
+        );
+        assert_eq!(text.matches("echo hello").count(), 1);
+
+        uninstall(Target::Antigravity, Some(&dir)).unwrap();
+        let settings: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(settings.get("agent-beacon").is_none());
+        assert_eq!(
+            settings["my-hook"]["SessionStart"][0]["command"],
+            "echo hello"
+        );
+        assert_eq!(
+            status(Target::Antigravity, Some(&dir)).unwrap().state,
+            State::NotInstalled
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn grok_writes_a_dedicated_hooks_file() {
+        let dir = temp_dir("grok");
+        let path = dir.join("hooks").join("agent-beacon.json");
+        let (outcome, written) = install(Target::Grok, Some(&dir), false).unwrap();
+        assert_eq!(outcome, Outcome::Installed);
+        assert_eq!(written, path);
+
+        let settings: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        for event in [
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "Stop",
+            "SubagentStop",
+            "StopCancelled",
+        ] {
+            assert!(settings["hooks"][event].is_array(), "missing {event} hook");
+        }
+        assert_eq!(
+            status(Target::Grok, Some(&dir)).unwrap().state,
+            State::UpToDate
+        );
+
+        let (outcome, _) = install(Target::Grok, Some(&dir), false).unwrap();
+        assert_eq!(outcome, Outcome::UpToDate);
+        let text = fs::read_to_string(&path).unwrap();
+        assert_eq!(text.matches("hook --agent grok").count(), GROK_SPECS.len());
+
+        uninstall(Target::Grok, Some(&dir)).unwrap();
+        assert_eq!(
+            status(Target::Grok, Some(&dir)).unwrap().state,
+            State::NotInstalled
+        );
         let _ = fs::remove_dir_all(dir);
     }
 

@@ -2,8 +2,9 @@
 //!
 //! 不同 agent 调用 hook 的方式不同：
 //!
-//! - Claude Code / Qoder / CodeBuddy / WorkBuddy / GitHub Copilot / Gemini 家族 / ZCode：
-//!   命令通过 stdin 收到 JSON 载荷（ZCode 的 process hook 也一样）；
+//! - Claude Code / Qoder / CodeBuddy / WorkBuddy / GitHub Copilot / Gemini 家族 /
+//!   Antigravity / Grok Build / ZCode：命令通过 stdin 收到 JSON 载荷
+//!   （ZCode 的 process hook 也一样）；
 //! - Codex：`notify` 把 JSON 载荷作为最后一个参数传入。
 //! - Hermes Agent：插件回调直接带上已知事件名和状态，不需要载荷。
 //!
@@ -106,7 +107,13 @@ pub fn state_for(agent: &str, event: &str) -> Option<&'static str> {
     if has("sessionstart") || has("session-start") || has("session_end") || has("sessionend") {
         return Some("idle");
     }
-    if has("prompt") || has("beforeagent") || has("agent-start") || has("tool") {
+    if has("prompt")
+        || has("beforeagent")
+        || has("agent-start")
+        || has("tool")
+        || has("preinvocation")
+        || has("postinvocation")
+    {
         return Some("working");
     }
     if has("stop") || has("afteragent") || has("settled") || has("end") {
@@ -144,7 +151,12 @@ pub fn build_body(request: &HookRequest) -> Option<Value> {
     if let Some(session) = string_field(&payload, SESSION_KEYS) {
         body["session"] = json!(session);
     }
-    let tool = string_field(&payload, TOOL_KEYS);
+    let tool = string_field(&payload, TOOL_KEYS).or_else(|| {
+        payload
+            .get("toolCall")
+            .and_then(|call| call.get("name"))
+            .and_then(Value::as_str)
+    });
     let message = request
         .message
         .clone()
@@ -204,6 +216,28 @@ mod tests {
         assert_eq!(state_for("claude-code", "Stop"), Some("idle"));
         assert_eq!(state_for("gemini", "BeforeAgent"), Some("working"));
         assert_eq!(state_for("gemini", "AfterAgent"), Some("idle"));
+    }
+
+    #[test]
+    fn antigravity_and_grok_events_map_to_states() {
+        assert_eq!(state_for("antigravity", "PreInvocation"), Some("working"));
+        assert_eq!(state_for("antigravity", "PostInvocation"), Some("working"));
+        assert_eq!(state_for("antigravity", "PreToolUse"), Some("working"));
+        assert_eq!(state_for("antigravity", "Stop"), Some("idle"));
+        assert_eq!(state_for("grok", "SessionStart"), Some("idle"));
+        assert_eq!(state_for("grok", "UserPromptSubmit"), Some("working"));
+        assert_eq!(state_for("grok", "Stop"), Some("idle"));
+        assert_eq!(state_for("grok", "StopCancelled"), Some("idle"));
+    }
+
+    #[test]
+    fn antigravity_payload_uses_conversation_and_nested_tool_name() {
+        let mut request = request("antigravity", Some("working"), Some("PreToolUse"));
+        request.payload =
+            Some(r#"{"conversationId":"c-42","toolCall":{"name":"run_command"}}"#.to_string());
+        let body = build_body(&request).unwrap();
+        assert_eq!(body["session"], "c-42");
+        assert_eq!(body["message"], "run_command");
     }
 
     #[test]

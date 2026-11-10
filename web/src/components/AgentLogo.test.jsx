@@ -11,7 +11,7 @@ describe('AgentLogo', () => {
     expect(image.getAttribute('aria-hidden')).toBe('true')
   })
 
-  it.each(['codebuddy', 'workbuddy', 'hermes', 'zcode'])(
+  it.each(['codebuddy', 'workbuddy', 'hermes', 'zcode', 'antigravity', 'grok'])(
     'renders an official bundled asset for %s',
     (id) => {
       const { container } = render(<AgentLogo id={id} className="h-6 w-6" />)

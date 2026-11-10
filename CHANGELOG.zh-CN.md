@@ -17,6 +17,7 @@
 - 新增配置项 `integrations.auto_install`，服务启动时自动安装检测到的 agent。
 - 新增 Claude Code、Codex CLI、Qoder CLI 以及 Gemini CLI 家族（Gemini / Qwen Code / iFlow）集成，可用 `agent-beacon integrate install <target>` 安装。
 - 新增 CodeBuddy、WorkBuddy、GitHub Copilot、ZCode、Hermes Agent 集成。前三个写 Claude 式 `settings.json` hooks（GitHub Copilot 用 camelCase 事件名），ZCode 写 `~/.zcode/cli/config.json` 里的 `{ "type": "process" }` 条目，Hermes Agent 则是 `~/.hermes/plugins/agent-beacon/` 下的受管插件目录（`plugin.yaml` + python 模块）。
+- 新增 Google Antigravity 与 Grok Build 集成。Antigravity 在 `~/.gemini/config/hooks.json` 写受管的 `agent-beacon` 块（工具事件用 matcher 分组，其余事件直接放 handler）；Grok Build 使用独立的 `~/.grok/hooks/agent-beacon.json`，事件名与 Claude 式一致。
 - 新增 `agent-beacon hook` 命令：从 stdin 或参数读取 agent 的 hook 载荷，按事件名推导状态并上报。它始终返回 0，服务未运行也不会阻塞 agent。
 - 集成安装器改为合并写入：`settings.json` 的 hooks 与 `config.toml` 的 `notify` 会带标记保留，升级时原地更新，卸载时只删除自己的条目，不影响用户已有配置。
 - 新增 hook 诊断日志：`agent-beacon hooks`、`GET/DELETE /api/v1/hooks`，并在服务日志中输出 `hook journal`。

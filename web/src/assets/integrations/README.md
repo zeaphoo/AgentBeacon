@@ -10,6 +10,8 @@
 | `workbuddy.svg` | https://www.workbuddy.ai 站点图标 |
 | `hermes.png` | https://hermes-agent.nousresearch.com 应用图标（128×128 PNG，由 1024×1024 缩放） |
 | `zcode.png` | https://zcode.z.ai 站点图标（192×192 PNG） |
+| `antigravity.png` | https://antigravity.google 品牌图标（128×128 PNG） |
+| `grok.png` | https://commons.wikimedia.org/wiki/File:Logo_Grok_AI_%282025%29.png 方形图标（128×128 PNG） |
 
 其余 agent 为内联单色/品牌色 SVG，路径取自 [Simple Icons](https://simpleicons.org)（CC0）与各自官网图标：
 Pi（pi.dev）、OpenCode、DeepSeek、Claude、OpenAI（Codex CLI）、GitHub Copilot、Google Gemini、Qwen。

@@ -5,6 +5,8 @@ import codebuddyLogo from '../assets/integrations/codebuddy.svg'
 import workbuddyLogo from '../assets/integrations/workbuddy.svg'
 import hermesLogo from '../assets/integrations/hermes.png'
 import zcodeLogo from '../assets/integrations/zcode.png'
+import antigravityLogo from '../assets/integrations/antigravity.png'
+import grokLogo from '../assets/integrations/grok.png'
 import { cn } from '../lib/utils'
 
 /**
@@ -66,6 +68,8 @@ const IMAGES = {
   workbuddy: workbuddyLogo,
   hermes: hermesLogo,
   zcode: zcodeLogo,
+  antigravity: antigravityLogo,
+  grok: grokLogo,
 }
 
 export default function AgentLogo({ id, className }) {

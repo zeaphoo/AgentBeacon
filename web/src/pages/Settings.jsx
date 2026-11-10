@@ -210,6 +210,8 @@ export default function Settings() {
     if (value.includes('copilot')) return 'github-copilot'
     if (value.includes('hermes')) return 'hermes'
     if (value.includes('zcode') || value.includes('z-code')) return 'zcode'
+    if (value.includes('antigravity')) return 'antigravity'
+    if (value.includes('grok')) return 'grok'
     if (value === 'pi') return 'pi'
     if (value.includes('dsh')) return 'dsh'
     return agent

@@ -17,6 +17,7 @@ English | [中文](CHANGELOG.zh-CN.md)
 - New config field `integrations.auto_install` to install detected agents automatically at startup.
 - Claude Code, Codex CLI, Qoder CLI, and Gemini CLI family (Gemini / Qwen Code / iFlow) integrations, installable with `agent-beacon integrate install <target>`.
 - CodeBuddy, WorkBuddy, GitHub Copilot, ZCode, and Hermes Agent integrations. CodeBuddy/WorkBuddy/GitHub Copilot write Claude-style `settings.json` hooks (GitHub Copilot uses camelCase event names), ZCode writes `{ "type": "process" }` entries into `~/.zcode/cli/config.json`, and Hermes Agent gets a managed plugin directory (`plugin.yaml` + python module) under `~/.hermes/plugins/agent-beacon/`.
+- Google Antigravity and Grok Build integrations. Antigravity gets a managed `agent-beacon` block in `~/.gemini/config/hooks.json` (tool events use matcher groups, other events use direct handlers); Grok Build gets a dedicated `~/.grok/hooks/agent-beacon.json` with Claude-style events.
 - `agent-beacon hook` command that reads agent hook payloads from stdin or an argument, derives the state from the event name, and reports it. It always exits 0 so a stopped service never blocks the agent.
 - Integration installers now merge into existing configuration: `settings.json` hooks and `config.toml` `notify` are tagged, preserved on upgrade, and removed on uninstall without touching user-defined entries.
 - Hook diagnostics journal with `agent-beacon hooks`, `GET/DELETE /api/v1/hooks`, and `hook journal` service log entries.
