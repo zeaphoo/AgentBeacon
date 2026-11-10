@@ -205,6 +205,11 @@ export default function Settings() {
     if (value.includes('iflow')) return 'iflow'
     if (value.includes('qoder')) return 'qoder'
     if (value.includes('opencode')) return 'opencode'
+    if (value.includes('workbuddy') || value.includes('work buddy')) return 'workbuddy'
+    if (value.includes('codebuddy') || value.includes('code buddy')) return 'codebuddy'
+    if (value.includes('copilot')) return 'github-copilot'
+    if (value.includes('hermes')) return 'hermes'
+    if (value.includes('zcode') || value.includes('z-code')) return 'zcode'
     if (value === 'pi') return 'pi'
     if (value.includes('dsh')) return 'dsh'
     return agent
