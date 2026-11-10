@@ -19,7 +19,7 @@ agent-beacon integrate install qoder
         "hooks": [
           {
             "type": "command",
-            "command": "'/usr/local/bin/agent-beacon' hook --agent qoder --state working --event PreToolUse # agent-beacon-hook:qoder:0.1.0-rc.1"
+            "command": "'/usr/local/bin/agent-beacon' hook --agent qoder --state working --event PreToolUse # agent-beacon-hook:qoder:0.2.0-rc.1"
           }
         ]
       }

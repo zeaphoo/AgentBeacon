@@ -7,7 +7,7 @@
 
 [English](CHANGELOG.md) | 中文
 
-## [Unreleased]
+## [0.2.0-rc.1] - 2026-11-10
 
 ### 新增
 
@@ -75,5 +75,5 @@
 - 启用告警蜂鸣前增加响度与不适警告确认对话框。
 - 统一聚合状态与活动会话的状态颜色，并实现服务运行时长实时显示。
 
-[Unreleased]: https://github.com/zeaphoo/AgentBeacon/compare/v0.1.0-rc.1...HEAD
+[0.2.0-rc.1]: https://github.com/zeaphoo/AgentBeacon/releases/tag/v0.2.0-rc.1
 [0.1.0-rc.1]: https://github.com/zeaphoo/AgentBeacon/releases/tag/v0.1.0-rc.1

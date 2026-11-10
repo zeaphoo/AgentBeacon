@@ -19,7 +19,7 @@ agent-beacon integrate install github-copilot
         "hooks": [
           {
             "type": "command",
-            "command": "'/usr/local/bin/agent-beacon' hook --agent github-copilot --state working --event preToolUse # agent-beacon-hook:github-copilot:0.1.0-rc.1"
+            "command": "'/usr/local/bin/agent-beacon' hook --agent github-copilot --state working --event preToolUse # agent-beacon-hook:github-copilot:0.2.0-rc.1"
           }
         ]
       }

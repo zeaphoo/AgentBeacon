@@ -21,14 +21,14 @@ agent-beacon integrate install hermes
 
 ```python
 # @agent-beacon-integration: hermes
-# @agent-beacon-version: 0.1.0-rc.1
+# @agent-beacon-version: 0.2.0-rc.1
 # Managed by agent-beacon. Run `agent-beacon integrate upgrade` to update.
 """AgentBeacon integration for Hermes Agent: report lifecycle states."""
 
 import subprocess
 
 BINARY = '/usr/local/bin/agent-beacon'
-MARKER = "agent-beacon-hook:hermes:0.1.0-rc.1"
+MARKER = "agent-beacon-hook:hermes:0.2.0-rc.1"
 
 EVENT_STATES = {
     "on_session_start": "idle",

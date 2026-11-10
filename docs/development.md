@@ -237,8 +237,8 @@ A manual `workflow_dispatch` run builds and uploads artifacts without creating a
 4. Create and push an annotated tag:
 
    ```bash
-   git tag -a v0.1.0-rc.1 -m "AgentBeacon v0.1.0-rc.1"
-   git push origin v0.1.0-rc.1
+   git tag -a v0.2.0-rc.1 -m "AgentBeacon v0.2.0-rc.1"
+   git push origin v0.2.0-rc.1
    ```
 
 The Release workflow verifies that the tag matches the manifests, extracts the bilingual changelog entry, and publishes a GitHub Release. macOS signing/notarization uses repository secrets (`MAC_CERT_P12_BASE64`, `MAC_CERT_PASSWORD`, `MAC_SIGN_IDENTITY`, `MAC_NOTARY_API_KEY_ID`, `MAC_NOTARY_API_ISSUER_ID`, `MAC_NOTARY_API_KEY_P8_BASE64`). Windows MSI uses a numeric ProductVersion even for prerelease versions.

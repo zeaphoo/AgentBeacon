@@ -18,7 +18,7 @@ agent-beacon integrate list           # 确认状态
     "hooks": [
       {
         "type": "command",
-        "command": "'/usr/local/bin/agent-beacon' hook --agent claude-code --state working --event PreToolUse # agent-beacon-hook:claude-code:0.1.0-rc.1"
+        "command": "'/usr/local/bin/agent-beacon' hook --agent claude-code --state working --event PreToolUse # agent-beacon-hook:claude-code:0.2.0-rc.1"
       }
     ]
   }

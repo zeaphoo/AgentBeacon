@@ -11,7 +11,7 @@ agent-beacon integrate install codex
 安装器会在 `~/.codex/config.toml` 顶部写入一段带标记的配置（可用 `--dir` 或 `AGENT_BEACON_CODEX_DIR` / `CODEX_HOME` 覆盖）：
 
 ```toml
-# >>> agent-beacon-hook:codex 0.1.0-rc.1 (managed by agent-beacon)
+# >>> agent-beacon-hook:codex 0.2.0-rc.1 (managed by agent-beacon)
 notify = ["/usr/local/bin/agent-beacon", "hook", "--agent", "codex", "--state", "auto"]
 # <<< agent-beacon-hook:codex
 
@@ -26,7 +26,7 @@ model = "gpt-5"
 如果 `config.toml` 里已经有你自己写的根级 `notify`，安装器会拒绝执行并要求 `--force`；加 `--force` 后旧值会被逐行注释保留，方便你恢复：
 
 ```toml
-# >>> agent-beacon-hook:codex 0.1.0-rc.1 (managed by agent-beacon)
+# >>> agent-beacon-hook:codex 0.2.0-rc.1 (managed by agent-beacon)
 notify = ["/usr/local/bin/agent-beacon", "hook", "--agent", "codex", "--state", "auto"]
 # <<< agent-beacon-hook:codex
 

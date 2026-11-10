@@ -1,7 +1,7 @@
 {
   "name": "agent-beacon",
   "private": true,
-  "version": "0.1.0-rc.1",
+  "version": "0.2.0-rc.1",
   "description": "把 agent 状态同步到 USB 状态灯",
   "scripts": {
     "dev:web": "pnpm --dir web dev",

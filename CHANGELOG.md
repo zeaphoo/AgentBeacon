@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 English | [中文](CHANGELOG.zh-CN.md)
 
-## [Unreleased]
+## [0.2.0-rc.1] - 2026-11-10
 
 ### Added
 
@@ -74,5 +74,5 @@ English | [中文](CHANGELOG.zh-CN.md)
 - Buzzer enablement now requires a warning confirmation dialog about loud sound and discomfort.
 - Aggregate/session state color consistency and live service uptime rendering.
 
-[Unreleased]: https://github.com/zeaphoo/AgentBeacon/compare/v0.1.0-rc.1...HEAD
+[0.2.0-rc.1]: https://github.com/zeaphoo/AgentBeacon/releases/tag/v0.2.0-rc.1
 [0.1.0-rc.1]: https://github.com/zeaphoo/AgentBeacon/releases/tag/v0.1.0-rc.1
