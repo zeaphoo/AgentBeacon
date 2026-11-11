@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Dashboard from './Dashboard'
 import { useBeaconStore } from '../store/beacon'
 
@@ -40,6 +41,10 @@ describe('Dashboard', () => {
       loading: false,
       error: null,
     })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('renders aggregate, sessions and devices', () => {
@@ -172,5 +177,114 @@ describe('Dashboard', () => {
     )
     expect(screen.getByText('还没有 agent 上报状态')).toBeInTheDocument()
     expect(screen.getByText('未发现设备')).toBeInTheDocument()
+  })
+
+  const manySessions = (count) =>
+    Array.from({ length: count }, (_, index) => ({
+      agent: `agent-${index}`,
+      session: `session-${index}`,
+      state: 'idle',
+      message: null,
+      created_at_ms: Date.now() - 600_000,
+      updated_at_ms: Date.now() - index * 1_000,
+      expires_at_ms: Date.now() + 900_000,
+    }))
+
+  it('caps the session card at seven rows and offers the full list', () => {
+    useBeaconStore.setState({
+      snapshot: {
+        ...snapshot,
+        sessions: manySessions(10),
+        session_history_len: 10,
+        devices: [],
+      },
+      loading: false,
+    })
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByText('agent-0')).toBeInTheDocument()
+    expect(screen.getByText('agent-6')).toBeInTheDocument()
+    expect(screen.queryByText('agent-7')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '查看全部会话（10）' })).toBeInTheDocument()
+  })
+
+  it('hides the button when everything fits on the card', () => {
+    useBeaconStore.setState({
+      snapshot: { ...snapshot, sessions: manySessions(3), session_history_len: 3 },
+      loading: false,
+    })
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+    expect(screen.queryByRole('button', { name: /查看全部会话/ })).not.toBeInTheDocument()
+  })
+
+  it('keeps the full list reachable after every session expired', () => {
+    useBeaconStore.setState({
+      snapshot: { ...snapshot, sessions: [], session_history_len: 4, devices: [] },
+      loading: false,
+    })
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('还没有 agent 上报状态')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '查看全部会话（4）' })).toBeInTheDocument()
+  })
+
+  it('opens the recent-session dialog and expands details', async () => {
+    const user = userEvent.setup()
+    const now = Date.now()
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () =>
+        JSON.stringify({
+          capacity: 2000,
+          total: 9,
+          limit: 500,
+          sessions: [
+            {
+              agent: 'pi',
+              session: '01a1c87e-a1c3-732f-ae2c-884d968958f2',
+              state: 'working',
+              message: 'bash',
+              created_at_ms: now - 60_000,
+              updated_at_ms: now - 1_000,
+              expires_at_ms: now + 900_000,
+            },
+          ],
+        }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    useBeaconStore.setState({
+      snapshot: { ...snapshot, sessions: manySessions(9), session_history_len: 9 },
+      loading: false,
+    })
+
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+    await user.click(screen.getByRole('button', { name: '查看全部会话（9）' }))
+
+    expect(await screen.findByText('最近会话')).toBeInTheDocument()
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/sessions?limit=500')
+
+    const row = screen.getByText(/01a1c87e-a1c3-732f-ae2c-884d968958f2/).closest('button')
+    expect(screen.queryByText('会话 ID')).not.toBeInTheDocument()
+    await user.click(row)
+
+    expect(screen.getByText('会话 ID')).toBeInTheDocument()
+    expect(screen.getByText('最近消息')).toBeInTheDocument()
+    expect(screen.getByText('首次上报')).toBeInTheDocument()
+    expect(screen.getByText('过期时间')).toBeInTheDocument()
   })
 })

@@ -134,6 +134,7 @@ pnpm --dir web test
 | `POST` | `/api/v1/events` | 上报 agent 事件 |
 | `GET/DELETE` | `/api/v1/hooks` | 读取或清空最近的 hook/状态迁移诊断日志 |
 | `DELETE` | `/api/v1/sessions` | 清空会话 |
+| `GET` | `/api/v1/sessions?limit=N` | 内存中最近的会话记录（含已过期，不落盘） |
 | `POST` | `/api/v1/control` | 应用手动灯效 |
 | `POST` | `/api/v1/control/auto` | 恢复自动控制 |
 | `GET/PUT` | `/api/v1/config` | 读取或更新配置 |

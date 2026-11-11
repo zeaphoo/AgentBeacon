@@ -15,6 +15,7 @@ pub use effect::{Effect, Mapping};
 pub use profile::{DeviceCapabilities, DeviceProfile, DeviceProfileInfo};
 pub use session::{
     aggregate_of, AgentState, Aggregate, Event, SessionRegistry, SessionView, ValidationError,
+    SESSION_HISTORY_CAPACITY,
 };
 
 /// 应用标识：桌面 Bundle ID，也是平台数据目录下的应用数据根名。

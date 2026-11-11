@@ -149,6 +149,29 @@ export function formatAge(timestampMs, language = 'zh', now = Date.now()) {
   return formatter.format(-hours, 'hour')
 }
 
+export function formatDateTime(timestampMs, language = 'zh') {
+  if (!timestampMs) return '-'
+  return new Intl.DateTimeFormat(language === 'zh' ? 'zh-CN' : 'en', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(new Date(timestampMs))
+}
+
+export function formatCountdown(timestampMs, language = 'zh', now = Date.now()) {
+  if (!timestampMs) return '-'
+  const seconds = Math.round((timestampMs - now) / 1000)
+  const formatter = new Intl.RelativeTimeFormat(language === 'zh' ? 'zh-CN' : 'en', {
+    numeric: 'auto',
+  })
+  if (Math.abs(seconds) < 60) return formatter.format(seconds, 'second')
+  const minutes = Math.round(seconds / 60)
+  if (Math.abs(minutes) < 60) return formatter.format(minutes, 'minute')
+  return formatter.format(Math.round(minutes / 60), 'hour')
+}
+
 export function formatUptime(seconds, t) {
   const total = Math.max(0, Math.floor(Number(seconds) || 0))
   if (total < 60) return t('time.seconds', { n: total })

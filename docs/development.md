@@ -134,6 +134,7 @@ The default listen address is `127.0.0.1:6980`. Configuration can be updated thr
 | `POST` | `/api/v1/events` | Report an agent event |
 | `GET/DELETE` | `/api/v1/hooks` | Read or clear recent hook/state-transition diagnostics |
 | `DELETE` | `/api/v1/sessions` | Clear sessions |
+| `GET` | `/api/v1/sessions?limit=N` | Recent sessions kept in memory (includes expired; never persisted) |
 | `POST` | `/api/v1/control` | Apply a manual light effect |
 | `POST` | `/api/v1/control/auto` | Restore automatic control |
 | `GET/PUT` | `/api/v1/config` | Read or update configuration |

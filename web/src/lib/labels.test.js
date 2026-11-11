@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { connectionLabel, formatUptime, stateTone } from './labels'
+import {
+  connectionLabel,
+  formatCountdown,
+  formatDateTime,
+  formatUptime,
+  stateTone,
+} from './labels'
 
 const t = (key, vars) => (vars ? `${key.replace('time.', '')}:${vars.n}` : key)
 
@@ -28,5 +34,14 @@ describe('labels', () => {
     expect(stateTone('working', { working: 'busy' })).toBe('yellow')
     expect(stateTone('waiting', { waiting: 'attention' })).toBe('amber')
     expect(stateTone('error', { error: 'alert' })).toBe('red')
+  })
+
+  it('formats absolute timestamps and future countdowns', () => {
+    const now = Date.UTC(2026, 0, 1, 12, 0, 0)
+    expect(formatDateTime(now, 'en')).toMatch(/Jan/)
+    expect(formatCountdown(now + 90_000, 'en', now)).toContain('2')
+    expect(formatCountdown(now + 7_200_000, 'en', now)).toContain('2')
+    expect(formatDateTime(0, 'en')).toBe('-')
+    expect(formatCountdown(0, 'en', now)).toBe('-')
   })
 })

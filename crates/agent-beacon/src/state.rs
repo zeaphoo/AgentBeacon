@@ -43,6 +43,8 @@ pub struct OverrideView {
 pub struct Snapshot {
     pub aggregate: Aggregate,
     pub sessions: Vec<SessionView>,
+    /// 内存中保留的最近会话记录条数（含已过期）。
+    pub session_history_len: usize,
     pub devices: Vec<DeviceInfo>,
     pub routing: Vec<DeviceRouteView>,
     pub unassigned_agents: Vec<String>,
@@ -183,6 +185,21 @@ impl BeaconState {
         self.lock().config.clone()
     }
 
+    /// 最近的会话记录（含已过期），仅来自内存。
+    pub fn recent_sessions(&self, limit: usize) -> Vec<SessionView> {
+        self.lock().sessions.recent_sessions(limit)
+    }
+
+    /// 内存会话记录上限。
+    pub fn session_history_capacity(&self) -> usize {
+        self.lock().sessions.history_capacity()
+    }
+
+    /// 内存中保留的最近会话记录条数。
+    pub fn session_history_len(&self) -> usize {
+        self.lock().sessions.history_len()
+    }
+
     pub fn store(&self) -> &ConfigStore {
         &self.store
     }
@@ -204,6 +221,7 @@ impl BeaconState {
         Snapshot {
             aggregate,
             sessions,
+            session_history_len: inner.sessions.history_len(),
             devices: device_snapshot(&self.devices),
             routing: inner.routes.clone(),
             unassigned_agents: inner.unassigned_agents.clone(),

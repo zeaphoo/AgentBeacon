@@ -2,8 +2,11 @@ import { useEffect, useState } from 'react'
 import {
   Activity,
   AlertTriangle,
+  ChevronDown,
+  ChevronRight,
   CircleSlash,
   Clock,
+  History,
   Lightbulb,
   Moon,
   RefreshCw,
@@ -20,16 +23,19 @@ import {
   effectLabel,
   effectTone,
   formatAge,
+  formatCountdown,
+  formatDateTime,
   formatUptime,
   profileLabel,
   stateLabel,
   stateTone,
 } from '../lib/labels'
+import { api } from '../lib/api'
 import AgentLogo from '../components/AgentLogo'
 import DeviceFeatures from '../components/DeviceFeatures'
 import { resolveLights } from '../lib/lights'
 import { agentLogoId } from '../lib/agents'
-import { Badge } from '../components/ui/badge'
+import { Badge, badgeVariants } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import {
   Card,
@@ -56,6 +62,181 @@ const AGGREGATE_ICONS = {
   working: Activity,
   waiting: Clock,
   error: AlertTriangle,
+}
+
+/// 卡片上直接展示的会话条数，更多内容进弹窗。
+const VISIBLE_SESSIONS = 7
+/// 弹窗一次读取的内存记录条数（服务端上限 SESSION_HISTORY_CAPACITY）。
+const RECENT_SESSIONS_LIMIT = 500
+
+function SessionDetails({ session, language, t, now }) {
+  const expired = session.expires_at_ms ? session.expires_at_ms <= now : false
+  const expires = session.expires_at_ms
+    ? `${formatDateTime(session.expires_at_ms, language)} · ${
+        expired
+          ? t('dashboard.sessionExpired')
+          : formatCountdown(session.expires_at_ms, language, now)
+      }`
+    : t('dashboard.sessionFieldNone')
+  const rows = [
+    [t('dashboard.sessionFieldAgent'), session.agent],
+    [t('dashboard.sessionFieldId'), session.session],
+    [t('dashboard.sessionFieldState'), stateLabel(session.state, t)],
+    session.message && [t('dashboard.sessionFieldMessage'), session.message],
+    [t('dashboard.sessionFieldCreated'), formatDateTime(session.created_at_ms, language)],
+    [t('dashboard.sessionFieldUpdated'), formatDateTime(session.updated_at_ms, language)],
+    [t('dashboard.sessionFieldExpires'), expires],
+  ].filter(Boolean)
+
+  return (
+    <dl className="mt-2 grid gap-1.5 rounded-lg border border-border/60 bg-muted/30 px-3 py-2.5 text-xs sm:grid-cols-[6.5rem_1fr]">
+      {rows.map(([label, value]) => (
+        <div key={label} className="contents">
+          <dt className="text-muted-foreground">{label}</dt>
+          <dd className="break-all font-mono text-[11px] text-foreground">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+function RecentSessionRow({ session, mapping, language, t, now, expanded, onToggle }) {
+  const expired = session.expires_at_ms ? session.expires_at_ms <= now : false
+  return (
+    <div className="border-b border-border/60 last:border-b-0">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={onToggle}
+        className="flex w-full items-center gap-3 py-2.5 text-left"
+      >
+        <span
+          className={cn(
+            badgeVariants({ variant: 'outline' }),
+            'min-w-[4.5rem] justify-center border',
+            TONE_CLASSES[stateTone(session.state, mapping)],
+          )}
+        >
+          {stateLabel(session.state, t)}
+        </span>
+        <AgentLogo id={agentLogoId(session.agent)} className="h-5 w-5" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium">
+            {session.agent}
+            {expired && (
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                {t('dashboard.sessionExpired')}
+              </span>
+            )}
+          </div>
+          <div className="truncate text-xs text-muted-foreground">
+            {session.session}
+            {session.message ? ` · ${session.message}` : ''}
+          </div>
+        </div>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {formatAge(session.updated_at_ms, language)}
+        </span>
+        <ChevronDown
+          className={cn(
+            'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+            expanded && 'rotate-180',
+          )}
+        />
+      </button>
+      {expanded && <SessionDetails session={session} language={language} t={t} now={now} />}
+    </div>
+  )
+}
+
+/**
+ * 最近会话弹窗：只在打开时读取服务端内存里的记录（不落盘），
+ * 每行可展开查看会话 ID、时间与过期等细节。
+ */
+function RecentSessionsDialog({ total, mapping, now, language, t, children }) {
+  const [open, setOpen] = useState(false)
+  const [recent, setRecent] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState(null)
+  const [expanded, setExpanded] = useState(null)
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setLoading(true)
+    setLoadError(null)
+    api
+      .getSessions(RECENT_SESSIONS_LIMIT)
+      .then((data) => {
+        if (!cancelled) setRecent(data)
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(err.message)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
+  const sessions = recent?.sessions ?? []
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>{t('dashboard.allSessionsTitle')}</DialogTitle>
+          <DialogDescription>
+            {t('dashboard.allSessionsDescription', {
+              capacity: recent?.capacity ?? total,
+              total: recent?.total ?? total,
+            })}
+          </DialogDescription>
+        </DialogHeader>
+        {loading ? (
+          <div className="py-8 text-center text-sm text-muted-foreground">
+            {t('dashboard.allSessionsLoading')}
+          </div>
+        ) : loadError ? (
+          <div className="alert-danger rounded-lg border px-4 py-3 text-sm">
+            {t('dashboard.allSessionsError', { error: loadError })}
+          </div>
+        ) : sessions.length === 0 ? (
+          <div className="py-8 text-center text-sm text-muted-foreground">
+            {t('dashboard.allSessionsEmpty')}
+          </div>
+        ) : (
+          <>
+            <div className="max-h-[min(60vh,32rem)] overflow-y-auto pr-1">
+              {sessions.map((session) => {
+                const key = `${session.agent}:${session.session}`
+                return (
+                  <RecentSessionRow
+                    key={key}
+                    session={session}
+                    mapping={mapping}
+                    language={language}
+                    t={t}
+                    now={now}
+                    expanded={expanded === key}
+                    onToggle={() => setExpanded(expanded === key ? null : key)}
+                  />
+                )
+              })}
+            </div>
+            {recent.total > sessions.length && (
+              <p className="text-center text-xs text-muted-foreground">
+                {t('dashboard.allSessionsTruncated', { shown: sessions.length })}
+              </p>
+            )}
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 function EmptyState({ icon: Icon, title, description }) {
@@ -109,6 +290,8 @@ export default function Dashboard() {
   const aggregateState = AGGREGATE_ICONS[aggregate] ? aggregate : 'none'
   const AggregateIcon = AGGREGATE_ICONS[aggregateState]
   const sessions = snapshot.sessions ?? []
+  const visibleSessions = sessions.slice(0, VISIBLE_SESSIONS)
+  const historyLen = Math.max(snapshot.session_history_len ?? 0, sessions.length)
   const devices = snapshot.devices ?? []
   const runtimeById = new Map(devices.map((device) => [device.id, device]))
   const lights = resolveLights(snapshot)
@@ -234,7 +417,7 @@ export default function Dashboard() {
             />
           ) : (
             <ul className="divide-y divide-border/70">
-              {sessions.map((session) => (
+              {visibleSessions.map((session) => (
                 <li
                   key={`${session.agent}:${session.session}`}
                   className="flex flex-wrap items-center gap-3 py-3"
@@ -242,7 +425,7 @@ export default function Dashboard() {
                   <Badge
                     variant="outline"
                     className={cn(
-                      'border',
+                      'min-w-[4.5rem] justify-center border',
                       TONE_CLASSES[stateTone(session.state, snapshot.config?.mapping)],
                     )}
                   >
@@ -265,6 +448,23 @@ export default function Dashboard() {
                 </li>
               ))}
             </ul>
+          )}
+          {historyLen > visibleSessions.length && (
+            <div className="mt-3 flex justify-end border-t border-border/70 pt-3">
+              <RecentSessionsDialog
+                total={historyLen}
+                mapping={snapshot.config?.mapping}
+                now={now}
+                language={language}
+                t={t}
+              >
+                <Button variant="outline" size="sm">
+                  <History className="mr-1.5 h-3.5 w-3.5" />
+                  {t('dashboard.showAllSessions', { n: historyLen })}
+                  <ChevronRight className="ml-1 h-3.5 w-3.5" />
+                </Button>
+              </RecentSessionsDialog>
+            </div>
           )}
         </CardContent>
       </Card>

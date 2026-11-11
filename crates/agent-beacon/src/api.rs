@@ -10,7 +10,7 @@ use axum::extract::{Query, State};
 use axum::http::{header, HeaderValue, StatusCode, Uri};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use rust_embed::RustEmbed;
 use serde::Deserialize;
@@ -29,7 +29,7 @@ pub fn router(state: Arc<BeaconState>) -> Router {
         .route("/api/v1/events", post(report_event))
         .route("/api/v1/hooks", get(hooks).delete(clear_hooks))
         .route("/api/v1/agents", get(agents))
-        .route("/api/v1/sessions", delete(clear_sessions))
+        .route("/api/v1/sessions", get(sessions).delete(clear_sessions))
         .route("/api/v1/state", get(state_snapshot))
         .route("/api/v1/stream", get(stream))
         .route("/api/v1/devices", get(devices))
@@ -120,6 +120,34 @@ async fn agents(State(state): State<Arc<BeaconState>>) -> Json<serde_json::Value
 async fn clear_sessions(State(state): State<Arc<BeaconState>>) -> Json<serde_json::Value> {
     state.clear_sessions();
     Json(json!({ "ok": true, "aggregate": state.snapshot().aggregate }))
+}
+
+/// 会话列表默认返回条数。
+const DEFAULT_SESSION_LIMIT: usize = 500;
+
+#[derive(Debug, Deserialize)]
+struct SessionsQuery {
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+/// 内存中最近上报过的会话（含已过期），供控制台查看详情。
+async fn sessions(
+    State(state): State<Arc<BeaconState>>,
+    Query(query): Query<SessionsQuery>,
+) -> Json<serde_json::Value> {
+    let capacity = state.session_history_capacity();
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_SESSION_LIMIT)
+        .clamp(1, capacity);
+    let entries = state.recent_sessions(limit);
+    Json(json!({
+        "capacity": capacity,
+        "total": state.session_history_len(),
+        "limit": limit,
+        "sessions": entries,
+    }))
 }
 
 async fn state_snapshot(State(state): State<Arc<BeaconState>>) -> Json<Snapshot> {
@@ -491,6 +519,43 @@ mod tests {
         let agents = body_json(response).await;
         assert_eq!(agents["aggregate"], "waiting");
         assert_eq!(agents["sessions"][0]["session"], "claude:default");
+    }
+
+    #[tokio::test]
+    async fn sessions_endpoint_lists_recent_records() {
+        let app = router(test_state());
+        for body in [
+            r#"{"agent":"claude","state":"working","session":"s-1"}"#,
+            r#"{"agent":"codex","state":"waiting","session":"s-2","message":"等待确认"}"#,
+        ] {
+            let response = app
+                .clone()
+                .oneshot(post("/api/v1/events", body))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        let response = app
+            .clone()
+            .oneshot(get("/api/v1/sessions?limit=1"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response).await;
+        assert_eq!(body["total"], 2);
+        assert_eq!(body["limit"], 1);
+        assert_eq!(
+            body["capacity"],
+            agent_beacon_core::SESSION_HISTORY_CAPACITY
+        );
+        let entries = body["sessions"].as_array().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["agent"], "codex");
+
+        let response = app.oneshot(get("/api/v1/sessions")).await.unwrap();
+        let body = body_json(response).await;
+        assert_eq!(body["sessions"].as_array().unwrap().len(), 2);
     }
 
     #[tokio::test]

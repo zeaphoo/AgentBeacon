@@ -1,11 +1,14 @@
 //! 会话、状态聚合与事件校验。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{DEFAULT_TTL_SECS, MAX_TTL_SECS, MIN_TTL_SECS};
+
+/// 内存中保留的最近会话记录条数上限（仅内存，不落盘）。
+pub const SESSION_HISTORY_CAPACITY: usize = 2000;
 
 /// 单个 agent 会话的状态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,16 +165,34 @@ pub fn aggregate_of<'a>(sessions: impl IntoIterator<Item = &'a SessionView>) -> 
 }
 
 /// 会话表。所有方法都显式接收 `now_ms`，测试无需真实等待。
-#[derive(Debug, Default)]
+///
+/// `sessions` 是当前活动会话（过期即删除）；`history` 是有界的最近记录，
+/// 过期会话仍会保留到被新记录挤出，供控制台查看最近发生了什么。
+#[derive(Debug)]
 pub struct SessionRegistry {
     sessions: HashMap<(String, String), SessionView>,
+    history: VecDeque<SessionView>,
+    history_capacity: usize,
     default_ttl_secs: u64,
+}
+
+impl Default for SessionRegistry {
+    fn default() -> Self {
+        Self::with_default_ttl()
+    }
 }
 
 impl SessionRegistry {
     pub fn new(default_ttl_secs: u64) -> Self {
+        Self::with_history(default_ttl_secs, SESSION_HISTORY_CAPACITY)
+    }
+
+    /// 指定会话表的默认 TTL 与内存历史条数上限。
+    pub fn with_history(default_ttl_secs: u64, history_capacity: usize) -> Self {
         Self {
             sessions: HashMap::new(),
+            history: VecDeque::new(),
+            history_capacity: history_capacity.max(1),
             default_ttl_secs,
         }
     }
@@ -182,6 +203,31 @@ impl SessionRegistry {
 
     pub fn default_ttl_secs(&self) -> u64 {
         self.default_ttl_secs
+    }
+
+    pub fn history_capacity(&self) -> usize {
+        self.history_capacity
+    }
+
+    pub fn history_len(&self) -> usize {
+        self.history.len()
+    }
+
+    /// 最近的会话记录（含已过期），按最近更新倒序，最多 `limit` 条。
+    pub fn recent_sessions(&self, limit: usize) -> Vec<SessionView> {
+        let mut views: Vec<SessionView> = self.history.iter().rev().take(limit).cloned().collect();
+        views.sort_by_key(|view| std::cmp::Reverse(view.updated_at_ms));
+        views
+    }
+
+    /// 记录一条会话快照；同一会话只保留最新一条。
+    fn record(&mut self, view: SessionView) {
+        self.history
+            .retain(|item| item.agent != view.agent || item.session != view.session);
+        self.history.push_back(view);
+        while self.history.len() > self.history_capacity {
+            self.history.pop_front();
+        }
     }
 
     pub fn apply(&mut self, event: &Event, now_ms: u64) -> Result<SessionView, ValidationError> {
@@ -205,6 +251,7 @@ impl SessionRegistry {
             expires_at_ms: now_ms.saturating_add(ttl.saturating_mul(1000)),
         };
         self.sessions.insert(key, view.clone());
+        self.record(view.clone());
         Ok(view)
     }
 
@@ -265,6 +312,7 @@ impl SessionRegistry {
 
     pub fn clear(&mut self) {
         self.sessions.clear();
+        self.history.clear();
     }
 
     pub fn len(&self) -> usize {
@@ -400,6 +448,68 @@ mod tests {
             .apply(&event("claude", AgentState::Working), 2_000_000)
             .unwrap();
         assert_eq!(again.created_at_ms, 2_000_000);
+    }
+
+    #[test]
+    fn history_keeps_expired_sessions() {
+        let mut registry = SessionRegistry::with_default_ttl();
+        registry
+            .apply(&event("claude", AgentState::Working), 0)
+            .unwrap();
+        registry.expire(900_001);
+
+        assert!(registry.is_empty());
+        assert_eq!(registry.history_len(), 1);
+        let recent = registry.recent_sessions(10);
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].agent, "claude");
+    }
+
+    #[test]
+    fn history_keeps_only_latest_state_per_session() {
+        let mut registry = SessionRegistry::with_default_ttl();
+        registry
+            .apply(&event("claude", AgentState::Working), 1_000)
+            .unwrap();
+        registry
+            .apply(&event("claude", AgentState::Error), 2_000)
+            .unwrap();
+
+        assert_eq!(registry.history_len(), 1);
+        let recent = registry.recent_sessions(10);
+        assert_eq!(recent[0].state, AgentState::Error);
+        assert_eq!(recent[0].updated_at_ms, 2_000);
+    }
+
+    #[test]
+    fn history_is_bounded_and_newest_first() {
+        let mut registry = SessionRegistry::with_history(DEFAULT_TTL_SECS, 2);
+        for (index, agent) in ["a", "b", "c"].iter().enumerate() {
+            registry
+                .apply(&event(agent, AgentState::Idle), (index as u64 + 1) * 1_000)
+                .unwrap();
+        }
+
+        assert_eq!(registry.history_capacity(), 2);
+        assert_eq!(registry.history_len(), 2);
+        let recent = registry.recent_sessions(10);
+        assert_eq!(
+            recent.iter().map(|v| v.agent.as_str()).collect::<Vec<_>>(),
+            ["c", "b"]
+        );
+        assert_eq!(registry.recent_sessions(1).len(), 1);
+    }
+
+    #[test]
+    fn clear_drops_history_too() {
+        let mut registry = SessionRegistry::with_default_ttl();
+        registry
+            .apply(&event("claude", AgentState::Working), 1_000)
+            .unwrap();
+        registry.clear();
+        assert!(registry.is_empty());
+        assert_eq!(registry.history_len(), 0);
+        assert!(registry.recent_sessions(10).is_empty());
     }
 
     #[test]
