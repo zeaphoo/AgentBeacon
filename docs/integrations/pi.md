@@ -26,7 +26,7 @@ agent-beacon integrate uninstall pi
 - 插件还会在 `before_agent_start` 上报 `working`，覆盖 `agent_start` 之前压缩检查/准备阶段的空档。
 - `tool_call` 在工具执行前触发，适合把状态保持为 `working`。
 - 插件用异步 `fetch` 上报，不阻塞 Pi；但上报会经过 latest-wins 队列串行发送，避免 `idle`/`working` 因并发请求乱序而让灯短暂变绿。服务不在默认地址时设置 `AGENT_BEACON_URL`。
-- 每次上报都带 Pi 的 session id（来自 `ctx.sessionManager.getSessionId()`），多个 Pi 会话不会互相覆盖。没有 session id 时才回退到 `pi:default`。
+- 每次上报都带 Pi 的 session id（来自 `ctx.sessionManager.getSessionId()`）与 Pi 事件名（如 `tool_call`、`agent_settled`），多个 Pi 会话不会互相覆盖。没有 session id 时才回退到 `pi:default`；事件名只用于控制台的诊断日志。
 - `session_start` 在扩展热重载时也会触发；插件会检查 `ctx.isIdle()`，运行中不会误报 `idle`。`session_shutdown` 的 `reload` 原因也会被忽略，避免热重载时先闪一下绿色。
 - 状态含义：`idle` 绿灯常亮、`working` 绿 + 黄呼吸、`waiting` 黄闪、`error` 红闪。
 

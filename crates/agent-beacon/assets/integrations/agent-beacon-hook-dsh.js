@@ -5,12 +5,13 @@
 const URL = process.env.AGENT_BEACON_URL || "http://127.0.0.1:6980";
 const AGENT = "dsh";
 
-function report(state, message, ttl, session) {
+function report(state, message, ttl, session, event) {
   if (typeof fetch !== "function") return;
   const body = { agent: AGENT, state };
   if (message) body.message = String(message).slice(0, 1024);
   if (ttl) body.ttl_secs = Number(ttl);
   if (typeof session === "string" && session) body.session = session;
+  if (typeof event === "string" && event) body.event = event;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 900);
@@ -44,7 +45,7 @@ export const name = "agent-beacon-hook-dsh";
 
 export function apply(ctx) {
   ctx.on("agent/created", ({ agent }) => {
-    report("idle", undefined, undefined, sessionId(agent));
+    report("idle", undefined, undefined, sessionId(agent), "agent/created");
   });
 
   ctx.on("agent/status", ({ agent, status }) => {
@@ -53,24 +54,25 @@ export function apply(ctx) {
       undefined,
       undefined,
       sessionId(agent),
+      "agent/status",
     );
   });
 
   ctx.on("agent/error", ({ agent, error }) => {
-    report("error", errorText(error), undefined, sessionId(agent));
+    report("error", errorText(error), undefined, sessionId(agent), "agent/error");
   });
 
   ctx.on("agent/disposed", ({ agent }) => {
-    report("idle", undefined, 30, sessionId(agent));
+    report("idle", undefined, 30, sessionId(agent), "agent/disposed");
   });
 
   // approval/asked 与 approval/decided 是 session 日志事件。
   ctx.on("session/event", (session, event) => {
     if (!session || !event) return;
     if (event.type === "approval/asked") {
-      report("waiting", "等待审批", undefined, session.id);
+      report("waiting", "等待审批", undefined, session.id, event.type);
     } else if (event.type === "approval/decided") {
-      report("working", undefined, undefined, session.id);
+      report("working", undefined, undefined, session.id, event.type);
     }
   });
 }

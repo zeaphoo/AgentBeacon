@@ -16,7 +16,7 @@ use serde::Serialize;
 use tokio::sync::{broadcast, watch, Notify};
 
 use crate::config_store::ConfigStore;
-use crate::journal::{HookKind, HookOutcome, HookRecord, Journal, DEFAULT_CAPACITY};
+use crate::journal::{truncate_raw, HookKind, HookOutcome, HookRecord, Journal, DEFAULT_CAPACITY};
 use crate::routing::{
     empty_effect, resolve_devices, AssignmentEngine, AssignmentResult, DeviceRouteView,
     ResolvedDevice,
@@ -328,6 +328,15 @@ impl BeaconState {
     }
 
     pub fn apply_event(&self, event: Event) -> Result<SessionView, ValidationError> {
+        self.apply_event_with_raw(event, None)
+    }
+
+    /// 应用事件，并把收到的原始上报一并记入诊断日志。
+    pub fn apply_event_with_raw(
+        &self,
+        event: Event,
+        raw: Option<&str>,
+    ) -> Result<SessionView, ValidationError> {
         let now = now_ms();
         let mut inner = self.lock();
         let before = inner.last_view;
@@ -343,6 +352,7 @@ impl BeaconState {
                     after,
                     HookOutcome::Applied,
                     None,
+                    raw,
                 ));
                 drop(inner);
                 self.refresh();
@@ -357,6 +367,7 @@ impl BeaconState {
                     before,
                     HookOutcome::Rejected,
                     Some(error.to_string()),
+                    raw,
                 ));
                 Err(error)
             }
@@ -364,19 +375,28 @@ impl BeaconState {
     }
 
     /// 记录无法解析成 `Event` 的上报，便于排查 hook 版本/字段错误。
-    pub fn record_rejected_hook(&self, error: impl Into<String>) {
+    pub fn record_rejected_hook(&self, error: impl Into<String>, raw: Option<&str>) {
         let inner = self.lock();
         let current = inner.last_view;
-        self.journal.record(
-            HookRecord::new(
-                HookKind::Event,
-                current.aggregate,
-                current.effect,
-                current.aggregate,
-                current.effect,
-            )
-            .rejected(error),
-        );
+        let mut record = HookRecord::new(
+            HookKind::Event,
+            current.aggregate,
+            current.effect,
+            current.aggregate,
+            current.effect,
+        )
+        .rejected(error)
+        .with_raw(raw);
+        // 载荷没法反序列化成 `Event`，仍尽量把 agent / session / 事件名标出来。
+        if let Some(value) =
+            raw.and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+        {
+            record.agent = payload_str(&value, &["agent"], 64);
+            record.session = payload_str(&value, &["session", "session_id", "sessionId"], 128);
+            record.message = payload_str(&value, &["message"], 1024);
+            record.event = payload_str(&value, &["event", "hook_event_name", "hookEventName"], 128);
+        }
+        self.journal.record(record);
     }
 
     pub fn clear_sessions(&self) {
@@ -610,6 +630,17 @@ fn transition(inner: &Inner, now: u64) -> Transition {
     }
 }
 
+fn payload_str(value: &serde_json::Value, keys: &[&str], limit: usize) -> Option<String> {
+    keys.iter().find_map(|key| {
+        value
+            .get(*key)
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(|text| text.chars().take(limit).collect())
+    })
+}
+
 fn event_record(
     event: &Event,
     view: Option<&SessionView>,
@@ -617,6 +648,7 @@ fn event_record(
     after: Transition,
     outcome: HookOutcome,
     error: Option<String>,
+    raw: Option<&str>,
 ) -> HookRecord {
     let agent = event.agent.trim();
     let mut record = HookRecord::new(
@@ -633,9 +665,16 @@ fn event_record(
     );
     record.state = Some(event.state);
     record.message = event.message.clone().filter(|message| !message.is_empty());
+    record.event = event
+        .event
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(|name| name.chars().take(128).collect());
     record.ttl_secs = event.ttl_secs;
     record.outcome = outcome;
     record.error = error;
+    record.raw = truncate_raw(raw);
     if let Some(message) = view.and_then(|view| view.message.clone()) {
         record.detail = Some(format!("message: {message}"));
     }
@@ -810,6 +849,7 @@ mod tests {
             state,
             session: None,
             message: None,
+            event: None,
             ttl_secs: None,
         }
     }
@@ -914,6 +954,7 @@ mod tests {
                 state: AgentState::Working,
                 session: Some("claude:1".into()),
                 message: None,
+                event: None,
                 ttl_secs: None,
             })
             .unwrap();
@@ -923,6 +964,7 @@ mod tests {
                 state: AgentState::Error,
                 session: Some("codex:1".into()),
                 message: None,
+                event: None,
                 ttl_secs: None,
             })
             .unwrap();
@@ -972,6 +1014,7 @@ mod tests {
                     state: AgentState::Working,
                     session: Some(format!("claude:{index}")),
                     message: None,
+                    event: None,
                     ttl_secs: None,
                 })
                 .unwrap();

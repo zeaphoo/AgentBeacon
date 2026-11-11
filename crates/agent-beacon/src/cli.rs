@@ -653,8 +653,8 @@ async fn hooks(cli: &Cli, args: HooksArgs) -> i32 {
         return 0;
     }
     println!(
-        "{:<6} {:<9} {:<16} {:<24} {:<8} {:<9} {:<20} {:<16} DETAIL",
-        "SEQ", "AGE", "KIND", "AGENT/SESSION", "STATE", "OUTCOME", "AGGREGATE", "EFFECT"
+        "{:<6} {:<9} {:<16} {:<20} {:<24} {:<8} {:<9} {:<20} {:<16} DETAIL",
+        "SEQ", "AGE", "KIND", "EVENT", "AGENT/SESSION", "STATE", "OUTCOME", "AGGREGATE", "EFFECT"
     );
     let now = now_ms();
     for entry in entries {
@@ -680,10 +680,11 @@ async fn hooks(cli: &Cli, args: HooksArgs) -> i32 {
             .or_else(|| entry["error"].as_str())
             .unwrap_or("");
         println!(
-            "{:<6} {:<9} {:<16} {:<24} {:<8} {:<9} {:<20} {:<16} {}",
+            "{:<6} {:<9} {:<16} {:<20} {:<24} {:<8} {:<9} {:<20} {:<16} {}",
             entry["seq"].as_u64().unwrap_or(0),
             age,
             entry["kind"].as_str().unwrap_or("?"),
+            entry["event"].as_str().unwrap_or("-"),
             target,
             entry["state"].as_str().unwrap_or("-"),
             entry["outcome"].as_str().unwrap_or("?"),

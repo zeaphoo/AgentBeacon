@@ -148,6 +148,10 @@ pub fn build_body(request: &HookRequest) -> Option<Value> {
     };
 
     let mut body = json!({ "agent": request.agent, "state": state });
+    if !event.is_empty() {
+        // 带上 agent 的原始事件名，控制台的诊断日志据此显示「发生了什么」。
+        body["event"] = json!(truncate(&event, 128));
+    }
     if let Some(session) = string_field(&payload, SESSION_KEYS) {
         body["session"] = json!(session);
     }
@@ -295,6 +299,7 @@ mod tests {
         assert_eq!(body["session"], "s-42");
         assert_eq!(body["message"], "Bash");
         assert_eq!(body["state"], "working");
+        assert_eq!(body["event"], "PreToolUse");
     }
 
     #[test]

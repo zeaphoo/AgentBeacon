@@ -11,9 +11,9 @@ const AGENT = "pi";
 let pending = null;
 let sending = false;
 
-function report(state, message, ttl, session) {
+function report(state, message, ttl, session, event) {
   if (typeof fetch !== "function") return;
-  pending = { state, message, ttl, session };
+  pending = { state, message, ttl, session, event };
   if (!sending) void drain();
 }
 
@@ -36,6 +36,7 @@ async function send(job) {
   if (job.message) body.message = String(job.message).slice(0, 1024);
   if (job.ttl) body.ttl_secs = Number(job.ttl);
   if (typeof job.session === "string" && job.session) body.session = job.session;
+  if (typeof job.event === "string" && job.event) body.event = job.event;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 900);
@@ -68,26 +69,28 @@ function reportIdle(ctx, ttl) {
   // session_start 也会在扩展热重载时触发。此时 Pi 可能仍在运行，
   // 如果无条件上报 idle，灯会先变绿，等下一次 tool_call 才恢复黄色。
   const idle = typeof ctx?.isIdle === "function" ? ctx.isIdle() : true;
-  report(idle ? "idle" : "working", undefined, ttl, sessionId(ctx));
+  report(idle ? "idle" : "working", undefined, ttl, sessionId(ctx), "session_start");
 }
 
 export default function (pi) {
   pi.on("session_start", (_event, ctx) => reportIdle(ctx));
   // before_agent_start 比 agent_start 更早，能覆盖压缩检查/准备阶段的空档。
   pi.on("before_agent_start", (_event, ctx) =>
-    report("working", undefined, undefined, sessionId(ctx)),
+    report("working", undefined, undefined, sessionId(ctx), "before_agent_start"),
   );
   pi.on("agent_start", (_event, ctx) =>
-    report("working", undefined, undefined, sessionId(ctx)),
+    report("working", undefined, undefined, sessionId(ctx), "agent_start"),
   );
   pi.on("tool_call", (event, ctx) =>
-    report("working", event && event.toolName, undefined, sessionId(ctx)),
+    report("working", event && event.toolName, undefined, sessionId(ctx), "tool_call"),
   );
-  pi.on("agent_settled", (_event, ctx) => report("idle", undefined, undefined, sessionId(ctx)));
+  pi.on("agent_settled", (_event, ctx) =>
+    report("idle", undefined, undefined, sessionId(ctx), "agent_settled"),
+  );
   // 会话关闭后让状态在 30 秒内自然过期，避免灯长期停留。
   // reload 只是替换扩展，不是会话结束；session_start 会立即重新上报真实状态。
   pi.on("session_shutdown", (event, ctx) => {
     if (event && event.reason === "reload") return;
-    report("idle", undefined, 30, sessionId(ctx));
+    report("idle", undefined, 30, sessionId(ctx), "session_shutdown");
   });
 }

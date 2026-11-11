@@ -13,6 +13,9 @@ use serde::Serialize;
 /// 默认保留的记录条数。事件频率高时大约能覆盖最近几分钟到几十分钟。
 pub const DEFAULT_CAPACITY: usize = 2_000;
 
+/// 单条记录保留的原始上报长度上限（字符），避免超长载荷撑爆内存。
+pub const MAX_RAW_CHARS: usize = 4_096;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HookKind {
@@ -79,6 +82,9 @@ pub struct HookRecord {
     pub state: Option<AgentState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// agent 的原始事件名，例如 `PreToolUse`、`tool_call`。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ttl_secs: Option<u64>,
     pub outcome: HookOutcome,
@@ -91,6 +97,9 @@ pub struct HookRecord {
     /// 人类可读的补充信息，例如过期会话列表或覆盖目标设备。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// 收到的原始上报（`/api/v1/events` 请求体），超长时截断。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw: Option<String>,
 }
 
 impl HookRecord {
@@ -109,6 +118,7 @@ impl HookRecord {
             session: None,
             state: None,
             message: None,
+            event: None,
             ttl_secs: None,
             outcome: HookOutcome::Applied,
             error: None,
@@ -117,6 +127,7 @@ impl HookRecord {
             effect_before,
             effect_after,
             detail: None,
+            raw: None,
         }
     }
 
@@ -130,6 +141,19 @@ impl HookRecord {
         self.error = Some(error.into());
         self
     }
+
+    /// 保存原始上报文本（超过 `MAX_RAW_CHARS` 的部分会被截断）。
+    pub fn with_raw(mut self, raw: Option<&str>) -> Self {
+        self.raw = truncate_raw(raw);
+        self
+    }
+}
+
+/// 裁剪原始上报文本，去掉首尾空白并限制长度。
+pub fn truncate_raw(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| text.chars().take(MAX_RAW_CHARS).collect())
 }
 
 #[derive(Debug)]
@@ -269,6 +293,15 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].seq, 4);
         assert_eq!(entries[1].seq, 5);
+    }
+
+    #[test]
+    fn raw_payload_is_trimmed_and_truncated() {
+        let long = "x".repeat(MAX_RAW_CHARS + 10);
+        let kept = record().with_raw(Some(&format!("  {long}  "))).raw.unwrap();
+        assert_eq!(kept.chars().count(), MAX_RAW_CHARS);
+        assert!(record().with_raw(Some("   ")).raw.is_none());
+        assert!(record().with_raw(None).raw.is_none());
     }
 
     #[test]

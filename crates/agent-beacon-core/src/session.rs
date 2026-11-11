@@ -89,6 +89,9 @@ pub struct Event {
     pub session: Option<String>,
     #[serde(default)]
     pub message: Option<String>,
+    /// agent 的原始事件名（如 `PreToolUse`、`tool_call`），仅用于诊断展示。
+    #[serde(default)]
+    pub event: Option<String>,
     #[serde(default)]
     pub ttl_secs: Option<u64>,
 }
@@ -120,6 +123,11 @@ impl Event {
                 return Err(ValidationError::MessageTooLong);
             }
         }
+        if let Some(event) = self.event.as_deref() {
+            if event.chars().count() > 128 {
+                return Err(ValidationError::EventTooLong);
+            }
+        }
         if let Some(ttl) = self.ttl_secs {
             if !(MIN_TTL_SECS..=MAX_TTL_SECS).contains(&ttl) {
                 return Err(ValidationError::TtlOutOfRange);
@@ -139,6 +147,8 @@ pub enum ValidationError {
     SessionTooLong,
     #[error("message must not exceed 1024 characters")]
     MessageTooLong,
+    #[error("event name must not exceed 128 characters")]
+    EventTooLong,
     #[error("ttl_secs must be between 30 and 86400")]
     TtlOutOfRange,
 }
@@ -334,6 +344,7 @@ mod tests {
             state,
             session: None,
             message: None,
+            event: None,
             ttl_secs: None,
         }
     }
@@ -420,6 +431,15 @@ mod tests {
         assert_eq!(expired[0].agent, "claude");
         assert_eq!(expired[1].agent, "codex");
         assert!(registry.is_empty());
+    }
+
+    #[test]
+    fn overlong_event_name_is_rejected() {
+        let mut event = event("claude", AgentState::Working);
+        event.event = Some("e".repeat(129));
+        assert_eq!(event.validate(), Err(ValidationError::EventTooLong));
+        event.event = Some("PreToolUse".into());
+        assert_eq!(event.validate(), Ok(()));
     }
 
     #[test]

@@ -17,11 +17,13 @@ const payload = {
       session: 'session-1',
       state: 'working',
       message: 'bash',
+      event: 'PreToolUse',
       outcome: 'applied',
       aggregate_before: 'idle',
       aggregate_after: 'working',
       effect_before: 'calm',
       effect_after: 'busy',
+      raw: '{"agent":"pi","state":"working","session":"session-1","event":"PreToolUse","message":"bash"}',
     },
     {
       seq: 2,
@@ -46,6 +48,7 @@ const payload = {
       aggregate_after: 'waiting',
       effect_before: 'attention',
       effect_after: 'attention',
+      raw: '{"agent":"codex","state":"busy"}',
     },
   ],
 }
@@ -79,6 +82,7 @@ describe('HookLogDialog', () => {
     expect(screen.getByText('共 3 条，筛选后 3 条')).toBeInTheDocument()
     expect(screen.getByText('配置变更')).toBeInTheDocument()
     expect(screen.getByText('已拒绝')).toBeInTheDocument()
+    expect(screen.getByText('PreToolUse')).toBeInTheDocument()
   })
 
   it('filters by keyword and expands details', async () => {
@@ -91,7 +95,8 @@ describe('HookLogDialog', () => {
     await user.type(screen.getByLabelText('关键词'), 'codex')
     expect(screen.getByText(/session-2/)).toBeInTheDocument()
     expect(screen.queryByText(/session-1/)).not.toBeInTheDocument()
-    expect(screen.getByText('共 3 条，筛选后 1 条')).toBeInTheDocument()
+    // 被拒绝的上报也带着 codex 的原始载荷，所以命中 2 条。
+    expect(screen.getByText('共 3 条，筛选后 2 条')).toBeInTheDocument()
 
     await user.clear(screen.getByLabelText('关键词'))
     await user.type(screen.getByLabelText('关键词'), 'unknown variant')
@@ -104,5 +109,8 @@ describe('HookLogDialog', () => {
     expect(screen.getByText('聚合状态')).toBeInTheDocument()
     expect(screen.getAllByText('空闲 → 运行中')).toHaveLength(2)
     expect(screen.getByText('#1')).toBeInTheDocument()
+    expect(screen.getByText('事件名')).toBeInTheDocument()
+    expect(screen.getByText('原始上报')).toBeInTheDocument()
+    expect(screen.getByText(/"event": "PreToolUse"/)).toBeInTheDocument()
   })
 })

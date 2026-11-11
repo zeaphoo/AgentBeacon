@@ -34,6 +34,15 @@ import { cn } from '../lib/utils'
 const HOOK_LOG_LIMIT = 2000
 const ALL_AGENTS = '__all__'
 
+/// 原始上报能解析成 JSON 就美化一下，否则原样显示。
+function prettyRaw(raw) {
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2)
+  } catch {
+    return raw
+  }
+}
+
 function HookRow({ entry, language, t, expanded, onToggle }) {
   const rejected = entry.outcome === 'rejected'
   return (
@@ -53,6 +62,11 @@ function HookRow({ entry, language, t, expanded, onToggle }) {
         >
           {t(`hook.kind.${entry.kind}`)}
         </Badge>
+        {entry.event ? (
+          <span className="max-w-40 shrink-0 truncate rounded border border-border/60 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+            {entry.event}
+          </span>
+        ) : null}
         <span className="min-w-0 flex-1 truncate text-xs">
           <span className="font-medium">{entry.agent ?? '-'}</span>
           {entry.session ? (
@@ -97,6 +111,9 @@ function HookRow({ entry, language, t, expanded, onToggle }) {
             label={t('hook.fieldEffect')}
             value={`${effectLabel(entry.effect_before, t)} → ${effectLabel(entry.effect_after, t)}`}
           />
+          {entry.event ? (
+            <DetailRow label={t('hook.fieldEvent')} value={entry.event} />
+          ) : null}
           {entry.ttl_secs ? (
             <DetailRow label={t('hook.fieldTtl')} value={`${entry.ttl_secs}s`} />
           ) : null}
@@ -105,6 +122,16 @@ function HookRow({ entry, language, t, expanded, onToggle }) {
           ) : null}
           {entry.detail ? (
             <DetailRow label={t('hook.fieldDetail')} value={entry.detail} />
+          ) : null}
+          {entry.raw ? (
+            <div className="contents">
+              <dt className="text-muted-foreground">{t('hook.fieldRaw')}</dt>
+              <dd>
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border/60 bg-background/70 p-2 font-mono text-[11px] leading-relaxed">
+                  {prettyRaw(entry.raw)}
+                </pre>
+              </dd>
+            </div>
           ) : null}
         </dl>
       )}
@@ -174,6 +201,8 @@ export default function HookLogDialog() {
           entry.agent,
           entry.session,
           entry.message,
+          entry.event,
+          entry.raw,
           entry.detail,
           entry.error,
           entry.kind,

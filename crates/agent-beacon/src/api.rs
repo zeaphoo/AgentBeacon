@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use agent_beacon_core::{Config, Effect, Event};
+use axum::body::Bytes;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Query, State};
 use axum::http::{header, HeaderValue, StatusCode, Uri};
@@ -91,17 +92,18 @@ async fn health(State(state): State<Arc<BeaconState>>) -> Json<serde_json::Value
     Json(state.health_json())
 }
 
+/// 接收一次状态上报。原始请求体会随诊断日志一起保留（仅内存）。
 async fn report_event(
     State(state): State<Arc<BeaconState>>,
-    payload: Result<Json<Event>, JsonRejection>,
+    body: Bytes,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let Json(event) = payload.map_err(|rejection| {
-        let message = rejection.body_text();
-        state.record_rejected_hook(&message);
-        ApiError::bad_request(message)
+    let raw = String::from_utf8_lossy(&body);
+    let event: Event = serde_json::from_str(&raw).map_err(|error| {
+        state.record_rejected_hook(error.to_string(), Some(&raw));
+        ApiError::bad_request(error.to_string())
     })?;
     let session = state
-        .apply_event(event)
+        .apply_event_with_raw(event, Some(&raw))
         .map_err(|error| ApiError::bad_request(error.to_string()))?;
     Ok(Json(json!({
         "aggregate": state.snapshot().aggregate,
@@ -565,7 +567,7 @@ mod tests {
             .clone()
             .oneshot(post(
                 "/api/v1/events",
-                r#"{"agent":"pi","state":"working","message":"bash"}"#,
+                r#"{"agent":"pi","state":"working","message":"bash","event":"tool_call"}"#,
             ))
             .await
             .unwrap();
@@ -585,12 +587,23 @@ mod tests {
         assert_eq!(entries[0]["kind"], "event");
         assert_eq!(entries[0]["outcome"], "applied");
         assert_eq!(entries[0]["state"], "working");
+        assert_eq!(entries[0]["event"], "tool_call");
         assert_eq!(entries[0]["aggregate_after"], "working");
+        assert!(entries[0]["raw"]
+            .as_str()
+            .unwrap()
+            .contains("\"event\":\"tool_call\""));
         assert_eq!(entries[1]["outcome"], "rejected");
         assert!(entries[1]["error"]
             .as_str()
             .unwrap()
             .contains("unknown variant"));
+        // 载荷解析失败时仍保留原始请求体与能读出的 agent。
+        assert_eq!(entries[1]["agent"], "pi");
+        assert!(entries[1]["raw"]
+            .as_str()
+            .unwrap()
+            .contains("\"state\":\"busy\""));
     }
 
     #[tokio::test]
@@ -758,6 +771,7 @@ mod tests {
             state: agent_beacon_core::AgentState::Error,
             session: None,
             message: None,
+            event: None,
             ttl_secs: None,
         };
         state.apply_event(event).unwrap();
