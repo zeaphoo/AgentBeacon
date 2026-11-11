@@ -4,6 +4,7 @@ import { useBeaconStore } from '../store/beacon'
 import { useI18n } from '../i18n'
 import { AGGREGATE_KEYS, EFFECTS, connectionLabel, profileLabel } from '../lib/labels'
 import AgentLogo from '../components/AgentLogo'
+import HookLogDialog from '../components/HookLogDialog'
 import { agentLogoId } from '../lib/agents'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -624,11 +625,14 @@ export default function Settings() {
           </CardTitle>
           <CardDescription>{t('settings.serviceDescription')}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-1 text-xs text-muted-foreground">
-          <div>127.0.0.1:{snapshot?.service?.port ?? 6980}</div>
-          <div>
-            {snapshot?.service?.version ? `v${snapshot.service.version}` : 'agent-beacon'}
+        <CardContent className="flex flex-wrap items-end justify-between gap-3 text-xs text-muted-foreground">
+          <div className="space-y-1">
+            <div>127.0.0.1:{snapshot?.service?.port ?? 6980}</div>
+            <div>
+              {snapshot?.service?.version ? `v${snapshot.service.version}` : 'agent-beacon'}
+            </div>
           </div>
+          <HookLogDialog />
         </CardContent>
       </Card>
 

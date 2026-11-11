@@ -75,7 +75,7 @@ pub struct ServeArgs {
 
 #[derive(Debug, Args)]
 pub struct HooksArgs {
-    /// Maximum number of entries to show (1-1000).
+    /// Maximum number of entries to show (1-2000).
     #[arg(long, default_value_t = 50)]
     pub limit: usize,
     /// Print the raw JSON response instead of a table.
@@ -616,7 +616,7 @@ async fn hooks(cli: &Cli, args: HooksArgs) -> i32 {
         eprintln!("failed to create HTTP client");
         return 2;
     };
-    let limit = args.limit.clamp(1, 1000);
+    let limit = args.limit.clamp(1, crate::journal::DEFAULT_CAPACITY);
     let url = format!(
         "{}/api/v1/hooks?limit={limit}",
         cli.url.trim_end_matches('/')

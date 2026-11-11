@@ -183,7 +183,7 @@ All hook commands run `agent-beacon hook`, which reads the agent payload (stdin 
 
 ### Diagnosing light changes
 
-The service keeps an in-memory ring buffer of the latest 1000 hook events and state transitions. Every record includes the received event, whether it was accepted, and the aggregate/effect before and after the change. TTL expiry, manual overrides, config changes, and rejected payloads are recorded as well.
+The service keeps an in-memory ring buffer of the latest 2000 hook events and state transitions. Every record includes the received event, whether it was accepted, and the aggregate/effect before and after the change. TTL expiry, manual overrides, config changes, and rejected payloads are recorded as well.
 
 ```bash
 agent-beacon hooks --limit 100

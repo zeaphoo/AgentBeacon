@@ -11,7 +11,7 @@ use agent_beacon_core::{now_ms, AgentState, Aggregate, Effect};
 use serde::Serialize;
 
 /// 默认保留的记录条数。事件频率高时大约能覆盖最近几分钟到几十分钟。
-pub const DEFAULT_CAPACITY: usize = 1_000;
+pub const DEFAULT_CAPACITY: usize = 2_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]

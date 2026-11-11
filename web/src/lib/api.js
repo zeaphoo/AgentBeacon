@@ -41,6 +41,8 @@ export const api = {
     }),
   cancelControl: () => request('/api/v1/control/auto', { method: 'POST' }),
   getIntegrations: () => request('/api/v1/integrations'),
+  getHooks: (limit) =>
+    request(`/api/v1/hooks${limit ? `?limit=${limit}` : ''}`),
   saveIntegrationSettings: (settings) =>
     request('/api/v1/integrations/settings', {
       method: 'POST',
