@@ -197,20 +197,20 @@ function RecentSessionsDialog({ total, mapping, now, language, t, children }) {
           </DialogDescription>
         </DialogHeader>
         {loading ? (
-          <div className="py-8 text-center text-sm text-muted-foreground">
+          <div className="flex min-h-[14rem] items-center justify-center rounded-lg border border-dashed border-border/70 px-4 text-center text-sm text-muted-foreground">
             {t('dashboard.allSessionsLoading')}
           </div>
         ) : loadError ? (
-          <div className="alert-danger rounded-lg border px-4 py-3 text-sm">
+          <div className="alert-danger flex min-h-[14rem] items-center justify-center rounded-lg border px-4 py-3 text-center text-sm">
             {t('dashboard.allSessionsError', { error: loadError })}
           </div>
         ) : sessions.length === 0 ? (
-          <div className="py-8 text-center text-sm text-muted-foreground">
+          <div className="flex min-h-[14rem] items-center justify-center rounded-lg border border-dashed border-border/70 px-4 text-center text-sm text-muted-foreground">
             {t('dashboard.allSessionsEmpty')}
           </div>
         ) : (
           <>
-            <div className="max-h-[min(60vh,32rem)] overflow-y-auto pr-1">
+            <div className="max-h-[min(60vh,32rem)] min-h-[14rem] overflow-y-auto pr-1">
               {sessions.map((session) => {
                 const key = `${session.agent}:${session.session}`
                 return (

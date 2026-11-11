@@ -270,20 +270,20 @@ export default function HookLogDialog() {
         </div>
 
         {loading ? (
-          <div className="py-8 text-center text-sm text-muted-foreground">
+          <div className="flex min-h-[18rem] items-center justify-center rounded-lg border border-dashed border-border/70 px-4 text-center text-sm text-muted-foreground">
             {t('settings.hooksLoading')}
           </div>
         ) : loadError ? (
-          <div className="alert-danger rounded-lg border px-4 py-3 text-sm">
+          <div className="alert-danger flex min-h-[18rem] items-center justify-center rounded-lg border px-4 py-3 text-center text-sm">
             {t('settings.hooksError', { error: loadError })}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="py-8 text-center text-sm text-muted-foreground">
+          <div className="flex min-h-[18rem] items-center justify-center rounded-lg border border-dashed border-border/70 px-4 text-center text-sm text-muted-foreground">
             {entries.length === 0 ? t('settings.hooksEmpty') : t('settings.hooksNoMatch')}
           </div>
         ) : (
           <>
-            <div className="max-h-[min(62vh,34rem)] overflow-y-auto rounded-lg border border-border/60 px-2">
+            <div className="max-h-[min(62vh,34rem)] min-h-[18rem] overflow-y-auto rounded-lg border border-border/60 px-2">
               <ul className="divide-y divide-border/70">
                 {filtered.map((entry) => (
                   <HookRow
