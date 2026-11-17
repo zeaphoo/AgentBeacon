@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -62,11 +62,16 @@ describe('Control', () => {
     })
     api.saveConfig.mockResolvedValue(config)
     api.getState.mockResolvedValue(snapshot)
+    api.cancelControl.mockResolvedValue({ ...snapshot, override: null })
   })
 
   it('applies the selected effect with duration and device', async () => {
     const user = userEvent.setup()
     render(<Control />)
+
+    expect(
+      within(screen.getByTestId('control-status')).getByText('无手动控制'),
+    ).toBeInTheDocument()
 
     await user.click(screen.getByText('需要关注').closest('button'))
     const duration = screen.getByLabelText('持续时长（秒）')
@@ -81,7 +86,19 @@ describe('Control', () => {
         device: null,
       })
     })
-    expect(screen.getByText(/已应用 需要关注/)).toBeInTheDocument()
+
+    // 应用后状态面板就地显示手动控制状态，不再额外展示自动灯效。
+    const status = screen.getByTestId('control-status')
+    expect(within(status).getByText('需要关注')).toBeInTheDocument()
+    expect(within(status).queryByText('无手动控制')).not.toBeInTheDocument()
+    expect(within(status).getByText(/剩余 \d+ 秒后恢复自动/)).toBeInTheDocument()
+    const restore = within(status).getByRole('button', { name: '恢复自动' })
+
+    await user.click(restore)
+    await waitFor(() => {
+      expect(api.cancelControl).toHaveBeenCalled()
+    })
+    expect(screen.queryByRole('button', { name: '恢复自动' })).not.toBeInTheDocument()
   })
 
   it('saves the profile binding chosen in the device list', async () => {

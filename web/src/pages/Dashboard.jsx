@@ -372,10 +372,19 @@ export default function Dashboard() {
       </Card>
 
       {snapshot.override && (
-        <div className="alert-warning rounded-lg border px-4 py-3 text-sm">
-          {t('dashboard.overrideActive', {
-            effect: effectLabel(snapshot.override.effect, t),
-          })}
+        <div
+          className={cn(
+            'flex flex-wrap items-center justify-between gap-2 rounded-lg border px-4 py-3 text-sm',
+            TONE_CLASSES[effectTone(snapshot.override.effect)],
+          )}
+        >
+          <span>
+            {t(
+              snapshot.override.device ? 'dashboard.overrideSome' : 'dashboard.overrideAll',
+              { effect: effectLabel(snapshot.override.effect, t) },
+            )}
+          </span>
+          <span className="text-xs opacity-80">{t('dashboard.overrideExpires')}</span>
         </div>
       )}
 

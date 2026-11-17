@@ -208,6 +208,40 @@ describe('Dashboard', () => {
     expect(screen.getByTestId('device-serial:B')).toHaveTextContent('分配 Agent：codex')
   })
 
+  it('labels manual overrides by scope and colours them by effect', () => {
+    const override = {
+      effect: 'alert',
+      expires_at_ms: Date.now() + 60_000,
+      device: null,
+    }
+    useBeaconStore.setState({
+      snapshot: { ...snapshot, override },
+      loading: false,
+    })
+    const { rerender } = render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+
+    const all = screen.getByText('全部设备被手动控制：错误')
+    expect(all.closest('div')).toHaveClass('tone-red')
+    expect(screen.getByText('到期后自动恢复')).toBeInTheDocument()
+
+    useBeaconStore.setState({
+      snapshot: {
+        ...snapshot,
+        override: { ...override, device: 'serial:A' },
+      },
+    })
+    rerender(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('部分设备被手动控制：错误')).toBeInTheDocument()
+  })
+
   it('hides device images when the console setting is off', () => {
     useBeaconStore.setState({
       snapshot: {

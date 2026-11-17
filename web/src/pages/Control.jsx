@@ -10,6 +10,7 @@ import {
   capabilitiesForProfile,
   connectionLabel,
   effectLabel,
+  effectTone,
   profileLabel,
 } from '../lib/labels'
 import DeviceFeatures, { DeviceTelemetry } from '../components/DeviceFeatures'
@@ -66,7 +67,6 @@ export default function Control() {
   const [selected, setSelected] = useState('busy')
   const [duration, setDuration] = useState(String(rememberedDuration))
   const [device, setDevice] = useState('all')
-  const [message, setMessage] = useState(null)
   const [error, setError] = useState(null)
   const [now, setNow] = useState(Date.now())
   const [scanning, setScanning] = useState(false)
@@ -132,15 +132,8 @@ export default function Control() {
         }))
   )
 
-  const messageText = message
-    ? message.key === 'control.applied'
-      ? t(message.key, { effect: effectLabel(message.effect, t), n: message.n })
-      : t(message.key)
-    : null
-
   async function handleApply() {
     setError(null)
-    setMessage(null)
     const seconds = Number(duration)
     try {
       await applyControl({
@@ -150,7 +143,6 @@ export default function Control() {
       })
       // 记住本次时长，下次打开控制台直接沿用；非法值交给后端报错，不写入偏好。
       setRememberedDuration(seconds)
-      setMessage({ key: 'control.applied', effect: selected, n: duration })
     } catch (err) {
       setError(err.message)
     }
@@ -158,10 +150,8 @@ export default function Control() {
 
   async function handleCancel() {
     setError(null)
-    setMessage(null)
     try {
       await cancelControl()
-      setMessage({ key: 'control.restored' })
     } catch (err) {
       setError(err.message)
     }
@@ -213,127 +203,125 @@ export default function Control() {
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Lightbulb className="h-4 w-4" />
-              {t('control.title')}
-            </CardTitle>
-            <CardDescription>{t('control.description')}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {messageText && (
-              <div className="alert-success rounded-lg border px-4 py-2.5 text-sm">
-                {messageText}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Lightbulb className="h-4 w-4" />
+            {t('control.title')}
+          </CardTitle>
+          <CardDescription>{t('control.description')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                {EFFECTS.map((effect) => (
+                  <button
+                    key={effect.value}
+                    type="button"
+                    onClick={() => setSelected(effect.value)}
+                    aria-pressed={selected === effect.value}
+                    className={cn(
+                      'rounded-lg border px-3 py-2.5 text-left transition-all',
+                      TONE_CLASSES[effect.tone],
+                      selected === effect.value
+                        ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
+                        : 'opacity-75 hover:opacity-100',
+                    )}
+                  >
+                    <span className="block text-sm font-semibold">{t(effect.labelKey)}</span>
+                    <span className="mt-0.5 block text-[11px] leading-snug opacity-80">
+                      {t(effect.descriptionKey)}
+                    </span>
+                  </button>
+                ))}
               </div>
-            )}
 
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-              {EFFECTS.map((effect) => (
-                <button
-                  key={effect.value}
-                  type="button"
-                  onClick={() => setSelected(effect.value)}
-                  aria-pressed={selected === effect.value}
-                  className={cn(
-                    'rounded-lg border px-3 py-2.5 text-left transition-all',
-                    TONE_CLASSES[effect.tone],
-                    selected === effect.value
-                      ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
-                      : 'opacity-75 hover:opacity-100',
-                  )}
-                >
-                  <span className="block text-sm font-semibold">{t(effect.labelKey)}</span>
-                  <span className="mt-0.5 block text-[11px] leading-snug opacity-80">
-                    {t(effect.descriptionKey)}
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="duration">{t('control.duration')}</Label>
-                <Input
-                  id="duration"
-                  type="number"
-                  min={1}
-                  max={3600}
-                  value={duration}
-                  onChange={(event) => setDuration(event.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="target">{t('control.target')}</Label>
-                <Select value={device} onValueChange={setDevice}>
-                  <SelectTrigger id="target">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">{t('control.allDevices')}</SelectItem>
-                    {realDevices.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        {connectionLabel(item.port, t)} · {item.id} ·{' '}
-                        {profileLabel(profileFor(item), t)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={handleApply}>
-                <Lightbulb className="mr-1.5 h-4 w-4" />
-                {t('control.apply')}
-              </Button>
-              <Button variant="outline" onClick={handleCancel} disabled={!override}>
-                <RotateCcw className="mr-1.5 h-4 w-4" />
-                {t('control.restore')}
-              </Button>
-            </div>
-
-            <div className="space-y-1 border-t border-border/70 pt-3 text-xs text-muted-foreground">
-              <p>{t('control.tip1')}</p>
-              <p>{t('control.tip2')}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Clock className="h-4 w-4" />
-              {t('control.currentStatus')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">{t('control.autoEffect')}</span>
-              <Badge variant="outline">
-                {snapshot?.effect ? effectLabel(snapshot.effect, t) : '—'}
-              </Badge>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">{t('control.manualOverride')}</span>
-              <span>
-                {override ? effectLabel(override.effect, t) : t('control.notEnabled')}
-              </span>
-            </div>
-            {override && (
-              <div className="alert-warning rounded-lg border p-3">
-                <div className="text-xs">{t('control.remaining', { n: remaining })}</div>
-                <div className="mt-1 text-xs opacity-70">
-                  {override.device
-                    ? t('control.onlyDevice', { device: override.device })
-                    : t('control.allTargets')}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="duration">{t('control.duration')}</Label>
+                  <Input
+                    id="duration"
+                    type="number"
+                    min={1}
+                    max={3600}
+                    value={duration}
+                    onChange={(event) => setDuration(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="target">{t('control.target')}</Label>
+                  <Select value={device} onValueChange={setDevice}>
+                    <SelectTrigger id="target">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t('control.allDevices')}</SelectItem>
+                      {realDevices.map((item) => (
+                        <SelectItem key={item.id} value={item.id}>
+                          {connectionLabel(item.port, t)} · {item.id} ·{' '}
+                          {profileLabel(profileFor(item), t)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+
+              <Button onClick={handleApply}>
+                <Lightbulb className="h-4 w-4" />
+                {t('control.apply')}
+              </Button>
+
+              <div className="space-y-1 border-t border-border/70 pt-3 text-xs text-muted-foreground">
+                <p>{t('control.tip1')}</p>
+                <p>{t('control.tip2')}</p>
+              </div>
+            </div>
+
+            <div
+              data-testid="control-status"
+              className="space-y-3 border-t border-border/70 pt-4 text-sm lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0"
+            >
+              <div className="flex items-center gap-2 font-medium">
+                <Clock className="h-4 w-4" />
+                {t('control.currentStatus')}
+              </div>
+              {override ? (
+                <>
+                  <div className="flex items-center justify-between gap-3">
+                    <Badge
+                      className={cn('border', TONE_CLASSES[effectTone(override.effect)])}
+                    >
+                      {effectLabel(override.effect, t)}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground"
+                      aria-label={t('control.restore')}
+                      title={t('control.restore')}
+                      onClick={handleCancel}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    <div>{t('control.remaining', { n: remaining })}</div>
+                    <div>
+                      {override.device
+                        ? t('control.onlyDevice', { device: override.device })
+                        : t('control.allTargets')}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="text-muted-foreground">{t('control.notEnabled')}</div>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="flex-row flex-wrap items-start justify-between gap-3 space-y-0">
