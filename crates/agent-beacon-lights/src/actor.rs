@@ -31,6 +31,8 @@ pub struct ActorConfig {
     pub max_backoff_secs: u64,
     /// 连上时回调（设备首次连上才需要出现在列表里时用）。
     pub on_online: Option<OnlineHook>,
+    /// 设备上报发生变化时回调（电量、充电状态、固件、错误），由上层广播给控制台。
+    pub on_change: Option<OnlineHook>,
 }
 
 pub fn spawn(config: ActorConfig) -> JoinHandle<()> {
@@ -75,6 +77,7 @@ async fn run(mut config: ActorConfig) {
                 }
                 Err(error) => {
                     mark_error(&config.registry, &config.id, error);
+                    notify(&config);
                     tokio::time::sleep(Duration::from_secs(backoff)).await;
                     backoff = (backoff * 2).min(config.max_backoff_secs.max(1));
                     continue;
@@ -84,7 +87,9 @@ async fn run(mut config: ActorConfig) {
 
         // 设备主动上报（`STATUS:`/`CHG:`）是异步到达的，每轮先读一次再决定要不要写。
         if let Some(writer) = transport.as_mut() {
-            ingest_reports(writer, &config.registry, &config.id);
+            if ingest_reports(writer, &config.registry, &config.id) {
+                notify(&config);
+            }
         }
 
         let desired = config.desired.borrow_and_update().clone();
@@ -248,19 +253,24 @@ fn replay_plan(profile: DeviceProfile, effect: Effect) -> crate::CommandPlan {
 ///
 /// 不读会把系统缓冲撑满，所以即使不展示也必须消费；电量与固件版本顺手写进
 /// `DeviceInfo`，控制台就能看到硬件信息。
-fn ingest_reports(writer: &mut Box<dyn Transport>, registry: &DeviceRegistry, id: &str) {
+fn ingest_reports(writer: &mut Box<dyn Transport>, registry: &DeviceRegistry, id: &str) -> bool {
+    let mut changed = false;
     for line in writer.drain_lines() {
         match crate::agentcore::parse_report(&line) {
             crate::agentcore::Report::Battery(battery) => {
                 let now = agent_beacon_core::now_ms();
+                let reading = crate::BatteryInfo {
+                    percent: battery.percent,
+                    charging: battery.charging,
+                    millivolts: battery.millivolts,
+                    current_ma: battery.current_ma,
+                    updated_at_ms: now,
+                };
+                // 心跳每 5 秒一次，只有读数真的变了才广播，避免无谓地刷 UI。
+                changed |=
+                    !current_battery(registry, id).is_some_and(|old| old.same_reading(&reading));
                 update(registry, id, |info| {
-                    info.battery = Some(crate::BatteryInfo {
-                        percent: battery.percent,
-                        charging: battery.charging,
-                        millivolts: battery.millivolts,
-                        current_ma: battery.current_ma,
-                        updated_at_ms: now,
-                    });
+                    info.battery = Some(reading);
                     // 设备能上报电量说明链路是活的。
                     info.last_seen_ms = Some(now);
                 });
@@ -274,6 +284,16 @@ fn ingest_reports(writer: &mut Box<dyn Transport>, registry: &DeviceRegistry, id
             }
             crate::agentcore::Report::Status(status) => {
                 if let Some(firmware) = status.firmware.clone() {
+                    let differs = registry
+                        .lock()
+                        .ok()
+                        .and_then(|devices| {
+                            devices
+                                .get(id)
+                                .map(|device| device.firmware.as_deref() != Some(firmware.as_str()))
+                        })
+                        .unwrap_or(false);
+                    changed |= differs;
                     update(registry, id, |info| {
                         info.firmware = Some(firmware);
                     });
@@ -307,6 +327,21 @@ fn ingest_reports(writer: &mut Box<dyn Transport>, registry: &DeviceRegistry, id
             }
             _ => {}
         }
+    }
+    changed
+}
+
+/// 读当前登记的电量读数（没有登记过则为 `None`）。
+fn current_battery(registry: &DeviceRegistry, id: &str) -> Option<crate::BatteryInfo> {
+    registry
+        .lock()
+        .ok()
+        .and_then(|devices| devices.get(id).and_then(|info| info.battery.clone()))
+}
+
+fn notify(config: &ActorConfig) {
+    if let Some(hook) = config.on_change.as_ref() {
+        hook();
     }
 }
 
@@ -370,6 +405,37 @@ mod tests {
         }
     }
 
+    /// 每次 `drain_lines` 依次吐出一行上报，用完之后安静（模拟设备心跳）。
+    struct ReportingTransport {
+        lines: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl ReportingTransport {
+        fn new(lines: Vec<String>) -> Self {
+            Self {
+                lines: Arc::new(Mutex::new(lines)),
+            }
+        }
+    }
+
+    impl Transport for ReportingTransport {
+        fn write(&mut self, _bytes: &[u8]) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn describe(&self) -> String {
+            "test-reporting".to_string()
+        }
+
+        fn drain_lines(&mut self) -> Vec<String> {
+            let mut lines = self.lines.lock().expect("lines");
+            if lines.is_empty() {
+                return Vec::new();
+            }
+            vec![lines.remove(0)]
+        }
+    }
+
     fn desired(effect: Effect, brightness: u8) -> DesiredState {
         DesiredState {
             default: crate::DeviceDesired {
@@ -397,6 +463,7 @@ mod tests {
             desired: desired_rx,
             registry: registry.clone(),
             max_backoff_secs: 60,
+            on_change: None,
             on_online: Some(Arc::new(move || {
                 if let Ok(mut hits) = hook_counter.lock() {
                     *hits += 1;
@@ -414,6 +481,52 @@ mod tests {
         let devices = snapshot(&registry);
         assert_eq!(devices.len(), 1);
         assert!(devices[0].connected);
+        drop(desired_tx);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn battery_heartbeat_notifies_only_when_the_reading_changes() {
+        let registry = new_registry();
+        upsert(
+            &registry,
+            DeviceInfo::new("ac:0", "/dev/fake", DeviceProfile::AgentCore),
+        );
+        let (desired_tx, desired_rx) = watch::channel(desired(Effect::Calm, 50));
+        let hits = Arc::new(Mutex::new(0usize));
+        let counter = hits.clone();
+
+        let _actor = spawn(ActorConfig {
+            id: "ac:0".into(),
+            port: "/dev/fake".into(),
+            profile: DeviceProfile::AgentCore,
+            factory: Arc::new(|| {
+                Ok(Box::new(ReportingTransport::new(vec![
+                    "CHG:1,VBAT:387,PER:82,CUR:100".to_string(),
+                    // 同一条心跳重复上报：不应触发刷新。
+                    "CHG:1,VBAT:387,PER:82,CUR:100".to_string(),
+                    // 充电结束：电量/充电状态都变了。
+                    "CHG:0,VBAT:390,PER:83,CUR:0".to_string(),
+                ])))
+            }),
+            desired: desired_rx,
+            registry: registry.clone(),
+            max_backoff_secs: 30,
+            on_online: None,
+            on_change: Some(Arc::new(move || {
+                if let Ok(mut hits) = counter.lock() {
+                    *hits += 1;
+                }
+            })),
+        });
+
+        // 心跳每秒被读一次，三行分别在第 1/2/3 轮消费。
+        tokio::time::sleep(Duration::from_millis(3_500)).await;
+        let devices = snapshot(&registry);
+        let battery = devices[0].battery.clone().expect("电量应已登记");
+        assert_eq!(battery.percent, Some(83));
+        assert!(!battery.charging);
+        // 只有两次真正的变化会通知控制台刷新。
+        assert_eq!(*hits.lock().unwrap(), 2);
         drop(desired_tx);
     }
 
@@ -437,6 +550,7 @@ mod tests {
             registry,
             max_backoff_secs: 30,
             on_online: None,
+            on_change: None,
         });
 
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -490,6 +604,7 @@ mod tests {
             registry: registry.clone(),
             max_backoff_secs: 30,
             on_online: None,
+            on_change: None,
         });
 
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -551,6 +666,7 @@ mod tests {
             registry,
             max_backoff_secs: 30,
             on_online: None,
+            on_change: None,
         });
 
         // Let the initial effect plan finish.

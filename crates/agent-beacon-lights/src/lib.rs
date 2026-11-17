@@ -117,6 +117,16 @@ pub struct BatteryInfo {
     pub updated_at_ms: u64,
 }
 
+impl BatteryInfo {
+    /// 两次读数在界面上是否等价（忽略采样时间）。
+    pub fn same_reading(&self, other: &Self) -> bool {
+        self.percent == other.percent
+            && self.charging == other.charging
+            && self.millivolts == other.millivolts
+            && self.current_ma == other.current_ma
+    }
+}
+
 /// 设备在 API 与 SSE 中的视图。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeviceInfo {

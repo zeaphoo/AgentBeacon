@@ -1,26 +1,31 @@
 import { BatteryCharging, BatteryMedium, Sun, Volume2 } from 'lucide-react'
 import { useI18n } from '../i18n'
+import { formatAge } from '../lib/labels'
 import { Badge } from './ui/badge'
 import { cn } from '../lib/utils'
 
 /// 设备电量徽章：充电中为绿色，低于 20% 用警示色，其余为中性色。
 export function BatteryBadge({ battery, className }) {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   if (!battery) return null
   const percent = battery.percent
   const low = !battery.charging && percent != null && percent <= 20
   const detail = []
   if (battery.millivolts != null) detail.push((battery.millivolts / 100).toFixed(2))
   if (battery.current_ma != null) detail.push(battery.current_ma)
-  const title =
-    detail.length === 2
-      ? t('device.batteryDetail', { volts: detail[0], current: detail[1] })
-      : undefined
+  const title = [];
+  if (detail.length === 2) {
+    title.push(t('device.batteryDetail', { volts: detail[0], current: detail[1] }))
+  }
+  if (battery.updated_at_ms) {
+    title.push(t('device.batteryUpdated', { time: formatAge(battery.updated_at_ms, language) }))
+  }
+  const titleText = title.length > 0 ? title.join(' · ') : undefined
   const Icon = battery.charging ? BatteryCharging : BatteryMedium
   return (
     <Badge
       variant="outline"
-      title={title}
+      title={titleText}
       className={cn(
         'gap-1 px-2 py-0 text-[11px] font-normal',
         battery.charging

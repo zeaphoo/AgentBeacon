@@ -274,6 +274,7 @@ export const messages = {
     'device.firmware': '固件 {version}',
     'device.batteryDetail': '电压 {volts} V · 充电电流 {current} mA',
     'device.hardwareName': '设备名：{name}',
+    'device.batteryUpdated': '更新于 {time}',
 
     'effect.off.label': '关闭',
     'effect.off.description': '全部熄灭',
@@ -597,6 +598,7 @@ export const messages = {
     'device.firmware': 'Firmware {version}',
     'device.batteryDetail': 'Voltage {volts} V · Charge current {current} mA',
     'device.hardwareName': 'Device name: {name}',
+    'device.batteryUpdated': 'Updated {time}',
 
     'effect.off.label': 'Off',
     'effect.off.description': 'All lights off',

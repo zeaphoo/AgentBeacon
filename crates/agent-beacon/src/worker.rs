@@ -710,6 +710,12 @@ fn spawn_actor(state: &Arc<BeaconState>, candidate: &Candidate) -> JoinHandle<()
         })
     };
 
+    // 电量/充电状态/错误这类字段不进路由，tick 检测不到变化，所以由 actor 主动广播。
+    let on_change = {
+        let state = Arc::clone(state);
+        Arc::new(move || state.publish())
+    };
+
     spawn(ActorConfig {
         id: id.to_string(),
         port: port.to_string(),
@@ -723,6 +729,7 @@ fn spawn_actor(state: &Arc<BeaconState>, candidate: &Candidate) -> JoinHandle<()
             SERIAL_MAX_BACKOFF_SECS
         },
         on_online: Some(on_online),
+        on_change: Some(on_change),
     })
 }
 
