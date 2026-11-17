@@ -5,6 +5,7 @@
 pub mod actor;
 pub mod agentcore;
 pub mod ble;
+pub mod charge;
 pub mod device;
 pub mod discovery;
 pub mod mlight;
@@ -107,8 +108,10 @@ pub struct BatteryInfo {
     #[serde(default)]
     pub percent: Option<u8>,
     /// 是否检测到充电输入（`CHG:1`）。它不等于“正在充电”——充满后仍然为 true，
-    /// 界面要结合电量再判断。
+    /// 检测脚悬空时还会误报，所以只作为诊断信息展示。
     pub usb_online: bool,
+    /// 是否正在充电：由 [`charge::ChargeTracker`] 根据电压是否持续上升判定。
+    pub charging: bool,
     /// 电池电压，单位 0.01 V。
     #[serde(default)]
     pub millivolts: Option<u32>,
@@ -123,6 +126,7 @@ impl BatteryInfo {
     pub fn same_reading(&self, other: &Self) -> bool {
         self.percent == other.percent
             && self.usb_online == other.usb_online
+            && self.charging == other.charging
             && self.millivolts == other.millivolts
             && self.current_ma == other.current_ma
     }

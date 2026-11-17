@@ -6,16 +6,13 @@ import { cn } from '../lib/utils'
 
 /// 电量读数对应的电源状态。
 ///
-/// `CHG:1` 只是固件的“充电输入检测”标志：充满后仍为 1，检测脚悬空时也会误报
-/// （厂商上位机的注释里就写了这一点），所以：
-///
-/// * 只把它当成“可能有外部供电”，充满时不再声称“正在充电”；
-/// * 满电时不再宣称 USB 已接入（无法验证），只显示电量；
-/// * 真正的“充电中”要求 `CHG=1` 且电量还没满。
+/// "正在充电" 只认后端 `charging`（由电压是否持续上升判定）：固件的 `CHG` 标志充满后仍为 1，
+/// 检测脚悬空时也会误报——实测一台 AgentCore-Light 没接 USB 却一直报 `CHG:1`。
 export function batteryState(battery) {
   if (!battery) return 'unknown'
+  if (battery.charging) return 'charging'
   if (battery.percent != null && battery.percent >= 100) return 'full'
-  return battery.usb_online ? 'charging' : 'discharging'
+  return 'discharging'
 }
 
 /// 设备电量徽章：充电中为绿色，≤20% 用警示色，其余为中性色。

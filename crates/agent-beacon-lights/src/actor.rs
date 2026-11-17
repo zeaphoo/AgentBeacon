@@ -41,6 +41,8 @@ pub fn spawn(config: ActorConfig) -> JoinHandle<()> {
 
 async fn run(mut config: ActorConfig) {
     let mut transport: Option<Box<dyn Transport>> = None;
+    // CHG 引脚不可靠，只有电压确实在上升才判定“正在充电”。
+    let mut charge = crate::charge::ChargeTracker::default();
     let mut applied: Option<(Effect, bool)> = None;
     let mut applied_brightness: Option<u8> = None;
     let mut backoff = 1u64;
@@ -87,7 +89,7 @@ async fn run(mut config: ActorConfig) {
 
         // 设备主动上报（`STATUS:`/`CHG:`）是异步到达的，每轮先读一次再决定要不要写。
         if let Some(writer) = transport.as_mut() {
-            if ingest_reports(writer, &config.registry, &config.id) {
+            if ingest_reports(writer, &mut charge, &config.registry, &config.id) {
                 notify(&config);
             }
         }
@@ -203,7 +205,9 @@ async fn run(mut config: ActorConfig) {
 
             match writer.write(&command.bytes) {
                 Ok(()) => {
-                    ingest_reports(writer, &config.registry, &config.id);
+                    if ingest_reports(writer, &mut charge, &config.registry, &config.id) {
+                        notify(&config);
+                    }
                 }
                 Err(error) => {
                     mark_error(&config.registry, &config.id, error);
@@ -253,15 +257,22 @@ fn replay_plan(profile: DeviceProfile, effect: Effect) -> crate::CommandPlan {
 ///
 /// 不读会把系统缓冲撑满，所以即使不展示也必须消费；电量与固件版本顺手写进
 /// `DeviceInfo`，控制台就能看到硬件信息。
-fn ingest_reports(writer: &mut Box<dyn Transport>, registry: &DeviceRegistry, id: &str) -> bool {
+fn ingest_reports(
+    writer: &mut Box<dyn Transport>,
+    charge: &mut crate::charge::ChargeTracker,
+    registry: &DeviceRegistry,
+    id: &str,
+) -> bool {
     let mut changed = false;
     for line in writer.drain_lines() {
         match crate::agentcore::parse_report(&line) {
             crate::agentcore::Report::Battery(battery) => {
                 let now = agent_beacon_core::now_ms();
+                let charging = charge.observe(now, battery.usb_online, battery.millivolts);
                 let reading = crate::BatteryInfo {
                     percent: display_percent(battery.percent, battery.millivolts),
                     usb_online: battery.usb_online,
+                    charging,
                     millivolts: battery.millivolts,
                     current_ma: battery.current_ma,
                     updated_at_ms: now,
@@ -277,6 +288,7 @@ fn ingest_reports(writer: &mut Box<dyn Transport>, registry: &DeviceRegistry, id
                 tracing::debug!(
                     device = id,
                     usb_online = battery.usb_online,
+                    charging,
                     millivolts = battery.millivolts,
                     percent = battery.percent,
                     "agentcore battery report"

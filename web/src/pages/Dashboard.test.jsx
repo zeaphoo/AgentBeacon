@@ -80,6 +80,7 @@ describe('Dashboard', () => {
             battery: {
               percent: 82,
               usb_online: true,
+              charging: true,
               millivolts: 387,
               current_ma: 100,
               updated_at_ms: Date.now(),

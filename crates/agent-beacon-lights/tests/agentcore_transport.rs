@@ -68,7 +68,11 @@ fn fake_device(path: String) -> std::thread::JoinHandle<()> {
                 _ => None,
             };
             if let Some(reply) = reply {
-                if writer.write_all(reply).and_then(|()| writer.flush()).is_err() {
+                if writer
+                    .write_all(reply)
+                    .and_then(|()| writer.flush())
+                    .is_err()
+                {
                     return;
                 }
             }
@@ -152,10 +156,7 @@ fn rejects_a_port_that_never_answers_hello() {
         Ok(_) => panic!("没有 HELLO 应答的端口不应通过握手"),
         Err(error) => error,
     };
-    assert!(
-        error.contains("HELLO"),
-        "握手失败应说明原因，实际：{error}"
-    );
+    assert!(error.contains("HELLO"), "握手失败应说明原因，实际：{error}");
 
     drop(holder);
     let _ = socat.kill();
