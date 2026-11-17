@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  PROFILE_CAPABILITIES,
+  PROFILE_KEYS,
+  SUPPORTED_LIGHT_PROFILES,
   connectionLabel,
   formatCountdown,
   formatDateTime,
@@ -34,6 +37,14 @@ describe('labels', () => {
     expect(stateTone('working', { working: 'busy' })).toBe('yellow')
     expect(stateTone('waiting', { waiting: 'attention' })).toBe('amber')
     expect(stateTone('error', { error: 'alert' })).toBe('red')
+  })
+
+  it('covers every supported profile, including AgentCore-Halo', () => {
+    expect(SUPPORTED_LIGHT_PROFILES).toContain('agentcore-halo')
+    for (const profile of SUPPORTED_LIGHT_PROFILES) {
+      expect(PROFILE_KEYS[profile]).toBe(`profile.${profile}`)
+      expect(PROFILE_CAPABILITIES[profile]).toBeTruthy()
+    }
   })
 
   it('formats absolute timestamps and future countdowns', () => {

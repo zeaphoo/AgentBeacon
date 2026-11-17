@@ -47,8 +47,9 @@ Runs fully local on `127.0.0.1:6980` — no account, no telemetry.
 | `mlight-3led` | USB CDC | ✅ | — | Three-LED RGB status light |
 | `yh50-rgy-j` | USB serial / libusb | — | ✅ | Tri-color LED with buzzer |
 | `agentcore-light` | USB CDC / Bluetooth SPP / BLE (NUS) | ✅ | ✅ | Text-line status light; auto-detected by VID `4C4A:4155`, Espressif `303A` + product name, Bluetooth SPP port + `HELLO` handshake, or a BLE advertisement with the NUS service |
+| `agentcore-halo` | USB CDC / Bluetooth SPP / BLE (NUS) | ✅ | ✅ | Halo desk light speaking the same text-line protocol; recognised from the `AgentCore-Halo` / `AgentCore-Halo-BLE` name, and shows its device name, firmware and battery (Light reports battery too) |
 
-The web console displays the supported capabilities as feature badges on each connected device.
+The web console displays the supported capabilities as feature badges on each connected device. AgentCore devices also show their self-reported name (`AgentCore-Halo-BLE`, …), firmware version and, for `agentcore-light` / `agentcore-halo`, the battery telemetry from the device's `CHG:` reports. Protocol differences between the two AgentCore models are documented in [`docs/AgentCore-Halo-serial-protocol.md`](docs/AgentCore-Halo-serial-protocol.md).
 
 ### AgentCore-Light over USB and Bluetooth
 

@@ -53,7 +53,9 @@ pub fn plan_for(profile: DeviceProfile, effect: Effect, options: PlanOptions) ->
         DeviceProfile::MlightSingle => mlight::plan(effect, false),
         DeviceProfile::Mlight3Led => mlight::plan(effect, true),
         DeviceProfile::Yh50 => yh50::plan(effect, options.buzzer_on_alert),
-        DeviceProfile::AgentCore => agentcore::plan(effect, options.buzzer_on_alert),
+        DeviceProfile::AgentCore | DeviceProfile::AgentCoreHalo => {
+            agentcore::plan(effect, options.buzzer_on_alert)
+        }
     }
 }
 
@@ -98,6 +100,23 @@ impl DesiredState {
     }
 }
 
+/// 设备上报的电量遥测（AgentCore 系列通过 `CHG:` 每 5 秒上报一次）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BatteryInfo {
+    /// 电量百分比（设备电量计读数）。
+    #[serde(default)]
+    pub percent: Option<u8>,
+    /// 是否接入充电输入（`CHG:1`）。
+    pub charging: bool,
+    /// 电池电压，单位 0.01 V。
+    #[serde(default)]
+    pub millivolts: Option<u32>,
+    /// 充电电流，单位 mA（固件配置的目标电流）。
+    #[serde(default)]
+    pub current_ma: Option<u32>,
+    pub updated_at_ms: u64,
+}
+
 /// 设备在 API 与 SSE 中的视图。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeviceInfo {
@@ -106,6 +125,15 @@ pub struct DeviceInfo {
     pub profile: DeviceProfile,
     #[serde(default)]
     pub label: Option<String>,
+    /// 设备自报的名字（BLE 广播名 / USB 产品名），例如 `AgentCore-Halo-BLE`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// 固件版本（AgentCore 的 `STATUS:` 上报里的 `FW:` 字段）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub firmware: Option<String>,
+    /// 最近一次电量读数，设备不支持或还没上报时为 `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battery: Option<BatteryInfo>,
     #[serde(default)]
     pub capabilities: DeviceCapabilities,
     pub connected: bool,
@@ -122,6 +150,9 @@ impl DeviceInfo {
             port: port.into(),
             profile,
             label: None,
+            name: None,
+            firmware: None,
+            battery: None,
             capabilities: profile.capabilities(),
             connected: false,
             last_seen_ms: None,

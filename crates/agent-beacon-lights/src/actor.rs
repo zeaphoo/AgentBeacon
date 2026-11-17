@@ -78,7 +78,7 @@ async fn run(mut config: ActorConfig) {
 
         // 设备主动上报（`STATUS:`/`CHG:`）是异步到达的，每轮先读一次再决定要不要写。
         if let Some(writer) = transport.as_mut() {
-            log_reports(writer, &config.id);
+            ingest_reports(writer, &config.registry, &config.id);
         }
 
         let desired = config.desired.borrow_and_update().clone();
@@ -177,7 +177,7 @@ async fn run(mut config: ActorConfig) {
 
             match writer.write(&command.bytes) {
                 Ok(()) => {
-                    log_reports(writer, &config.id);
+                    ingest_reports(writer, &config.registry, &config.id);
                 }
                 Err(error) => {
                     mark_error(&config.registry, &config.id, error);
@@ -223,26 +223,48 @@ fn replay_plan(profile: DeviceProfile, effect: Effect) -> crate::CommandPlan {
     }
 }
 
-/// 读走设备主动上报（AgentCore-Light 的 `STATUS:` / `CHG:` 心跳），只写诊断日志。
+/// 读走设备主动上报（AgentCore 的 `STATUS:` / `CHG:` 心跳）。
 ///
-/// 不读会把系统缓冲撑满，所以即使不展示也必须消费。
-fn log_reports(writer: &mut Box<dyn Transport>, id: &str) {
+/// 不读会把系统缓冲撑满，所以即使不展示也必须消费；电量与固件版本顺手写进
+/// `DeviceInfo`，控制台就能看到硬件信息。
+fn ingest_reports(writer: &mut Box<dyn Transport>, registry: &DeviceRegistry, id: &str) {
     for line in writer.drain_lines() {
         match crate::agentcore::parse_report(&line) {
-            crate::agentcore::Report::Battery(battery) => tracing::debug!(
-                device = id,
-                charging = battery.charging,
-                millivolts = battery.millivolts,
-                percent = battery.percent,
-                "agentcore battery report"
-            ),
-            crate::agentcore::Report::Status(status) => tracing::debug!(
-                device = id,
-                state = status.state.as_deref(),
-                firmware = status.firmware.as_deref(),
-                ble_state = status.ble_state,
-                "agentcore status report"
-            ),
+            crate::agentcore::Report::Battery(battery) => {
+                let now = agent_beacon_core::now_ms();
+                update(registry, id, |info| {
+                    info.battery = Some(crate::BatteryInfo {
+                        percent: battery.percent,
+                        charging: battery.charging,
+                        millivolts: battery.millivolts,
+                        current_ma: battery.current_ma,
+                        updated_at_ms: now,
+                    });
+                    // 设备能上报电量说明链路是活的。
+                    info.last_seen_ms = Some(now);
+                });
+                tracing::debug!(
+                    device = id,
+                    charging = battery.charging,
+                    millivolts = battery.millivolts,
+                    percent = battery.percent,
+                    "agentcore battery report"
+                );
+            }
+            crate::agentcore::Report::Status(status) => {
+                if let Some(firmware) = status.firmware.clone() {
+                    update(registry, id, |info| {
+                        info.firmware = Some(firmware);
+                    });
+                }
+                tracing::debug!(
+                    device = id,
+                    state = status.state.as_deref(),
+                    firmware = status.firmware.as_deref(),
+                    ble_state = status.ble_state,
+                    "agentcore status report"
+                );
+            }
             crate::agentcore::Report::State(state) => {
                 tracing::debug!(device = id, state = %state, "agentcore state echo")
             }

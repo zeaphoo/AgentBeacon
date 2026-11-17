@@ -53,6 +53,8 @@ pub struct DetectedDevice {
     pub vid: u16,
     pub pid: u16,
     pub serial: Option<String>,
+    /// 设备/接口的产品名（例如 `AgentCore-Halo`），作为硬件信息展示。
+    pub name: Option<String>,
     /// 仅凭端口名/链路类型识别出来的设备，还要用 `HELLO` 握手确认。
     ///
     /// 蓝牙 SPP 的端口名是最不可靠的（同名的其它蓝牙串口也占 COM 口），
@@ -117,9 +119,29 @@ pub fn classify_agentcore(info: &PortInfo) -> Option<bool> {
     None
 }
 
+/// AgentCore 系列里再按产品名区分 Light / Halo；没有名字时按 Light 处理。
+fn agentcore_profile(info: &PortInfo) -> DeviceProfile {
+    let mut haystack = String::new();
+    for value in [
+        info.product.as_deref(),
+        info.serial.as_deref(),
+        Some(info.port_name.as_str()),
+    ] {
+        haystack.push_str(&lowercase(value));
+        haystack.push(' ');
+    }
+    if haystack.contains("agentcore-halo")
+        || (haystack.contains("agentcore") && haystack.contains("halo"))
+    {
+        DeviceProfile::AgentCoreHalo
+    } else {
+        DeviceProfile::AgentCore
+    }
+}
+
 pub fn classify(info: &PortInfo) -> Option<DeviceProfile> {
     if classify_agentcore(info).is_some() {
-        return Some(DeviceProfile::AgentCore);
+        return Some(agentcore_profile(info));
     }
     match (info.vid?, info.pid?) {
         (MLIGHT_VID, pid) if MLIGHT_PIDS.contains(&pid) => Some(DeviceProfile::Mlight3Led),
@@ -197,6 +219,7 @@ pub fn detect(info: &PortInfo, bindings: &[DeviceBinding]) -> Option<DetectedDev
         vid: info.vid.unwrap_or_default(),
         pid: info.pid.unwrap_or_default(),
         serial: info.serial.clone(),
+        name: info.product.clone(),
         probe_required,
     })
 }
@@ -281,6 +304,22 @@ mod tests {
         let device = detect(&info, &[]).unwrap();
         assert!(!device.probe_required, "USB PID 已确认，不必再握手");
         assert_eq!(device.profile, DeviceProfile::AgentCore);
+    }
+
+    #[test]
+    fn halo_is_recognised_from_the_product_name() {
+        let halo = named_port(
+            "/dev/ttyACM0",
+            AGENTCORE_VID,
+            AGENTCORE_PID,
+            "AgentCore-Halo",
+        );
+        assert_eq!(classify(&halo), Some(DeviceProfile::AgentCoreHalo));
+        assert_eq!(
+            detect(&halo, &[]).unwrap().name.as_deref(),
+            Some("AgentCore-Halo")
+        );
+        assert!(DeviceProfile::AgentCoreHalo.is_agentcore());
     }
 
     #[test]

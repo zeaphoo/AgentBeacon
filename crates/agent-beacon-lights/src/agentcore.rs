@@ -49,7 +49,11 @@ pub fn validate_command(command: &str) -> bool {
         "HELLO" | "STATUS" | "GET_SETTINGS" | "GET_BT_NAME" => return !command.contains(':'),
         "OFF" | "IDLE" | "BUSY" | "SUCCESS" | "ERROR" | "WAIT_CONFIRM" | "CONFIRM" | "WAITING"
         | "WAIT" => return !command.contains(':'),
-        "BUZZER" | "LOW_BATTERY_ALERT" | "IDLE_SLEEP_SEC" | "BT_DISCONNECT_OFF_SEC" | "SET_BT_NAME" => {}
+        "BUZZER"
+        | "LOW_BATTERY_ALERT"
+        | "IDLE_SLEEP_SEC"
+        | "BT_DISCONNECT_OFF_SEC"
+        | "SET_BT_NAME" => {}
         "BRIGHTNESS" | "BRIGHTNESS_LEVEL" | "BUZZER_VOLUME" => {}
         "SOUND" => {}
         _ => return false,
@@ -80,14 +84,25 @@ pub fn validate_command(command: &str) -> bool {
     }
 }
 
-/// 蓝牙名必须以 `AgentCore-Light-` 开头，后缀 1–15 个 `[A-Za-z0-9_-]`，总长 ≤ 31。
+/// 设备自报名字（`GET_BT_NAME`）对应的型号前缀。
+pub const LIGHT_NAME_PREFIX: &str = "AgentCore-Light-";
+pub const HALO_NAME_PREFIX: &str = "AgentCore-Halo-";
+
+/// 蓝牙名规则（两家固件分别校验）：
+///
+/// * AgentCore-Light：`AgentCore-Light-` + 1–15 个 `[A-Za-z0-9_-]`，总长 ≤ 31；
+/// * AgentCore-Halo：`AgentCore-Halo-` + 同样的后缀规则，总长 ≤ 30。
 pub fn valid_bluetooth_name(name: &str) -> bool {
-    let Some(suffix) = name.strip_prefix("AgentCore-Light-") else {
+    let (suffix, max_len) = if let Some(suffix) = name.strip_prefix(LIGHT_NAME_PREFIX) {
+        (suffix, 31)
+    } else if let Some(suffix) = name.strip_prefix(HALO_NAME_PREFIX) {
+        (suffix, 30)
+    } else {
         return false;
     };
     let length_ok = !suffix.is_empty() && suffix.len() <= 15;
     length_ok
-        && name.len() <= 31
+        && name.len() <= max_len
         && suffix
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
@@ -348,11 +363,7 @@ pub fn parse_report(line: &str) -> Report {
         }
         "BT_NAME" => {
             let items = fields(rest);
-            Report::BluetoothName(
-                find(&items, "CURRENT")
-                    .unwrap_or(rest.trim())
-                    .to_string(),
-            )
+            Report::BluetoothName(find(&items, "CURRENT").unwrap_or(rest.trim()).to_string())
         }
         "SOUND" => {
             // 设备原样回显 `SOUND:<NAME>:<mode>`，音效名本身不含 `:`。
@@ -449,6 +460,7 @@ mod tests {
             "SOUND:DONE:once",
             "SOUND:MELODY_TWINKLE:loop",
             "SET_BT_NAME:AgentCore-Light-Desk",
+            "SET_BT_NAME:AgentCore-Halo-BLE",
             "IDLE_SLEEP_SEC:600",
         ] {
             assert!(validate_command(valid), "{valid} 应通过");
@@ -466,6 +478,7 @@ mod tests {
             "SOUND:NOPE:once",
             "SOUND:DONE:twice",
             "SET_BT_NAME:AgentCore-Light",
+            "SET_BT_NAME:AgentCore-Halo",
             "SET_BT_NAME:Desk-Light",
             "BRIGHTNESS_LEVEL:120,STORE:VM",
             "idle",
@@ -511,9 +524,9 @@ mod tests {
         assert_eq!(settings.low_battery_alert, Some(true));
         assert!(settings.stored_in_vm);
 
-        let Report::Sleep(sleep) =
-            parse_report("SLEEP_SETTINGS:IDLE_SLEEP_SEC:600,BT_DISCONNECT_OFF_SEC:300,SLEEP:OFF,STORE:VM")
-        else {
+        let Report::Sleep(sleep) = parse_report(
+            "SLEEP_SETTINGS:IDLE_SLEEP_SEC:600,BT_DISCONNECT_OFF_SEC:300,SLEEP:OFF,STORE:VM",
+        ) else {
             panic!("应为 SLEEP_SETTINGS");
         };
         assert_eq!(sleep.idle_sleep_secs, Some(600));

@@ -11,7 +11,7 @@ import {
   effectLabel,
   profileLabel,
 } from '../lib/labels'
-import DeviceFeatures from '../components/DeviceFeatures'
+import DeviceFeatures, { DeviceTelemetry } from '../components/DeviceFeatures'
 import { resolveLights } from '../lib/lights'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -42,7 +42,13 @@ import {
 } from '../components/ui/select'
 import { cn } from '../lib/utils'
 
-const PROFILES = ['mlight-single', 'mlight-3led', 'yh50-rgy-j', 'agentcore-light']
+const PROFILES = [
+  'mlight-single',
+  'mlight-3led',
+  'yh50-rgy-j',
+  'agentcore-light',
+  'agentcore-halo',
+]
 
 export default function Control() {
   const snapshot = useBeaconStore((state) => state.snapshot)
@@ -381,6 +387,7 @@ export default function Control() {
                         )}
                         className="mt-1.5"
                       />
+                      <DeviceTelemetry device={item} className="mt-1" />
                       {item.last_error && (
                         <div className="mt-1 text-xs text-danger">
                           {t('dashboard.deviceError', { error: item.last_error })}

@@ -20,6 +20,31 @@ describe('resolveLights', () => {
     expect(lights[0].agents).toEqual(['pi'])
   })
 
+  it('passes hardware telemetry through to the light view', () => {
+    const snapshot = {
+      aggregate: 'idle',
+      devices: [
+        {
+          id: 'ble:24:26:4c:c3:fd:10',
+          port: 'ble:24:26:4c:c3:fd:10',
+          profile: 'agentcore-halo',
+          connected: true,
+          effect: 'calm',
+          name: 'AgentCore-Halo-BLE',
+          firmware: 'v0.5.12',
+          battery: { percent: 82, charging: true, millivolts: 387, updated_at_ms: 1 },
+        },
+      ],
+      routing: [{ device: 'ble:24:26:4c:c3:fd:10', connected: true, effect: 'calm' }],
+    }
+
+    const [light] = resolveLights(snapshot)
+    expect(light.name).toBe('AgentCore-Halo-BLE')
+    expect(light.firmware).toBe('v0.5.12')
+    expect(light.battery.percent).toBe(82)
+    expect(light.profile).toBe('agentcore-halo')
+  })
+
   it('keeps runtime device fields when routing is unavailable', () => {
     const snapshot = {
       aggregate: 'working',

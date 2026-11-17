@@ -34,14 +34,20 @@ use futures_util::StreamExt as _;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use uuid::Uuid;
 
+use agent_beacon_core::DeviceProfile;
+
 use crate::transport::{split_lines, Transport};
 
 pub const NUS_SERVICE: Uuid = Uuid::from_u128(0x6e400001_b5a3_f393_e0a9_e50e24dcca9e);
 pub const NUS_RX: Uuid = Uuid::from_u128(0x6e400002_b5a3_f393_e0a9_e50e24dcca9e);
 pub const NUS_TX: Uuid = Uuid::from_u128(0x6e400003_b5a3_f393_e0a9_e50e24dcca9e);
 
-/// 广播名 / 本地名前缀；改名后仍是这个前缀（`SET_BT_NAME` 限制）。
-pub const NAME_PREFIX: &str = "agentcore-light";
+/// AgentCore-Light 广播名 / 本地名前缀；改名后仍是这个前缀（`SET_BT_NAME` 限制）。
+pub const LIGHT_NAME_PREFIX: &str = "agentcore-light";
+/// AgentCore-Halo 的广播名 / 本地名前缀（固件校验规则，见 `valid_bluetooth_name`）。
+pub const HALO_NAME_PREFIX: &str = "agentcore-halo";
+/// 兼容旧代码：默认按 AgentCore-Light 前缀处理。
+pub const NAME_PREFIX: &str = LIGHT_NAME_PREFIX;
 /// 经典蓝牙 Serial Port Profile：同一台设备的经典那条记录用这个服务，只能走 SPP。
 pub const SPP_SERVICE: Uuid = Uuid::from_u128(0x0000_1101_0000_1000_8000_0080_5f9b_34fb);
 /// 默认 MTU 分片大小（协议文档 §2.3）。
@@ -68,7 +74,22 @@ impl BleDiscovery {
 }
 
 pub fn name_matches(name: &str) -> bool {
-    name.to_lowercase().starts_with(NAME_PREFIX)
+    let name = name.to_lowercase();
+    name.starts_with(LIGHT_NAME_PREFIX) || name.starts_with(HALO_NAME_PREFIX)
+}
+
+/// 按广播名判断是哪个型号；名字不属于 AgentCore 系列时返回 `None`。
+///
+/// Halo 与 Light 共用同一套文本行协议，但在界面/外观上是两种设备。
+pub fn profile_for_name(name: &str) -> Option<DeviceProfile> {
+    let name = name.to_lowercase();
+    if name.starts_with(HALO_NAME_PREFIX) {
+        Some(DeviceProfile::AgentCoreHalo)
+    } else if name.starts_with(LIGHT_NAME_PREFIX) {
+        Some(DeviceProfile::AgentCore)
+    } else {
+        None
+    }
 }
 
 /// 是不是一条可用的 BLE（NUS）链路。
@@ -83,7 +104,10 @@ pub fn looks_like_ble(name: Option<&str>, advertises_nus: bool) -> bool {
     let Some(name) = name else {
         return false;
     };
-    if name.trim().eq_ignore_ascii_case("AgentCore-Light") {
+    let trimmed = name.trim();
+    if trimmed.eq_ignore_ascii_case("AgentCore-Light")
+        || trimmed.eq_ignore_ascii_case("AgentCore-Halo")
+    {
         return false;
     }
     name_matches(name)
@@ -624,8 +648,22 @@ mod tests {
     fn recognises_device_names() {
         assert!(name_matches("AgentCore-Light-BLE"));
         assert!(name_matches("agentcore-light-desk"));
+        assert!(name_matches("AgentCore-Halo-BLE"));
         assert!(!name_matches("Mi Band"));
         assert!(!name_matches(""));
+    }
+
+    #[test]
+    fn advertised_name_maps_to_a_profile() {
+        assert_eq!(
+            profile_for_name("AgentCore-Halo-BLE"),
+            Some(DeviceProfile::AgentCoreHalo)
+        );
+        assert_eq!(
+            profile_for_name("AgentCore-Light-BLE"),
+            Some(DeviceProfile::AgentCore)
+        );
+        assert_eq!(profile_for_name("Some speaker"), None);
     }
 
     #[test]

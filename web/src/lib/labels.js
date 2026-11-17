@@ -33,6 +33,7 @@ export const PROFILE_KEYS = {
   'mlight-3led': 'profile.mlight-3led',
   'yh50-rgy-j': 'profile.yh50-rgy-j',
   'agentcore-light': 'profile.agentcore-light',
+  'agentcore-halo': 'profile.agentcore-halo',
 }
 
 
@@ -41,6 +42,7 @@ export const PROFILE_CAPABILITIES = {
   'mlight-3led': { brightness: true, buzzer: false },
   'yh50-rgy-j': { brightness: false, buzzer: true },
   'agentcore-light': { brightness: true, buzzer: true },
+  'agentcore-halo': { brightness: true, buzzer: true },
 }
 
 export const SUPPORTED_LIGHT_PROFILES = [
@@ -48,6 +50,7 @@ export const SUPPORTED_LIGHT_PROFILES = [
   'mlight-3led',
   'yh50-rgy-j',
   'agentcore-light',
+  'agentcore-halo',
 ]
 
 export function capabilitiesForProfile(profile, profiles = []) {

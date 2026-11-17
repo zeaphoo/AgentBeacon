@@ -47,8 +47,9 @@ AgentBeacon 把编码 agent 的状态变成桌面上的一束光。
 | `mlight-3led` | USB CDC | ✅ | — | 三灯珠 RGB 状态灯 |
 | `yh50-rgy-j` | USB 串口 / libusb | — | ✅ | 三色 LED + 蜂鸣器 |
 | `agentcore-light` | USB CDC / 蓝牙 SPP / BLE(NUS) | ✅ | ✅ | 文本行协议状态灯；按 VID `4C4A:4155`、Espressif `303A` + 产品名、蓝牙 SPP 端口 + `HELLO` 握手、或带 NUS service 的 BLE 广播自动识别 |
+| `agentcore-halo` | USB CDC / 蓝牙 SPP / BLE(NUS) | ✅ | ✅ | Halo 桌面灯，协议与 Light 相同；按 `AgentCore-Halo` / `AgentCore-Halo-BLE` 名字识别，显示设备名、固件与电量（Light 同样显示电量） |
 
-Web 控制台会在每个已连接设备上显示对应的能力徽章。
+Web 控制台会在每个已连接设备上显示对应的能力徽章。AgentCore 系列还会显示设备自报名（如 `AgentCore-Halo-BLE`）、固件版本，以及 `agentcore-light` / `agentcore-halo` 从 `CHG:` 上报里读到的电量。两个型号的协议差异见 [`docs/AgentCore-Halo-serial-protocol.md`](docs/AgentCore-Halo-serial-protocol.md)。
 
 ### AgentCore-Light 的 USB 与蓝牙接入
 

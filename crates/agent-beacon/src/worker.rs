@@ -93,7 +93,13 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                 if let Some(entry) = actors.remove(&device.id) {
                     entry.handle.abort();
                 }
-                state.register_device(DeviceInfo::new(&device.id, &device.port, device.profile));
+                register_device(
+                    &state,
+                    &device.id,
+                    &device.port,
+                    device.profile,
+                    device.name.as_deref(),
+                );
                 let handle = spawn_actor(&state, &device.id, &device.port, device.profile);
                 actors.insert(
                     device.id,
@@ -153,13 +159,13 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                 if actors.contains_key(&id) {
                     continue;
                 }
-                tracing::info!(port = %id, "binding AgentCore-Light link from config");
-                state.register_device(DeviceInfo::new(&id, &id, DeviceProfile::AgentCore));
-                let handle = spawn_actor(&state, &id, &id, DeviceProfile::AgentCore);
+                tracing::info!(port = %id, profile = binding.profile.as_str(), "binding AgentCore link from config");
+                register_device(&state, &id, &id, binding.profile, None);
+                let handle = spawn_actor(&state, &id, &id, binding.profile);
                 actors.insert(
                     id.clone(),
                     ActorEntry {
-                        profile: DeviceProfile::AgentCore,
+                        profile: binding.profile,
                         port: id,
                         handle,
                         missing_since: None,
@@ -194,26 +200,27 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                             if actors.contains_key(&id) {
                                 continue;
                             }
+                            let profile = link
+                                .name()
+                                .and_then(agent_beacon_lights::ble::profile_for_name)
+                                .unwrap_or(DeviceProfile::AgentCore);
                             tracing::info!(
                                 address = link.address(),
                                 name = link.name(),
+                                profile = profile.as_str(),
                                 link = if matches!(link, KnownLink::Ble(_)) {
                                     "ble"
                                 } else {
                                     "spp"
                                 },
-                                "detected AgentCore-Light from known devices (no scan)"
+                                "detected AgentCore device from known devices (no scan)"
                             );
-                            state.register_device(DeviceInfo::new(
-                                &id,
-                                &id,
-                                DeviceProfile::AgentCore,
-                            ));
-                            let handle = spawn_actor(&state, &id, &id, DeviceProfile::AgentCore);
+                            register_device(&state, &id, &id, profile, link.name());
+                            let handle = spawn_actor(&state, &id, &id, profile);
                             actors.insert(
                                 id.clone(),
                                 ActorEntry {
-                                    profile: DeviceProfile::AgentCore,
+                                    profile,
                                     port: id,
                                     handle,
                                     missing_since: None,
@@ -255,22 +262,24 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
                             if actors.contains_key(&id) {
                                 continue;
                             }
+                            let profile = discovery
+                                .name
+                                .as_deref()
+                                .and_then(agent_beacon_lights::ble::profile_for_name)
+                                .unwrap_or(DeviceProfile::AgentCore);
                             tracing::info!(
                                 address = discovery.address,
                                 name = discovery.name.as_deref(),
-                                "detected AgentCore-Light over BLE"
+                                profile = profile.as_str(),
+                                "detected AgentCore device over BLE"
                             );
                             let port = format!("ble:{}", discovery.address.to_lowercase());
-                            state.register_device(DeviceInfo::new(
-                                &id,
-                                &port,
-                                DeviceProfile::AgentCore,
-                            ));
-                            let handle = spawn_actor(&state, &id, &port, DeviceProfile::AgentCore);
+                            register_device(&state, &id, &port, profile, discovery.name.as_deref());
+                            let handle = spawn_actor(&state, &id, &port, profile);
                             actors.insert(
                                 id.clone(),
                                 ActorEntry {
-                                    profile: DeviceProfile::AgentCore,
+                                    profile,
                                     port,
                                     handle,
                                     missing_since: None,
@@ -322,6 +331,22 @@ pub fn spawn_worker(state: Arc<BeaconState>) -> JoinHandle<()> {
     })
 }
 
+/// 注册设备并把设备自报的名字（BLE 广播名 / USB 产品名）一起存下来。
+fn register_device(
+    state: &Arc<BeaconState>,
+    id: &str,
+    port: &str,
+    profile: DeviceProfile,
+    name: Option<&str>,
+) {
+    let mut info = DeviceInfo::new(id, port, profile);
+    info.name = name
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string);
+    state.register_device(info);
+}
+
 fn spawn_actor(
     state: &Arc<BeaconState>,
     id: &str,
@@ -343,7 +368,7 @@ fn spawn_actor(
                     .map(|transport| Box::new(transport) as Box<dyn Transport>)
             })
         }
-        DeviceProfile::AgentCore if port.starts_with("ble:") => {
+        profile if profile.is_agentcore() && port.starts_with("ble:") => {
             // BLE 链路：连接/扫描都在它自己的后台线程里跑，这里只负责建连。
             let selector = port.trim_start_matches("ble:").to_string();
             Arc::new(move || {
@@ -352,7 +377,7 @@ fn spawn_actor(
                     .map(|transport| Box::new(transport) as Box<dyn Transport>)
             })
         }
-        DeviceProfile::AgentCore if port.starts_with("spp:") => {
+        profile if profile.is_agentcore() && port.starts_with("spp:") => {
             // 免 root 的 SPP 直连：自己开 RFCOMM socket，不依赖 /dev/rfcomm* 节点。
             let target = port.trim_start_matches("spp:").to_string();
             Arc::new(move || {
@@ -361,7 +386,8 @@ fn spawn_actor(
                     .map(|transport| Box::new(transport) as Box<dyn Transport>)
             })
         }
-        DeviceProfile::AgentCore => {
+        // AgentCore-Light / Halo 的 USB CDC 链路（也是其余型号的兜底分支）。
+        _ => {
             let port = port.to_string();
             Arc::new(move || {
                 // 握手要等 1.5 s 的 CDC 就绪时间，放到阻塞线程池里等，

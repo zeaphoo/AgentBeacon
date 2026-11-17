@@ -17,6 +17,10 @@
 > 一律先做 `HELLO` 握手确认，握手不通过就当普通串口忽略。也可用配置绑定
 > `devices[{ port: "COM5", profile: "agentcore-light" }]` 指定 Windows 上的蓝牙 COM 口。
 >
+> AgentBeacon 会把 `CHG:` 上报里的电量/充电状态/电压/电流显示在设备卡片上；AgentCore-Halo
+> 共用同一套协议，差异（名称前缀、`LC:` 自定义灯效、电量模型等）见
+> [`AgentCore-Halo-serial-protocol.md`](./AgentCore-Halo-serial-protocol.md)。
+>
 > BLE（NUS）走 `ble.rs`：按名称前缀扫描 → 连 NUS Service → 订阅 TX 通知 → 按 MTU 分片写 RX
 > （不支持无响应写时降级为带响应写）。实测要点（Linux/BlueZ）：
 > * 同一台设备会广播两条记录，经典蓝牙那条名字正好是 `AgentCore-Light` 且没有 NUS 特征，

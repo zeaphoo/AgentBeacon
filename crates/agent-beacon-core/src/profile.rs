@@ -26,14 +26,17 @@ pub enum DeviceProfile {
     Yh50,
     #[serde(rename = "agentcore-light")]
     AgentCore,
+    #[serde(rename = "agentcore-halo")]
+    AgentCoreHalo,
 }
 
 impl DeviceProfile {
-    pub const ALL: [DeviceProfile; 4] = [
+    pub const ALL: [DeviceProfile; 5] = [
         DeviceProfile::MlightSingle,
         DeviceProfile::Mlight3Led,
         DeviceProfile::Yh50,
         DeviceProfile::AgentCore,
+        DeviceProfile::AgentCoreHalo,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -42,6 +45,7 @@ impl DeviceProfile {
             DeviceProfile::Mlight3Led => "mlight-3led",
             DeviceProfile::Yh50 => "yh50-rgy-j",
             DeviceProfile::AgentCore => "agentcore-light",
+            DeviceProfile::AgentCoreHalo => "agentcore-halo",
         }
     }
 
@@ -51,6 +55,7 @@ impl DeviceProfile {
             "mlight-3led" => Some(DeviceProfile::Mlight3Led),
             "yh50-rgy-j" => Some(DeviceProfile::Yh50),
             "agentcore-light" | "agentcore" => Some(DeviceProfile::AgentCore),
+            "agentcore-halo" | "agentcore_halo" => Some(DeviceProfile::AgentCoreHalo),
             _ => None,
         }
     }
@@ -62,9 +67,17 @@ impl DeviceProfile {
         )
     }
 
-    /// AgentCore-Light 是 USB CDC / 蓝牙 SPP / BLE 三种链路共用的文本行协议。
+    /// AgentCore-Light / Halo 共用同一套文本行协议（USB CDC / 蓝牙 SPP / BLE）。
     pub fn is_agentcore(self) -> bool {
-        self == DeviceProfile::AgentCore
+        matches!(
+            self,
+            DeviceProfile::AgentCore | DeviceProfile::AgentCoreHalo
+        )
+    }
+
+    /// 这一型号是否属于 Halo 系列（蓝牙名前缀与外观不同）。
+    pub fn is_agentcore_halo(self) -> bool {
+        self == DeviceProfile::AgentCoreHalo
     }
 
     /// 亮度是否用独立命令下发（而不是折进灯效命令里）。
@@ -82,7 +95,7 @@ impl DeviceProfile {
                 brightness: false,
                 buzzer: true,
             },
-            DeviceProfile::AgentCore => DeviceCapabilities {
+            DeviceProfile::AgentCore | DeviceProfile::AgentCoreHalo => DeviceCapabilities {
                 brightness: true,
                 buzzer: true,
             },
@@ -132,5 +145,11 @@ mod tests {
         let agentcore = DeviceProfile::AgentCore.capabilities();
         assert!(agentcore.brightness);
         assert!(agentcore.buzzer);
+
+        let halo = DeviceProfile::AgentCoreHalo.capabilities();
+        assert!(halo.brightness);
+        assert!(halo.buzzer);
+        assert!(DeviceProfile::AgentCoreHalo.is_agentcore());
+        assert!(!DeviceProfile::AgentCoreHalo.is_mlight());
     }
 }

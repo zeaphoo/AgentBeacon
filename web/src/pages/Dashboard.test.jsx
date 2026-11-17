@@ -65,6 +65,43 @@ describe('Dashboard', () => {
     expect(screen.queryByText(/PID/)).not.toBeInTheDocument()
   })
 
+  it('shows AgentCore-Halo hardware telemetry on the device card', () => {
+    useBeaconStore.setState({
+      snapshot: {
+        ...snapshot,
+        devices: [
+          {
+            ...snapshot.devices[0],
+            id: 'ble:24:26:4c:c3:fd:10',
+            port: 'ble:24:26:4c:c3:fd:10',
+            profile: 'agentcore-halo',
+            name: 'AgentCore-Halo-BLE',
+            firmware: 'v0.5.12',
+            battery: {
+              percent: 82,
+              charging: true,
+              millivolts: 387,
+              current_ma: 100,
+              updated_at_ms: Date.now(),
+            },
+          },
+        ],
+      },
+      loading: false,
+    })
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByText('AgentCore-Halo')).toBeInTheDocument()
+    expect(screen.getByText('AgentCore-Halo-BLE')).toBeInTheDocument()
+    expect(screen.getByText('固件 v0.5.12')).toBeInTheDocument()
+    expect(screen.getByText(/电量 82%/)).toBeInTheDocument()
+    expect(screen.getByText(/充电中/)).toBeInTheDocument()
+  })
+
   it('shows capabilities for devices that support them', () => {
     useBeaconStore.setState({
       snapshot: {

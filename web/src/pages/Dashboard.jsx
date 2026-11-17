@@ -32,7 +32,7 @@ import {
 } from '../lib/labels'
 import { api } from '../lib/api'
 import AgentLogo from '../components/AgentLogo'
-import DeviceFeatures from '../components/DeviceFeatures'
+import DeviceFeatures, { DeviceTelemetry } from '../components/DeviceFeatures'
 import { resolveLights } from '../lib/lights'
 import { agentLogoId } from '../lib/agents'
 import { Badge, badgeVariants } from '../components/ui/badge'
@@ -563,6 +563,7 @@ export default function Dashboard() {
                             }
                             className="mt-1"
                           />
+                          <DeviceTelemetry device={runtime} className="mt-1" />
                         </>
                       ) : (
                         <div className="truncate">

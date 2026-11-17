@@ -46,6 +46,14 @@
 - [ ] 拔掉 USB 后 ≤15 s 内切到蓝牙链路；插回 USB 后切回 USB
 - [ ] 两个实例同时跑时第二个实例的报错可读（`Operation already in progress`），不崩溃
 
+## AgentCore-Halo（`4C4A:4155` / 蓝牙，profile `agentcore-halo`）
+
+- [ ] `bt_links` 能看到 `AgentCore-Halo-BLE`，控制台显示型号 `AgentCore-Halo` 与设备名
+- [ ] 固件版本（`STATUS:` 的 `FW:`）显示在设备卡片上
+- [ ] 电量徽章随 `CHG:` 心跳更新（百分比 / 充电中 / 电压与电流 tooltip）
+- [ ] `agentcore-light` 同样显示电量与固件
+- [ ] `SET_BT_NAME:AgentCore-Halo-<1-15 字符>` 能被设备接受，`AgentCore-Halo`（无后缀）被拒绝
+
 ## 跨平台
 
 - [ ] Linux：`dialout` 权限、udev 规则（libusb 直连）
