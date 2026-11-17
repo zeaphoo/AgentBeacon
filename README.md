@@ -76,8 +76,8 @@ Discovery tries the transports in order of reliability: USB CDC (while plugged i
 The main window has four sections:
 
 - **Status** — current aggregate state, active sessions, connected devices, and live service uptime.
-- **Lights** — manually override the automatic light effect (effect, duration, target device), list devices with per-device profile bindings, and open the supported models list in a scrollable dialog.
-- **Settings** — state-to-effect mapping, light behavior (default override duration, brightness, turn-off on shutdown, alert buzzer), and service information.
+- **Lights** — manually override the automatic light effect (effect, duration, target device), list devices with per-device profile bindings, and open the supported models list in a scrollable dialog. The last duration you used is remembered for next time.
+- **Settings** — state-to-effect mapping, light behavior (brightness, turn-off on shutdown, alert buzzer), device image visibility, and service information.
 - **Integrations** — every detected agent with its install state, one-click install/upgrade/uninstall, and an *install automatically* switch.
 
 Language and theme selectors are available directly in the navbar. The status card uses the current state color as a subtle surface, with a larger icon and label for quick recognition.

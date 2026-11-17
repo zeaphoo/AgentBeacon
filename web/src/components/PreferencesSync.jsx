@@ -8,6 +8,7 @@ import {
 export default function PreferencesSync() {
   const language = usePreferencesStore((state) => state.language)
   const theme = usePreferencesStore((state) => state.theme)
+  const overrideDurationSecs = usePreferencesStore((state) => state.overrideDurationSecs)
   const systemTheme = usePreferencesStore((state) => state.systemTheme)
   const syncSystemTheme = usePreferencesStore((state) => state.syncSystemTheme)
   const resolvedTheme = resolveTheme(theme, systemTheme)
@@ -33,12 +34,12 @@ export default function PreferencesSync() {
     try {
       window.localStorage.setItem(
         PREFS_STORAGE_KEY,
-        JSON.stringify({ language, theme }),
+        JSON.stringify({ language, theme, overrideDurationSecs }),
       )
     } catch {
       // Preferences are best-effort; storage may be unavailable in private mode.
     }
-  }, [language, theme])
+  }, [language, theme, overrideDurationSecs])
 
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return

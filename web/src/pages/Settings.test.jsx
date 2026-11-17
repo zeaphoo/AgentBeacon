@@ -24,7 +24,6 @@ const config = {
     waiting: 'attention',
     error: 'alert',
   },
-  manual_override_default_secs: 60,
   shutdown: { turn_off_lights: true },
   mlight: { brightness: 50 },
   yh50: { buzzer_on_alert: false },
@@ -79,6 +78,25 @@ describe('Settings', () => {
     expect(saved.mlight.brightness).toBe(55)
     expect(saved.mapping.error).toBe('alert')
     expect(await screen.findByText('已保存', {}, { timeout: 2500 })).toBeInTheDocument()
+  })
+
+  it('saves whether device images are shown', async () => {
+    const user = userEvent.setup()
+    render(<Settings />)
+
+    const toggle = screen.getByRole('switch', { name: '显示设备图片' })
+    expect(toggle).toBeChecked()
+
+    await user.click(toggle)
+
+    await waitFor(
+      () => {
+        expect(api.saveConfig).toHaveBeenCalled()
+      },
+      { timeout: 2500 },
+    )
+    const saved = api.saveConfig.mock.calls.at(-1)[0]
+    expect(saved.ui.show_device_images).toBe(false)
   })
 
   it('keeps manual lights and lets the user delete stale ones', async () => {

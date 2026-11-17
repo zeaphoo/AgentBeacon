@@ -85,7 +85,6 @@ export default function Settings() {
     const payload = {
       ...form,
       integrations: integrationsRef.current ?? form.integrations,
-      manual_override_default_secs: Number(form.manual_override_default_secs),
       mlight: { ...form.mlight, brightness: Number(form.mlight.brightness) },
     }
     const serialized = JSON.stringify(payload)
@@ -331,24 +330,6 @@ export default function Settings() {
             <CardDescription>{t('settings.behaviorDescription')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <Label htmlFor="override-default">{t('settings.overrideDefault')}</Label>
-                <p className="mt-1 text-xs text-muted-foreground">{t('settings.range')}</p>
-              </div>
-              <Input
-                id="override-default"
-                type="number"
-                min={1}
-                max={3600}
-                className="w-24"
-                value={form.manual_override_default_secs}
-                onChange={(event) =>
-                  update({ manual_override_default_secs: event.target.value })
-                }
-              />
-            </div>
-
             <div className="flex items-center justify-between gap-4">
               <div>
                 <Label htmlFor="brightness">{t('settings.brightness')}</Label>
@@ -617,6 +598,30 @@ export default function Settings() {
               )}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{t('settings.interfaceTitle')}</CardTitle>
+          <CardDescription>{t('settings.interfaceDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <Label htmlFor="device-images">{t('settings.showDeviceImages')}</Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t('settings.showDeviceImagesHint')}
+              </p>
+            </div>
+            <Switch
+              id="device-images"
+              checked={form.ui?.show_device_images ?? true}
+              onCheckedChange={(checked) =>
+                update({ ui: { ...(form.ui ?? {}), show_device_images: checked } })
+              }
+            />
+          </div>
         </CardContent>
       </Card>
 

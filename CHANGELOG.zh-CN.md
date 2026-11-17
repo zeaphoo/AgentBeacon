@@ -11,6 +11,9 @@
 
 ### 新增
 
+- 控制台设备卡片、设备列表与「支持的型号」弹窗展示型号渲染图，方便一眼区分不同设备；非方形素材按原比例适配，未收录型号回落为通用图标。
+- 设置页新增「显示设备图片」开关（默认开启），关闭后设备卡片、列表与支持型号弹窗改用通用图标。
+
 - 控制台新增「Agent 集成」页面：列出所有检测到的 agent 及其安装状态，支持一键安装/升级/卸载，以及「自动安装」开关。
 - 首次启动提示：检测到已安装但未接入的 agent 时弹出，接入或跳过后写入 `integrations.onboarded`，不会重复打扰。
 - 新增 `GET /api/v1/integrations`、`POST /api/v1/integrations/settings`、`POST /api/v1/integrations/install-all`，以及 `POST /api/v1/integrations/{target}/{install|upgrade|uninstall}`。
@@ -39,6 +42,7 @@
 
 ### 移除
 
+- 移除「手动覆盖默认时长」配置项：控制台改为在本地记住上次使用的时长，后端在未传 `duration_secs` 时固定使用 60 秒。
 - 移除 mock 设备概念：`mock` profile、`mock.enabled` 配置、mock 命令日志、控制台引用和无需硬件的 mock actor 全部删除。设备只来自真实发现。
 
 ## [0.1.0-rc.1] - 2026-11-04

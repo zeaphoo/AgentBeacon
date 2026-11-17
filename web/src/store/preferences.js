@@ -24,6 +24,18 @@ function readStoredPrefs() {
 
 const stored = readStoredPrefs()
 
+export const DEFAULT_OVERRIDE_DURATION_SECS = 60
+export const MAX_OVERRIDE_DURATION_SECS = 3600
+
+function validOverrideDuration(value) {
+  const seconds = Number(value)
+  return Number.isFinite(seconds) &&
+    seconds >= 1 &&
+    seconds <= MAX_OVERRIDE_DURATION_SECS
+    ? Math.round(seconds)
+    : null
+}
+
 export const usePreferencesStore = create((set) => ({
   language:
     stored.language === 'zh' || stored.language === 'en'
@@ -34,6 +46,9 @@ export const usePreferencesStore = create((set) => ({
       ? stored.theme
       : 'system',
   systemTheme: detectSystemTheme(),
+  // 控制台记住上次手动覆盖用的时长，替代原来的全局默认时长配置。
+  overrideDurationSecs:
+    validOverrideDuration(stored.overrideDurationSecs) ?? DEFAULT_OVERRIDE_DURATION_SECS,
 
   setLanguage(language) {
     set({ language })
@@ -41,6 +56,11 @@ export const usePreferencesStore = create((set) => ({
 
   setTheme(theme) {
     set({ theme })
+  },
+
+  setOverrideDurationSecs(seconds) {
+    const value = validOverrideDuration(seconds)
+    if (value != null) set({ overrideDurationSecs: value })
   },
 
   syncSystemTheme() {

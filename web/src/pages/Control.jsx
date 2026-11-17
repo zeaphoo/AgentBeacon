@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { BookOpen, Clock, Lightbulb, RefreshCw, RotateCcw, Usb } from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
+import { usePreferencesStore } from '../store/preferences'
 import { useI18n } from '../i18n'
 import {
   EFFECTS,
@@ -12,6 +13,7 @@ import {
   profileLabel,
 } from '../lib/labels'
 import DeviceFeatures, { DeviceTelemetry } from '../components/DeviceFeatures'
+import DeviceImage from '../components/DeviceImage'
 import { resolveLights } from '../lib/lights'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
@@ -57,8 +59,12 @@ export default function Control() {
   const scanDevices = useBeaconStore((state) => state.scanDevices)
   const saveConfig = useBeaconStore((state) => state.saveConfig)
   const { t } = useI18n()
+  const rememberedDuration = usePreferencesStore((state) => state.overrideDurationSecs)
+  const setRememberedDuration = usePreferencesStore(
+    (state) => state.setOverrideDurationSecs,
+  )
   const [selected, setSelected] = useState('busy')
-  const [duration, setDuration] = useState('60')
+  const [duration, setDuration] = useState(String(rememberedDuration))
   const [device, setDevice] = useState('all')
   const [message, setMessage] = useState(null)
   const [error, setError] = useState(null)
@@ -73,12 +79,6 @@ export default function Control() {
     const timer = setInterval(() => setNow(Date.now()), 500)
     return () => clearInterval(timer)
   }, [])
-
-  useEffect(() => {
-    if (snapshot?.config?.manual_override_default_secs && duration === '60') {
-      setDuration(String(snapshot.config.manual_override_default_secs))
-    }
-  }, [snapshot?.config?.manual_override_default_secs])
 
   useEffect(() => {
     if (snapshot?.config && devices === null) {
@@ -102,7 +102,6 @@ export default function Control() {
     const payload = {
       ...snapshot.config,
       devices,
-      manual_override_default_secs: Number(snapshot.config.manual_override_default_secs),
       mlight: {
         ...snapshot.config.mlight,
         brightness: Number(snapshot.config.mlight?.brightness),
@@ -118,6 +117,7 @@ export default function Control() {
 
   // 统一视图：只列运行时发现的设备；配置里存在但没插的绑定不显示。
   const realDevices = resolveLights(snapshot)
+  const showDeviceImages = snapshot?.config?.ui?.show_device_images ?? true
   const override = snapshot?.override
   const remaining = override
     ? Math.max(0, Math.ceil((override.expires_at_ms - now) / 1000))
@@ -141,12 +141,15 @@ export default function Control() {
   async function handleApply() {
     setError(null)
     setMessage(null)
+    const seconds = Number(duration)
     try {
       await applyControl({
         effect: selected,
-        duration_secs: Number(duration),
+        duration_secs: seconds,
         device: device === 'all' ? null : device,
       })
+      // 记住本次时长，下次打开控制台直接沿用；非法值交给后端报错，不写入偏好。
+      setRememberedDuration(seconds)
       setMessage({ key: 'control.applied', effect: selected, n: duration })
     } catch (err) {
       setError(err.message)
@@ -363,7 +366,12 @@ export default function Control() {
                   className="flex flex-wrap items-center justify-between gap-3 py-3"
                 >
                   <div className="flex min-w-0 items-start gap-3">
-                    <Usb className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <DeviceImage
+                      profile={profileFor(item)}
+                      connected={item.connected}
+                      showImage={showDeviceImages}
+                      className="mt-0.5 h-9 w-9 rounded-md border border-border/60 bg-muted/40"
+                    />
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="truncate text-sm font-medium">
@@ -450,13 +458,20 @@ export default function Control() {
             {supportedProfiles.map((item) => (
               <div
                 key={item.profile}
-                className="rounded-lg border border-border/70 bg-background/40 p-4"
+                className="flex items-start gap-3 rounded-lg border border-border/70 bg-background/40 p-4"
               >
-                <div className="text-sm font-medium">{profileLabel(item.profile, t)}</div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t(`profile.${item.profile}.description`)}
-                </p>
-                <DeviceFeatures capabilities={item.capabilities} className="mt-2" />
+                <DeviceImage
+                  profile={item.profile}
+                  showImage={showDeviceImages}
+                  className="h-14 w-14 rounded-md border border-border/60 bg-muted/40"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">{profileLabel(item.profile, t)}</div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t(`profile.${item.profile}.description`)}
+                  </p>
+                  <DeviceFeatures capabilities={item.capabilities} className="mt-2" />
+                </div>
               </div>
             ))}
           </div>

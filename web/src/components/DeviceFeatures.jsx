@@ -66,21 +66,23 @@ export function DeviceTelemetry({ device, className }) {
   const hasBattery = Boolean(device.battery)
   if (!hasName && !hasFirmware && !hasBattery) return null
   return (
-    <div
-      className={cn(
-        'flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground',
-        className,
+    <div className={cn('flex flex-col gap-1 text-[11px] text-muted-foreground', className)}>
+      {(hasName || hasFirmware) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {hasName && (
+            <span
+              className="truncate font-mono"
+              title={t('device.hardwareName', { name: device.name })}
+            >
+              {device.name}
+            </span>
+          )}
+          {hasFirmware && (
+            <span className="truncate">{t('device.firmware', { version: device.firmware })}</span>
+          )}
+        </div>
       )}
-    >
-      {hasName && (
-        <span className="truncate font-mono" title={t('device.hardwareName', { name: device.name })}>
-          {device.name}
-        </span>
-      )}
-      {hasFirmware && (
-        <span className="truncate">{t('device.firmware', { version: device.firmware })}</span>
-      )}
-      <BatteryBadge battery={device.battery} />
+      {hasBattery && <BatteryBadge battery={device.battery} className="self-start" />}
     </div>
   )
 }

@@ -14,6 +14,7 @@ vi.mock('../lib/api', () => ({
 import { api } from '../lib/api'
 import Control from './Control'
 import { useBeaconStore } from '../store/beacon'
+import { usePreferencesStore } from '../store/preferences'
 
 const config = {
   version: 1,
@@ -25,7 +26,6 @@ const config = {
     waiting: 'attention',
     error: 'alert',
   },
-  manual_override_default_secs: 60,
   shutdown: { turn_off_lights: true },
   mlight: { brightness: 50 },
   yh50: { buzzer_on_alert: false },
@@ -55,6 +55,7 @@ describe('Control', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useBeaconStore.setState({ snapshot, loading: false, error: null })
+    usePreferencesStore.setState({ overrideDurationSecs: 60 })
     api.control.mockResolvedValue({
       ...snapshot,
       override: { effect: 'attention', expires_at_ms: Date.now() + 30_000, device: null },
@@ -112,5 +113,26 @@ describe('Control', () => {
     const dialog = await screen.findByRole('dialog')
     expect(dialog).toHaveTextContent('支持的设备型号')
     expect(dialog).toHaveTextContent('三色 LED 与蜂鸣器，支持告警蜂鸣')
+  })
+
+  it('remembers the last override duration for the next visit', async () => {
+    usePreferencesStore.setState({ overrideDurationSecs: 120 })
+    const user = userEvent.setup()
+    const { unmount } = render(<Control />)
+
+    const duration = screen.getByLabelText('持续时长（秒）')
+    expect(duration).toHaveValue(120)
+
+    await user.clear(duration)
+    await user.type(duration, '30')
+    await user.click(screen.getByRole('button', { name: /应用灯效/ }))
+
+    await waitFor(() => {
+      expect(usePreferencesStore.getState().overrideDurationSecs).toBe(30)
+    })
+
+    unmount()
+    render(<Control />)
+    expect(screen.getByLabelText('持续时长（秒）')).toHaveValue(30)
   })
 })

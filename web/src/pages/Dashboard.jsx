@@ -32,6 +32,7 @@ import {
 } from '../lib/labels'
 import { api } from '../lib/api'
 import AgentLogo from '../components/AgentLogo'
+import DeviceImage from '../components/DeviceImage'
 import DeviceFeatures, { DeviceTelemetry } from '../components/DeviceFeatures'
 import { resolveLights } from '../lib/lights'
 import { agentLogoId } from '../lib/agents'
@@ -296,6 +297,7 @@ export default function Dashboard() {
   const runtimeById = new Map(devices.map((device) => [device.id, device]))
   const lights = resolveLights(snapshot)
   const connectedDevices = lights.filter((light) => light.connected).length
+  const showDeviceImages = snapshot.config?.ui?.show_device_images ?? true
 
   async function handleClear() {
     try {
@@ -502,8 +504,21 @@ export default function Dashboard() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex min-w-0 items-start gap-3">
-                        <div className="aggregate-icon flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border">
-                          <StateIcon className="h-5 w-5" />
+                        <div className="relative shrink-0">
+                          <DeviceImage
+                            profile={runtime?.profile ?? light.profile}
+                            connected={light.connected}
+                            showImage={showDeviceImages}
+                            className="h-11 w-11 rounded-lg border border-border/60 bg-muted/40"
+                          />
+                          <span
+                            className={cn(
+                              'aggregate-icon absolute -bottom-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full border',
+                              `aggregate-${state}`,
+                            )}
+                          >
+                            <StateIcon className="h-3 w-3" />
+                          </span>
                         </div>
                         <div className="min-w-0">
                           <div className="truncate text-xs text-muted-foreground">

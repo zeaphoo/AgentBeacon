@@ -20,7 +20,7 @@ const snapshot = {
   sessions: [],
   devices: [],
   service: { version: '0.1.0', pid: 1, port: 6980, uptime_secs: 1 },
-  config: { manual_override_default_secs: 60 },
+  config: {},
 }
 
 describe('beacon store', () => {

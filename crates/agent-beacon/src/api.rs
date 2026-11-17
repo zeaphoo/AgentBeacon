@@ -248,15 +248,16 @@ struct ControlRequest {
     device: Option<String>,
 }
 
+/// 控制台总会显式传时长；省略时用这个固定默认值。
+const DEFAULT_OVERRIDE_SECS: u64 = 60;
+
 async fn control(
     State(state): State<Arc<BeaconState>>,
     payload: Result<Json<ControlRequest>, JsonRejection>,
 ) -> Result<Json<Snapshot>, ApiError> {
     let Json(request) =
         payload.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
-    let duration = request
-        .duration_secs
-        .unwrap_or_else(|| state.config().manual_override_default_secs);
+    let duration = request.duration_secs.unwrap_or(DEFAULT_OVERRIDE_SECS);
     if !(1..=3600).contains(&duration) {
         return Err(ApiError::bad_request(
             "duration_secs must be between 1 and 3600",
@@ -688,7 +689,7 @@ mod tests {
                     .method("PUT")
                     .uri("/api/v1/config")
                     .header(header::CONTENT_TYPE, "application/json")
-                    .body(Body::from(r#"{"manual_override_default_secs":0}"#))
+                    .body(Body::from(r#"{"mlight":{"brightness":101}}"#))
                     .unwrap(),
             )
             .await

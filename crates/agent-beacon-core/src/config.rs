@@ -15,7 +15,7 @@ pub struct Config {
     pub version: u32,
     pub server: ServerConfig,
     pub mapping: Mapping,
-    pub manual_override_default_secs: u64,
+    pub ui: UiConfig,
     pub shutdown: ShutdownConfig,
     pub mlight: MlightConfig,
     pub yh50: Yh50Config,
@@ -30,7 +30,7 @@ impl Default for Config {
             version: CONFIG_VERSION,
             server: ServerConfig::default(),
             mapping: Mapping::default(),
-            manual_override_default_secs: 60,
+            ui: UiConfig::default(),
             shutdown: ShutdownConfig::default(),
             mlight: MlightConfig::default(),
             yh50: Yh50Config::default(),
@@ -52,6 +52,21 @@ impl Default for ServerConfig {
         Self {
             host: "127.0.0.1".to_string(),
             port: DEFAULT_PORT,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UiConfig {
+    /// 控制台是否展示设备型号配图；关闭后回落到通用图标。
+    pub show_device_images: bool,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            show_device_images: true,
         }
     }
 }
@@ -203,8 +218,6 @@ pub enum ConfigError {
     EmptyHost,
     #[error("server.port must not be 0")]
     InvalidPort,
-    #[error("manual_override_default_secs must be between 1 and 3600")]
-    InvalidOverrideSeconds,
     #[error("mlight.brightness must be between 0 and 100")]
     InvalidBrightness,
     #[error("device binding must provide id, serial or port")]
@@ -231,9 +244,6 @@ impl Config {
         }
         if self.server.port == 0 {
             return Err(ConfigError::InvalidPort);
-        }
-        if !(1..=3600).contains(&self.manual_override_default_secs) {
-            return Err(ConfigError::InvalidOverrideSeconds);
         }
         if self.mlight.brightness > 100 {
             return Err(ConfigError::InvalidBrightness);
@@ -319,12 +329,29 @@ mod tests {
     }
 
     #[test]
+    fn old_config_with_removed_override_duration_still_loads() {
+        // 旧配置文件里遗留的字段会被忽略，不阻塞启动。
+        let parsed: Config =
+            serde_json::from_str(r#"{"version":1,"manual_override_default_secs":120}"#).unwrap();
+        assert_eq!(parsed, Config::default());
+    }
+
+    #[test]
+    fn device_images_are_enabled_by_default() {
+        assert!(Config::default().ui.show_device_images);
+
+        // 老配置没有 ui 段时保持开启。
+        let parsed: Config = serde_json::from_str(r#"{"version":1}"#).unwrap();
+        assert!(parsed.ui.show_device_images);
+
+        let parsed: Config =
+            serde_json::from_str(r#"{"ui":{"show_device_images":false}}"#).unwrap();
+        assert!(!parsed.ui.show_device_images);
+    }
+
+    #[test]
     fn invalid_values_are_rejected() {
         let mut config = Config::default();
-        config.manual_override_default_secs = 0;
-        assert_eq!(config.validate(), Err(ConfigError::InvalidOverrideSeconds));
-
-        config.manual_override_default_secs = 60;
         config.mlight.brightness = 101;
         assert_eq!(config.validate(), Err(ConfigError::InvalidBrightness));
 

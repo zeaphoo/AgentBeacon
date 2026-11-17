@@ -30,7 +30,7 @@ const snapshot = {
   ],
   service: { version: '0.1.0', pid: 42, port: 6980, uptime_secs: 12 },
   override: null,
-  config: { manual_override_default_secs: 60 },
+  config: {},
 }
 
 describe('Dashboard', () => {
@@ -60,6 +60,7 @@ describe('Dashboard', () => {
     expect(sessionRow.children[1].getAttribute('data-agent-logo')).toBe('claude-code')
     expect(container.querySelector('[data-agent-logo="claude-code"]')).toBeTruthy()
     expect(screen.getByText('MLight 三灯珠')).toBeInTheDocument()
+    expect(container.querySelector('[data-device-image="mlight-3led"] img')).toBeTruthy()
     expect(screen.getByText('已连接')).toBeInTheDocument()
     expect(screen.getByText('串口')).toBeInTheDocument()
     expect(screen.queryByText(/PID/)).not.toBeInTheDocument()
@@ -205,6 +206,24 @@ describe('Dashboard', () => {
     expect(screen.getByTestId('device-serial:A')).toHaveTextContent('分配 Agent：claude')
     expect(screen.getByTestId('device-serial:B')).toHaveTextContent('右灯')
     expect(screen.getByTestId('device-serial:B')).toHaveTextContent('分配 Agent：codex')
+  })
+
+  it('hides device images when the console setting is off', () => {
+    useBeaconStore.setState({
+      snapshot: {
+        ...snapshot,
+        config: { ...snapshot.config, ui: { show_device_images: false } },
+      },
+      loading: false,
+    })
+    const { container } = render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+
+    expect(container.querySelector('[data-device-image="mlight-3led"]')).toBeNull()
+    expect(container.querySelector('[data-device-image="fallback"]')).toBeTruthy()
   })
 
   it('shows an empty state when there are no sessions', () => {

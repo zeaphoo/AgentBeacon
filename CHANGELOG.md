@@ -11,6 +11,9 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ### Added
 
+- Device renders on the dashboard cards, device list, and *supported models* dialog so different models are recognizable at a glance; non-square assets keep their aspect ratio and unknown profiles fall back to a generic icon.
+- A *show device images* switch in Settings (on by default); turning it off uses the generic icon on cards, lists, and the supported models dialog.
+
 - Integrations page in the web console: every detected agent with its install state, one-click install/upgrade/uninstall, and an *install automatically* switch.
 - First-launch prompt that offers to connect detected-but-unconnected agents; dismissing or connecting records `integrations.onboarded` so it never shows twice.
 - `GET /api/v1/integrations`, `POST /api/v1/integrations/settings`, `POST /api/v1/integrations/install-all`, and `POST /api/v1/integrations/{target}/{install|upgrade|uninstall}`.
@@ -38,6 +41,7 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ### Removed
 
+- The `manual_override_default_secs` config field: the console now remembers the last used duration locally, and the backend uses a fixed 60-second default when `duration_secs` is omitted.
 - The mock device concept: the `mock` profile, `mock.enabled` config, mock command log, dashboard/settings references, and hardware-free mock actor are gone. Devices now come only from real discovery.
 
 ## [0.1.0-rc.1] - 2026-11-04

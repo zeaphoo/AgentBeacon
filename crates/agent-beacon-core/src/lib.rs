@@ -9,7 +9,7 @@ pub mod session;
 
 pub use config::{
     Config, ConfigError, DeviceAssignment, DeviceBinding, MlightConfig, RoutingConfig,
-    RoutingStrategy, ServerConfig, ShutdownConfig, Yh50Config,
+    RoutingStrategy, ServerConfig, ShutdownConfig, UiConfig, Yh50Config,
 };
 pub use effect::{Effect, Mapping};
 pub use profile::{DeviceCapabilities, DeviceProfile, DeviceProfileInfo};

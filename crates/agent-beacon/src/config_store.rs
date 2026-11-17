@@ -145,7 +145,7 @@ mod tests {
         store.save(&good).unwrap();
 
         let mut bad = good.clone();
-        bad.manual_override_default_secs = 0;
+        bad.mlight.brightness = 101;
         assert!(store.save(&bad).is_err());
 
         let text = fs::read_to_string(store.path()).unwrap();
