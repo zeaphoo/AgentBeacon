@@ -37,10 +37,14 @@ use tokio::task::JoinHandle;
 
 use crate::state::BeaconState;
 
-/// 运行时设备离线多久后不再显示（配置里的绑定不受影响）。
+/// 运行时设备离线多久后不再显示（配置里的绑定不受影响，设备连上会立刻回来）。
 pub const OFFLINE_RETENTION_MS: u64 = 180_000;
-/// 蓝牙链路进入冷却后再自动重连的间隔。
-const LINK_COOLDOWN: Duration = Duration::from_secs(600);
+/// 有线链路重连退避上限：插着就能一直试。
+const SERIAL_MAX_BACKOFF_SECS: u64 = 30;
+/// 蓝牙链路重连退避上限：给适配器留点余地，但别让设备回来迟迟发现不了。
+const BLUETOOTH_MAX_BACKOFF_SECS: u64 = 60;
+/// 广播扫到地址但设备还没连上时，最短多久踢一次重连。
+const ADVERTISEMENT_RETRY: Duration = Duration::from_secs(20);
 const SERIAL_INTERVAL: Duration = Duration::from_secs(2);
 /// 已知链路（BlueZ 记录）刷新节奏：只读设备对象，不触发发现，可以比广播扫描勤快。
 const KNOWN_LINK_INTERVAL: Duration = Duration::from_secs(5);
@@ -85,7 +89,7 @@ pub struct Candidate {
     pub profile: DeviceProfile,
     pub name: Option<String>,
     pub kind: LinkKind,
-    /// 来自广播扫描（能证明设备此刻真的在场，可以解除冷却）。
+    /// 来自广播扫描：能证明设备此刻真的在场，可以立刻踢一次重连。
     pub from_advertisement: bool,
 }
 
@@ -100,6 +104,8 @@ struct ActorEntry {
     port: String,
     kind: LinkKind,
     handle: JoinHandle<()>,
+    /// 上次尝试（重新）连接的时间，广播重踢用。
+    last_attempt: Instant,
 }
 
 /// 启动后先给设备一点时间连上，再开始清理配置，避免刚开机就把还没连上的绑定删掉。
@@ -110,8 +116,6 @@ struct Manager {
     actors: HashMap<String, ActorEntry>,
     /// 手动「重新扫描」时递增，扫描 worker 据此丢掉握手缓存立刻重试。
     probe_epoch: Arc<AtomicU64>,
-    /// 连接失败后的冷却截止时间。
-    quarantine: HashMap<String, Instant>,
     serial_ports: Vec<String>,
     last_prune: Option<Instant>,
     started: Instant,
@@ -122,7 +126,6 @@ impl Default for Manager {
         Self {
             actors: HashMap::new(),
             probe_epoch: Arc::new(AtomicU64::new(0)),
-            quarantine: HashMap::new(),
             serial_ports: Vec::new(),
             last_prune: None,
             started: Instant::now(),
@@ -362,8 +365,14 @@ impl Manager {
     }
 
     fn on_candidate(&mut self, state: &Arc<BeaconState>, candidate: Candidate) {
-        if self.actors.contains_key(&candidate.id) {
-            // 已经连着的链路：广播名 / BlueZ 记录晚到，补上展示用的设备名。
+        let devices = device_snapshot(state.devices());
+        let connected = devices
+            .iter()
+            .find(|info| info.id == candidate.id)
+            .is_some_and(|info| info.connected);
+
+        if let Some(entry) = self.actors.get(&candidate.id) {
+            // 晚到的广播名 / BlueZ 记录：补上展示用的设备名。
             if let Some(name) = candidate.name.as_deref() {
                 agent_beacon_lights::device::update(state.devices(), &candidate.id, |info| {
                     if info.name.is_none() {
@@ -371,18 +380,18 @@ impl Manager {
                     }
                 });
             }
-            return;
-        }
-        // 广播扫到就说明设备确实在场，解除冷却。
-        if candidate.from_advertisement {
-            self.quarantine.remove(&candidate.id);
-        }
-        if let Some(until) = self.quarantine.get(&candidate.id) {
-            if *until > Instant::now() {
+            // 广播扫到说明设备此刻就在附近，但它还没连上：踢一次重连，别等退避。
+            let retry = candidate.from_advertisement
+                && !connected
+                && entry.last_attempt.elapsed() >= ADVERTISEMENT_RETRY;
+            if !retry {
                 return;
             }
-            self.quarantine.remove(&candidate.id);
+            if let Some(entry) = self.actors.remove(&candidate.id) {
+                entry.handle.abort();
+            }
         }
+
         tracing::info!(
             device = %candidate.id,
             port = %candidate.port,
@@ -391,25 +400,23 @@ impl Manager {
             link = candidate.kind.scheme(),
             "device discovered"
         );
-        register_device(
-            state,
-            &candidate.id,
-            &candidate.port,
-            candidate.profile,
-            candidate.name.as_deref(),
-        );
-        let handle = spawn_actor(state, &candidate.id, &candidate.port, candidate.profile);
+        register_when_discovered(state, &candidate);
+        let handle = spawn_actor(state, &candidate);
         self.actors.insert(
-            candidate.id,
+            candidate.id.clone(),
             ActorEntry {
                 port: candidate.port,
                 kind: candidate.kind,
                 handle,
+                last_attempt: Instant::now(),
             },
         );
     }
 
-    /// 移除离线过久的运行时设备；蓝耳链路顺带进入冷却，避免陈旧配对记录反复“复活”。
+    /// 离线过久的运行时设备从列表移除。
+    ///
+    /// 只是“不再显示”：有线设备拔掉后停掉 actor（插回来会重新发现），蓝牙 actor 继续
+    /// 在后台按退避重试，设备一回来就会因为连上而重新出现。
     fn reap(&mut self, state: &Arc<BeaconState>) {
         let now = agent_beacon_core::now_ms();
         let devices = device_snapshot(state.devices());
@@ -422,7 +429,6 @@ impl Manager {
                 continue;
             }
             let info = devices.iter().find(|info| &info.id == id);
-            // 掉线（含“拔掉后一直没连上”）超过保留期的设备不再显示。
             if info.is_some_and(|info| retention_expired(info, now)) {
                 expired.push((id.clone(), entry.kind));
             }
@@ -436,26 +442,23 @@ impl Manager {
         }
 
         for (id, kind) in expired {
-            if let Some(entry) = self.actors.remove(&id) {
-                entry.handle.abort();
-                tracing::info!(
-                    device = %id,
-                    port = %entry.port,
-                    link = kind.scheme(),
-                    "device offline too long; removing it from the device list"
-                );
-            }
+            tracing::info!(
+                device = %id,
+                link = kind.scheme(),
+                "device offline too long; hiding it until it reconnects"
+            );
             state.unregister_device(&id);
-            if kind.is_bluetooth() {
-                self.quarantine.insert(id, Instant::now() + LINK_COOLDOWN);
+            if kind == LinkKind::Serial {
+                if let Some(entry) = self.actors.remove(&id) {
+                    entry.handle.abort();
+                }
             }
         }
     }
 
-    /// 手动「重新扫描」：清掉冷却与握手缓存，让蓝牙设备立刻重试。
+    /// 手动「重新扫描」：丢掉握手缓存并让蓝牙链路立刻重连。
     fn reset(&mut self, state: &Arc<BeaconState>) {
         self.probe_epoch.fetch_add(1, Ordering::Relaxed);
-        self.quarantine.clear();
         let bluetooth: Vec<String> = self
             .actors
             .iter()
@@ -608,6 +611,23 @@ fn bluetooth_ids(binding: &agent_beacon_core::DeviceBinding) -> Vec<String> {
     ids
 }
 
+/// 发现设备时是否立刻放进可见列表。
+///
+/// 有线设备插着就是“在场”，立刻显示（打不开也能看到错误）；蓝牙只认“真的连上过”，
+/// 陈旧配对记录不会污染设备列表，连上的那一刻由 actor 的 `on_online` 登记。
+fn register_when_discovered(state: &Arc<BeaconState>, candidate: &Candidate) {
+    if candidate.kind != LinkKind::Serial {
+        return;
+    }
+    register_device(
+        state,
+        &candidate.id,
+        &candidate.port,
+        candidate.profile,
+        candidate.name.as_deref(),
+    );
+}
+
 /// 注册设备并把设备自报的名字（BLE 广播名 / USB 产品名）一起存下来。
 fn register_device(
     state: &Arc<BeaconState>,
@@ -624,12 +644,10 @@ fn register_device(
     state.register_device(info);
 }
 
-fn spawn_actor(
-    state: &Arc<BeaconState>,
-    id: &str,
-    port: &str,
-    profile: DeviceProfile,
-) -> JoinHandle<()> {
+fn spawn_actor(state: &Arc<BeaconState>, candidate: &Candidate) -> JoinHandle<()> {
+    let id = candidate.id.as_str();
+    let port = candidate.port.as_str();
+    let profile = candidate.profile;
     let factory: TransportFactory = match profile {
         DeviceProfile::MlightSingle | DeviceProfile::Mlight3Led => {
             let port = port.to_string();
@@ -676,6 +694,22 @@ fn spawn_actor(
         }
     };
 
+    // 连上之后才把设备放进可见列表：蓝牙的陈旧配对记录、配置里留着但不在场的灯
+    // 都不会再占着“未连接”的位置，而设备一回来就会立刻出现。
+    let on_online = {
+        let state = Arc::clone(state);
+        let id = id.to_string();
+        let port = port.to_string();
+        let name = candidate.name.clone();
+        Arc::new(move || {
+            let mut info = DeviceInfo::new(&id, &port, profile);
+            info.name = name.clone();
+            info.connected = true;
+            info.last_seen_ms = Some(agent_beacon_core::now_ms());
+            state.register_device(info);
+        })
+    };
+
     spawn(ActorConfig {
         id: id.to_string(),
         port: port.to_string(),
@@ -683,6 +717,12 @@ fn spawn_actor(
         factory,
         desired: state.subscribe_desired(),
         registry: state.devices().clone(),
+        max_backoff_secs: if candidate.kind.is_bluetooth() {
+            BLUETOOTH_MAX_BACKOFF_SECS
+        } else {
+            SERIAL_MAX_BACKOFF_SECS
+        },
+        on_online: Some(on_online),
     })
 }
 
@@ -779,6 +819,58 @@ mod tests {
         info.connected = connected;
         info.offline_since_ms = offline_since_ms;
         info
+    }
+
+    fn test_state() -> Arc<BeaconState> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+            + u128::from(COUNTER.fetch_add(1, Ordering::Relaxed));
+        let dir = std::env::temp_dir().join(format!("beacon-worker-{unique}"));
+        let store = crate::config_store::ConfigStore::new(dir.join("config.json"));
+        let config = agent_beacon_core::Config::default();
+        store.save(&config).unwrap();
+        BeaconState::new(config, store, 6980)
+    }
+
+    fn candidate(id: &str, kind: LinkKind, profile: DeviceProfile) -> Candidate {
+        Candidate {
+            id: id.to_string(),
+            port: id.to_string(),
+            profile,
+            name: None,
+            kind,
+            from_advertisement: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn only_wired_devices_are_listed_before_they_connect() {
+        let state = test_state();
+        // 蓝牙：只是候选，连上之前不进列表（陈旧配对记录不会占位）。
+        register_when_discovered(
+            &state,
+            &candidate(
+                "ble:de:ad:be:ef:00:01",
+                LinkKind::Ble,
+                DeviceProfile::AgentCore,
+            ),
+        );
+        assert!(device_snapshot(state.devices()).is_empty());
+
+        // 有线：端口被枚举到就显示。
+        register_when_discovered(
+            &state,
+            &candidate("serial:ABC", LinkKind::Serial, DeviceProfile::Mlight3Led),
+        );
+        let devices = device_snapshot(state.devices());
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].id, "serial:ABC");
+        assert!(!devices[0].connected);
+        assert!(devices[0].offline_since_ms.is_some());
     }
 
     #[test]

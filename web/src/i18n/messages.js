@@ -243,7 +243,7 @@ export const messages = {
     'settings.manualTitle': '手动分配',
     'settings.manualHint': '为每台灯选择要显示的 Agent。未检测到的灯会保留配置，可以在这里删除。',
     'settings.manualRetentionHint':
-      '配置过的灯即使离线也保留在这里；离线超过 3 分钟的灯会从首页设备列表移除，把 Agent 全部删除后对应的离线配置也会自动清掉。',
+      '配置过的灯即使离线也保留在这里；离线超过 3 分钟的灯会从首页设备列表移除，但后台会一直重试，灯一回来就会自动出现。把 Agent 全部删除后，对应的离线配置也会自动清掉。',
     'settings.noDevices': '还没有发现设备',
     'settings.noAgents': '还没有 Agent 上报状态',
     'settings.noAgentsDetected': '还没有检测到 Agent；请先在「Agent 集成」页面安装或启动 Agent。',
@@ -566,7 +566,7 @@ export const messages = {
     'settings.manualTitle': 'Manual assignment',
     'settings.manualHint': 'Choose which Agents each light shows. Lights that are no longer detected keep their assignment and can be deleted here.',
     'settings.manualRetentionHint':
-      'Configured lights stay listed even when offline. Lights offline for more than 3 minutes drop out of the device list, and a configuration with no Agents left is removed automatically.',
+      'Configured lights stay listed even when offline. Lights offline for more than 3 minutes drop out of the device list, but they keep retrying in the background and reappear as soon as they are back. A configuration with no Agents left is removed automatically.',
     'settings.noDevices': 'No device discovered yet',
     'settings.noAgents': 'No agent has reported yet',
     'settings.noAgentsDetected': 'No Agent detected yet. Install or start one from the Integrations page.',

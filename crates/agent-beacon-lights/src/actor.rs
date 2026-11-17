@@ -16,6 +16,9 @@ pub type TransportFactory = Arc<dyn Fn() -> Result<Box<dyn Transport>, String> +
 /// 空闲时多久醒一次去读设备上报。
 const REPORT_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
+/// 每次成功连上后调用一次；由上层决定要不要把设备放进可见列表。
+pub type OnlineHook = Arc<dyn Fn() + Send + Sync>;
+
 #[derive(Clone)]
 pub struct ActorConfig {
     pub id: String,
@@ -24,6 +27,10 @@ pub struct ActorConfig {
     pub factory: TransportFactory,
     pub desired: watch::Receiver<DesiredState>,
     pub registry: DeviceRegistry,
+    /// 重连退避的上限：有线设备可以频繁重试，蓝牙要给适配器留余地。
+    pub max_backoff_secs: u64,
+    /// 连上时回调（设备首次连上才需要出现在列表里时用）。
+    pub on_online: Option<OnlineHook>,
 }
 
 pub fn spawn(config: ActorConfig) -> JoinHandle<()> {
@@ -61,12 +68,15 @@ async fn run(mut config: ActorConfig) {
                         applied_brightness = Some(target.brightness);
                     }
                     mark_online(&config.registry, &config.id, agent_beacon_core::now_ms());
+                    if let Some(hook) = config.on_online.as_ref() {
+                        hook();
+                    }
                     transport = Some(opened);
                 }
                 Err(error) => {
                     mark_error(&config.registry, &config.id, error);
                     tokio::time::sleep(Duration::from_secs(backoff)).await;
-                    backoff = (backoff * 2).min(30);
+                    backoff = (backoff * 2).min(config.max_backoff_secs.max(1));
                     continue;
                 }
             }
@@ -372,6 +382,42 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn online_hook_fires_on_each_successful_connect() {
+        let registry = new_registry();
+        let (desired_tx, desired_rx) = watch::channel(desired(Effect::Calm, 50));
+        let hook_hits = Arc::new(Mutex::new(0usize));
+        let hook_counter = hook_hits.clone();
+        let hook_registry = registry.clone();
+
+        let _actor = spawn(ActorConfig {
+            id: "ble:aa".into(),
+            port: "ble:aa".into(),
+            profile: DeviceProfile::AgentCore,
+            factory: Arc::new(|| Ok(Box::new(RecordingTransport::new(RecordingLog::default())))),
+            desired: desired_rx,
+            registry: registry.clone(),
+            max_backoff_secs: 60,
+            on_online: Some(Arc::new(move || {
+                if let Ok(mut hits) = hook_counter.lock() {
+                    *hits += 1;
+                }
+                // 与 worker 一样：连上才登记，于是设备只会在真的可用时出现在列表里。
+                let mut info = DeviceInfo::new("ble:aa", "ble:aa", DeviceProfile::AgentCore);
+                info.connected = true;
+                upsert(&hook_registry, info);
+            })),
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        // 这里没有真实设备：上层据此把设备放进可见列表，所以必须每连上就触发一次。
+        assert_eq!(*hook_hits.lock().unwrap(), 1);
+        let devices = snapshot(&registry);
+        assert_eq!(devices.len(), 1);
+        assert!(devices[0].connected);
+        drop(desired_tx);
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn latest_wins_aborts_stale_plan() {
         let registry = new_registry();
         upsert(
@@ -389,6 +435,8 @@ mod tests {
             factory: Arc::new(move || Ok(Box::new(RecordingTransport::new(factory_log.clone())))),
             desired: desired_rx,
             registry,
+            max_backoff_secs: 30,
+            on_online: None,
         });
 
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -440,6 +488,8 @@ mod tests {
             factory: Arc::new(move || Ok(Box::new(RecordingTransport::new(factory_log.clone())))),
             desired: desired_rx,
             registry: registry.clone(),
+            max_backoff_secs: 30,
+            on_online: None,
         });
 
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -499,6 +549,8 @@ mod tests {
             factory: Arc::new(move || Ok(Box::new(RecordingTransport::new(factory_log.clone())))),
             desired: desired_rx,
             registry,
+            max_backoff_secs: 30,
+            on_online: None,
         });
 
         // Let the initial effect plan finish.

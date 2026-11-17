@@ -183,9 +183,13 @@ All hook commands run `agent-beacon hook`, which reads the agent payload (stdin 
 
 ### Device discovery and retention
 
-Discovery runs in its own worker (`crates/agent-beacon/src/worker.rs`), independent of the per-device actors: it enumerates serial ports every 2 s, reads the devices BlueZ already knows every 5 s (no discovery, so it cannot break an LE link), and scans BLE advertisements every 15 s — the scan is skipped while a BLE device is actually connected, but a stale bonding record no longer suppresses it. A newly recognised device is registered and shown immediately.
+Discovery runs in its own worker (`crates/agent-beacon/src/worker.rs`), independent of the per-device actors: it enumerates serial ports every 2 s, reads the devices BlueZ already knows every 5 s (no discovery, so it cannot break an LE link), and scans BLE advertisements every 15 s — the scan is skipped only while a BLE device is actually connected. A newly recognised device is attempted immediately.
 
-Runtime devices (`/api/v1/state` → `devices`) are dropped from the view once they have been offline for 3 minutes (`OFFLINE_RETENTION_MS`). Bluetooth links that were removed this way enter a 10-minute cooldown so an obsolete BlueZ pairing record cannot resurrect the device every 3 minutes; pressing *Rescan* clears the cooldown. A BLE link that drops without a failed write is detected through the transport's liveness check instead of waiting for the next command.
+Visibility follows a simple rule: **a device is listed once it has connected**, and it is hidden again after 3 minutes offline (`OFFLINE_RETENTION_MS`).
+
+- Wired devices are listed as soon as the port is enumerated (a plugged-in light that fails to open still shows the error).
+- Bluetooth candidates — BlueZ records, configured `ble:` / `spp:` links, advertisements — are *not* listed up front. Their actor connects in the background and the device appears the moment the first connection succeeds, so an obsolete pairing record can never occupy a "disconnected" slot.
+- Actors keep retrying in the background (backoff capped at 30 s for wired, 60 s for Bluetooth), so a light that comes back reconnects and reappears without waiting for a discovery cycle. An advertisement for a Bluetooth address that is still failing triggers an extra reconnect attempt (at most once per 20 s).
 
 Configuration is separate from runtime devices: `devices[]` bindings and `routing.manual` keep a light in the settings list even when it is absent. A `ble:` / `spp:` binding with no label/brightness/buzzer overrides, no assigned agents and no online device is pruned automatically 90 s after start (and every 30 s afterwards), so obsolete pairing records do not accumulate.
 
