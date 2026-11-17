@@ -17,9 +17,11 @@
 > 一律先做 `HELLO` 握手确认，握手不通过就当普通串口忽略。也可用配置绑定
 > `devices[{ port: "COM5", profile: "agentcore-light" }]` 指定 Windows 上的蓝牙 COM 口。
 >
-> AgentBeacon 会把 `CHG:` 上报里的电量/电压/电流显示在设备卡片上。注意 `CHG:1` 只表示“充电口有电/被检测到”，
-> 充满后依然为 1，厂商上位机也要结合电压变化才判断真正在充电；因此控制台按 `CHG` + 电量显示
-> 「电池供电 / USB 已接入·充电中 / USB 已接入·已充满」三种状态。AgentCore-Halo
+> AgentBeacon 会把 `CHG:` 上报里的电量/电压/电流显示在设备卡片上。`CHG:1` 只是固件的
+> **充电输入检测标志**：充满后依然是 1，检测脚悬空时也会误报（实测有一台 Light 未接 USB 却持续上报
+> `CHG:1`），所以控制台不把它当成“USB 已接入”：只有「`CHG=1` 且电量未满」才显示“充电中”，满电时
+> 只显示电量，原始标志放在悬停提示里；电量百分比优先按 `VBAT` 换算（2.80–4.02 V 线性），
+> 避免电量计未校准时报 0。AgentCore-Halo
 > 共用同一套协议，差异（名称前缀、`LC:` 自定义灯效、电量模型等）见
 > [`AgentCore-Halo-serial-protocol.md`](./AgentCore-Halo-serial-protocol.md)。
 >
@@ -40,7 +42,8 @@
 > `AF_BLUETOOTH/BTPROTO_RFCOMM` socket（`transport.rs` 的 `AgentCoreTransport::open_spp`），
 > 端口名形如 `spp:aa:bb:cc:dd:ee:ff`（可带通道号），也可以写进配置绑定。
 >
-> 诊断：`--example ble_scan`、`--example bt_links`（已知链路，不扫描）、
+> 诊断：`--example agentcore_watch -- ble:AA:BB:CC:DD:EE:FF 20`（原样打印 N 秒内的上报，
+> 核对 `CHG:`/`STATUS:` 这类心跳时很有用）、`--example ble_scan`、`--example bt_links`（已知链路，不扫描）、
 > `--example spp_probe -- AA:BB:CC:DD:EE:FF`（SPP 直连）。
 
 - 设备方案：杰理 JieLi **AC696N**（USB `0x4C4A:0x4155`，早期版本为 Espressif `0x303A`）

@@ -69,7 +69,7 @@ AgentCore-Light 在 USB CDC 或蓝牙 SPP 上跑同一套文本行协议（`HELL
   ```
 - **BLE（NUS）** —— 连 Nordic UART Service，跑的仍是同一套文本协议（写入按 MTU 分片、通知去重）。
 
-发现顺序按可靠性排：USB CDC（插着线）→ **BlueZ 已认识的设备**（配对过就够，不广播、不扫描）→ SPP（RFCOMM）→ 广播扫描兜底。这点很关键：设备一旦被连上就不再广播，只靠扫描永远发现不了一台「已经连着」的灯。已有 BLE 灯连接时后台仍暂停广播扫描（BlueZ 的发现过程会打断 LE 连接）。诊断工具：`cargo run -p agent-beacon-lights --example bt_links`（已知设备，不扫描）、`--example spp_probe -- AA:BB:CC:DD:EE:FF`、`--example ble_scan`、`--example ble_status -- name:AgentCore-Light-BLE`。详见[协议文档](docs/AgentCore-Light-serial-protocol.md)。
+发现顺序按可靠性排：USB CDC（插着线）→ **BlueZ 已认识的设备**（配对过就够，不广播、不扫描）→ SPP（RFCOMM）→ 广播扫描兜底。这点很关键：设备一旦被连上就不再广播，只靠扫描永远发现不了一台「已经连着」的灯。已有 BLE 灯连接时后台仍暂停广播扫描（BlueZ 的发现过程会打断 LE 连接）。诊断工具：`cargo run -p agent-beacon-lights --example bt_links`（已知设备，不扫描）、`--example spp_probe -- AA:BB:CC:DD:EE:FF`、`--example ble_scan`、`--example ble_status -- name:AgentCore-Light-BLE`；`--example agentcore_watch -- ble:AA:BB:CC:DD:EE:FF 20` 原样打印一段时间内的上报。详见[协议文档](docs/AgentCore-Light-serial-protocol.md)。
 
 ## 界面
 

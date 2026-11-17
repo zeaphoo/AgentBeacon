@@ -6,22 +6,25 @@ import { cn } from '../lib/utils'
 
 /// 电量读数对应的电源状态。
 ///
-/// `CHG:1` 只是固件的“充电输入检测”标志（充满后照样为 1，甚至可能是悬空引脚误报），
-/// 不能直接当成“正在充电”，所以再结合电量判断是否已充满。
+/// `CHG:1` 只是固件的“充电输入检测”标志：充满后仍为 1，检测脚悬空时也会误报
+/// （厂商上位机的注释里就写了这一点），所以：
+///
+/// * 只把它当成“可能有外部供电”，充满时不再声称“正在充电”；
+/// * 满电时不再宣称 USB 已接入（无法验证），只显示电量；
+/// * 真正的“充电中”要求 `CHG=1` 且电量还没满。
 export function batteryState(battery) {
   if (!battery) return 'unknown'
-  if (!battery.usb_online) return 'discharging'
   if (battery.percent != null && battery.percent >= 100) return 'full'
-  return 'charging'
+  return battery.usb_online ? 'charging' : 'discharging'
 }
 
-/// 设备电量徽章：USB 已接入为绿色，低于 20% 用警示色，其余为中性色。
+/// 设备电量徽章：充电中为绿色，≤20% 用警示色，其余为中性色。
 export function BatteryBadge({ battery, className }) {
   const { t, language } = useI18n()
   if (!battery) return null
   const percent = battery.percent
   const state = batteryState(battery)
-  const low = state === 'discharging' && percent != null && percent <= 20
+  const low = percent != null && percent <= 20
   const detail = []
   if (battery.millivolts != null) detail.push((battery.millivolts / 100).toFixed(2))
   if (battery.current_ma != null) detail.push(battery.current_ma)
@@ -29,30 +32,29 @@ export function BatteryBadge({ battery, className }) {
   if (detail.length === 2) {
     title.push(t('device.batteryDetail', { volts: detail[0], current: detail[1] }))
   }
+  // CHG 可能误报，放在提示里说明来源，别让它变成界面上的断言。
+  title.push(t(battery.usb_online ? 'device.chgDetected' : 'device.chgAbsent'))
   if (battery.updated_at_ms) {
     title.push(t('device.batteryUpdated', { time: formatAge(battery.updated_at_ms, language) }))
   }
-  const titleText = title.length > 0 ? title.join(' · ') : undefined
-  const Icon = state === 'discharging' ? BatteryMedium : BatteryCharging
+  const Icon = state === 'charging' ? BatteryCharging : BatteryMedium
   return (
     <Badge
       variant="outline"
-      title={titleText}
+      title={title.join(' · ')}
       className={cn(
         'gap-1 px-2 py-0 text-[11px] font-normal',
-        state === 'discharging'
-          ? low
+        state === 'charging'
+          ? 'tone-green border'
+          : low
             ? 'tone-amber border'
-            : 'text-muted-foreground'
-          : 'tone-green border',
+            : 'text-muted-foreground',
         className,
       )}
     >
       <Icon className="h-3 w-3" />
       {percent != null ? t('device.battery', { n: percent }) : t('device.batteryUnknown')}
       {state === 'charging' ? <span>· {t('device.charging')}</span> : null}
-      {state === 'full' ? <span>· {t('device.charged')}</span> : null}
-      {state === 'discharging' ? <span>· {t('device.onBattery')}</span> : null}
       {low ? <span>· {t('device.lowBattery')}</span> : null}
     </Badge>
   )

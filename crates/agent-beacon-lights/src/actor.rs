@@ -260,7 +260,7 @@ fn ingest_reports(writer: &mut Box<dyn Transport>, registry: &DeviceRegistry, id
             crate::agentcore::Report::Battery(battery) => {
                 let now = agent_beacon_core::now_ms();
                 let reading = crate::BatteryInfo {
-                    percent: battery.percent,
+                    percent: display_percent(battery.percent, battery.millivolts),
                     usb_online: battery.usb_online,
                     millivolts: battery.millivolts,
                     current_ma: battery.current_ma,
@@ -329,6 +329,23 @@ fn ingest_reports(writer: &mut Box<dyn Transport>, registry: &DeviceRegistry, id
         }
     }
     changed
+}
+
+/// 界面上显示的电量：优先用电压换算。
+///
+/// 电量计芯片的百分比不一定校准过（协议文档里的实测样例就是 `VBAT:311,PER:0`），
+/// 厂商上位机也是按 2.80–4.02 V 线性换算：`(VBAT - 280) * 100 / (402 - 280)`。
+pub fn display_percent(reported: Option<u8>, millivolts: Option<u32>) -> Option<u8> {
+    const EMPTY_CENTIVOLTS: u32 = 280;
+    const FULL_CENTIVOLTS: u32 = 402;
+    match millivolts {
+        Some(voltage) => {
+            let span = FULL_CENTIVOLTS - EMPTY_CENTIVOLTS;
+            let offset = voltage.saturating_sub(EMPTY_CENTIVOLTS);
+            Some(((offset * 100 + span / 2) / span).min(100) as u8)
+        }
+        None => reported,
+    }
 }
 
 /// 读当前登记的电量读数（没有登记过则为 `None`）。
@@ -484,6 +501,18 @@ mod tests {
         drop(desired_tx);
     }
 
+    #[test]
+    fn displayed_percent_prefers_the_voltage_curve() {
+        // 未校准的电量计：PER 报到 0，但 3.11 V 实际约 25%。
+        assert_eq!(display_percent(Some(0), Some(311)), Some(25));
+        // 满电：4.07 V 超过 4.02 V 上限，钳到 100。
+        assert_eq!(display_percent(Some(100), Some(407)), Some(100));
+        // 空电。
+        assert_eq!(display_percent(Some(0), Some(280)), Some(0));
+        // 没有电压时才退回电量计读数。
+        assert_eq!(display_percent(Some(42), None), Some(42));
+    }
+
     #[tokio::test(start_paused = true)]
     async fn battery_heartbeat_notifies_only_when_the_reading_changes() {
         let registry = new_registry();
@@ -523,7 +552,8 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(3_500)).await;
         let devices = snapshot(&registry);
         let battery = devices[0].battery.clone().expect("电量应已登记");
-        assert_eq!(battery.percent, Some(83));
+        // 3.90 V 按电量曲线换算约 90%。
+        assert_eq!(battery.percent, Some(90));
         assert!(!battery.usb_online);
         // 只有两次真正的变化会通知控制台刷新。
         assert_eq!(*hits.lock().unwrap(), 2);
