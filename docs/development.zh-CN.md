@@ -181,6 +181,14 @@ JSON hooks 与 Codex 安装器采用合并写入：用户已有的 hook 与其�
 
 所有 hook 都调用 `agent-beacon hook`：它读取 agent 载荷（JSON hooks 走 stdin，Codex notify 走最后一个参数），提取会话 ID、事件名与工具名，在 `--state auto` 时推导状态，然后上报到 `/api/v1/events`。它同时识别 Claude 式 `session_id` / `tool_name` 与 Antigravity 式 `conversationId` / `toolCall.name`，并且始终返回 0，服务不在时不会阻塞 agent。
 
+### 设备发现与保留策略
+
+发现逻辑跑在独立 worker 里（`crates/agent-beacon/src/worker.rs`），与每台设备的 actor 解耦：每 2 s 枚举串口，每 5 s 读一遍 BlueZ 已知设备（不触发发现，不会打断 LE 连接），每 15 s 扫一次 BLE 广播——只有在确实有 BLE 设备连着时才跳过扫描，一条陈旧配对记录不再挡住扫描。新识别到的设备立即登记并显示。
+
+运行时设备（`/api/v1/state` 的 `devices`）离线满 3 分钟（`OFFLINE_RETENTION_MS`）就从视图移除。因此被移除的蓝牙链路会进入 10 分钟冷却，避免过期的 BlueZ 配对记录每 3 分钟把设备“复活”一次；点「重新扫描」会清掉冷却。BLE 断链即使没有写失败也会被传输层的链路自检发现，不再等到下一条命令。
+
+配置与运行时设备分开：`devices[]` 绑定与 `routing.manual` 让配置过的灯即使不在场也留在设置页。`ble:` / `spp:` 绑定在没有 label/亮度/蜂鸣覆盖、没有分配 Agent、设备也不在线时，会在启动 90 s 后（之后每 30 s）自动清理，避免陈旧配对记录越积越多。
+
 ### 排查灯效变化
 
 服务在内存中保留最近 2000 条 hook 事件与状态迁移记录。每条记录包含收到的状态、agent 的原始事件名（`PreToolUse`、`tool_call` 等）、原始请求体、是否被接受，以及变化前后的聚合状态与灯效；TTL 过期、手动覆盖、配置修改和无法解析的上报也会记录。

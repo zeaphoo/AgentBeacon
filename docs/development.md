@@ -181,6 +181,14 @@ The JSON-hooks and Codex installers merge instead of overwriting: user-defined h
 
 All hook commands run `agent-beacon hook`, which reads the agent payload (stdin for JSON hooks, trailing argument for Codex notify), extracts the session ID / event name / tool name, derives the state when `--state auto` is used, and posts to `/api/v1/events`. It understands both Claude-style `session_id` / `tool_name` and Antigravity-style `conversationId` / `toolCall.name`, and always exits 0 so a missing service never blocks the agent.
 
+### Device discovery and retention
+
+Discovery runs in its own worker (`crates/agent-beacon/src/worker.rs`), independent of the per-device actors: it enumerates serial ports every 2 s, reads the devices BlueZ already knows every 5 s (no discovery, so it cannot break an LE link), and scans BLE advertisements every 15 s — the scan is skipped while a BLE device is actually connected, but a stale bonding record no longer suppresses it. A newly recognised device is registered and shown immediately.
+
+Runtime devices (`/api/v1/state` → `devices`) are dropped from the view once they have been offline for 3 minutes (`OFFLINE_RETENTION_MS`). Bluetooth links that were removed this way enter a 10-minute cooldown so an obsolete BlueZ pairing record cannot resurrect the device every 3 minutes; pressing *Rescan* clears the cooldown. A BLE link that drops without a failed write is detected through the transport's liveness check instead of waiting for the next command.
+
+Configuration is separate from runtime devices: `devices[]` bindings and `routing.manual` keep a light in the settings list even when it is absent. A `ble:` / `spp:` binding with no label/brightness/buzzer overrides, no assigned agents and no online device is pruned automatically 90 s after start (and every 30 s afterwards), so obsolete pairing records do not accumulate.
+
 ### Diagnosing light changes
 
 The service keeps an in-memory ring buffer of the latest 2000 hook events and state transitions. Every record includes the received state, the agent's original event name (`PreToolUse`, `tool_call`, …), the raw request body, whether it was accepted, and the aggregate/effect before and after the change. TTL expiry, manual overrides, config changes, and rejected payloads are recorded as well.

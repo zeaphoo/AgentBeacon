@@ -7,7 +7,7 @@ use agent_beacon_core::{DeviceProfile, Effect};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use crate::device::{update, DeviceRegistry};
+use crate::device::{mark_offline, mark_online, update, DeviceRegistry};
 use crate::transport::Transport;
 use crate::{plan_for, DesiredState, PlanOptions};
 
@@ -60,11 +60,7 @@ async fn run(mut config: ActorConfig) {
                     if config.profile.has_brightness_command() {
                         applied_brightness = Some(target.brightness);
                     }
-                    update(&config.registry, &config.id, |info| {
-                        info.connected = true;
-                        info.last_error = None;
-                        info.last_seen_ms = Some(agent_beacon_core::now_ms());
-                    });
+                    mark_online(&config.registry, &config.id, agent_beacon_core::now_ms());
                     transport = Some(opened);
                 }
                 Err(error) => {
@@ -98,6 +94,21 @@ async fn run(mut config: ActorConfig) {
                     }
                 }
                 _ = tokio::time::sleep(REPORT_POLL_INTERVAL) => {}
+            }
+            // BLE 断链时设备侧不会主动写失败，靠链路自检发现，避免界面一直显示“已连接”。
+            let down = transport
+                .as_ref()
+                .is_some_and(|writer| !writer.is_connected());
+            if down {
+                mark_offline(
+                    &config.registry,
+                    &config.id,
+                    agent_beacon_core::now_ms(),
+                    Some(format!("{} link is down", config.port)),
+                );
+                transport = None;
+                applied = None;
+                applied_brightness = None;
             }
             continue;
         }
@@ -291,14 +302,13 @@ fn ingest_reports(writer: &mut Box<dyn Transport>, registry: &DeviceRegistry, id
 
 fn mark_error(registry: &DeviceRegistry, id: &str, error: String) {
     tracing::warn!(device = id, error = %error, "device unavailable");
+    let now = agent_beacon_core::now_ms();
     update(registry, id, |info| {
-        // 只在 online -> offline 的瞬间记录断开时间；重试期间不要不断刷新宽限期。
         if info.connected {
-            info.last_seen_ms = Some(agent_beacon_core::now_ms());
+            info.last_seen_ms = Some(now);
         }
-        info.connected = false;
-        info.last_error = Some(error);
     });
+    mark_offline(registry, id, now, Some(error));
 }
 
 #[cfg(test)]

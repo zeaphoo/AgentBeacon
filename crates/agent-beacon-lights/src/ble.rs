@@ -339,6 +339,10 @@ impl Transport for BleTransport {
             .map(|mut lines| std::mem::take(&mut *lines))
             .unwrap_or_default()
     }
+
+    fn is_connected(&self) -> bool {
+        BleTransport::is_connected(self)
+    }
 }
 
 impl Drop for BleTransport {

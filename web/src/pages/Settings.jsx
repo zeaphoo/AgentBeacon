@@ -442,6 +442,9 @@ export default function Settings() {
                 <p className="mt-1 text-xs text-muted-foreground">
                   {t('settings.manualHint')}
                 </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t('settings.manualRetentionHint')}
+                </p>
                 {activeAgents.length === 0 && (
                   <p className="mt-1 text-xs text-warning">
                     {t('settings.noAgentsDetected')}

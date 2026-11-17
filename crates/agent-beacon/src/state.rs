@@ -308,10 +308,15 @@ impl BeaconState {
             if let Some(existing) = devices.get(&info.id) {
                 info.connected = info.connected || existing.connected;
                 info.last_seen_ms = info.last_seen_ms.or(existing.last_seen_ms);
+                info.offline_since_ms = info.offline_since_ms.or(existing.offline_since_ms);
                 info.effect = existing.effect;
                 if info.label.is_none() {
                     info.label = existing.label.clone();
                 }
+            }
+            // 刚登记还没连上的设备也要开始计时，离线保留期才有起点。
+            if !info.connected {
+                info.offline_since_ms.get_or_insert_with(now_ms);
             }
             devices.insert(info.id.clone(), info);
         }

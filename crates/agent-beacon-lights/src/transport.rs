@@ -18,6 +18,12 @@ pub trait Transport: Send {
     fn drain_lines(&mut self) -> Vec<String> {
         Vec::new()
     }
+
+    /// 链路是否还连着。默认 `true`：串口/SPP 靠读写失败判断，
+    /// BLE 由后台连接线程维护状态位，断链没有写操作时也能被及时发现。
+    fn is_connected(&self) -> bool {
+        true
+    }
 }
 
 pub struct SerialTransport {

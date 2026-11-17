@@ -139,6 +139,9 @@ pub struct DeviceInfo {
     pub connected: bool,
     #[serde(default)]
     pub last_seen_ms: Option<u64>,
+    /// 掉线（或首次登记后一直没连上）的时间；控制台据此在保留期后移除设备。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offline_since_ms: Option<u64>,
     pub effect: Effect,
     pub last_error: Option<String>,
 }
@@ -156,6 +159,7 @@ impl DeviceInfo {
             capabilities: profile.capabilities(),
             connected: false,
             last_seen_ms: None,
+            offline_since_ms: None,
             effect: Effect::Off,
             last_error: None,
         }
