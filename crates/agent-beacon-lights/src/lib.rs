@@ -106,8 +106,9 @@ pub struct BatteryInfo {
     /// 电量百分比（设备电量计读数）。
     #[serde(default)]
     pub percent: Option<u8>,
-    /// 是否接入充电输入（`CHG:1`）。
-    pub charging: bool,
+    /// 是否检测到充电输入（`CHG:1`）。它不等于“正在充电”——充满后仍然为 true，
+    /// 界面要结合电量再判断。
+    pub usb_online: bool,
     /// 电池电压，单位 0.01 V。
     #[serde(default)]
     pub millivolts: Option<u32>,
@@ -121,7 +122,7 @@ impl BatteryInfo {
     /// 两次读数在界面上是否等价（忽略采样时间）。
     pub fn same_reading(&self, other: &Self) -> bool {
         self.percent == other.percent
-            && self.charging == other.charging
+            && self.usb_online == other.usb_online
             && self.millivolts == other.millivolts
             && self.current_ma == other.current_ma
     }

@@ -261,7 +261,7 @@ fn ingest_reports(writer: &mut Box<dyn Transport>, registry: &DeviceRegistry, id
                 let now = agent_beacon_core::now_ms();
                 let reading = crate::BatteryInfo {
                     percent: battery.percent,
-                    charging: battery.charging,
+                    usb_online: battery.usb_online,
                     millivolts: battery.millivolts,
                     current_ma: battery.current_ma,
                     updated_at_ms: now,
@@ -276,7 +276,7 @@ fn ingest_reports(writer: &mut Box<dyn Transport>, registry: &DeviceRegistry, id
                 });
                 tracing::debug!(
                     device = id,
-                    charging = battery.charging,
+                    usb_online = battery.usb_online,
                     millivolts = battery.millivolts,
                     percent = battery.percent,
                     "agentcore battery report"
@@ -524,7 +524,7 @@ mod tests {
         let devices = snapshot(&registry);
         let battery = devices[0].battery.clone().expect("电量应已登记");
         assert_eq!(battery.percent, Some(83));
-        assert!(!battery.charging);
+        assert!(!battery.usb_online);
         // 只有两次真正的变化会通知控制台刷新。
         assert_eq!(*hits.lock().unwrap(), 2);
         drop(desired_tx);

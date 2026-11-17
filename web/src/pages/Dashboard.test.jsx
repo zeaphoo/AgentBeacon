@@ -79,7 +79,7 @@ describe('Dashboard', () => {
             firmware: 'v0.5.12',
             battery: {
               percent: 82,
-              charging: true,
+              usb_online: true,
               millivolts: 387,
               current_ma: 100,
               updated_at_ms: Date.now(),
@@ -99,7 +99,7 @@ describe('Dashboard', () => {
     expect(screen.getByText('AgentCore-Halo-BLE')).toBeInTheDocument()
     expect(screen.getByText('固件 v0.5.12')).toBeInTheDocument()
     expect(screen.getByText(/电量 82%/)).toBeInTheDocument()
-    expect(screen.getByText(/充电中/)).toBeInTheDocument()
+    expect(screen.getByText(/USB 已接入 · 充电中/)).toBeInTheDocument()
     // 悬停提示里带电压/电流与采样时间，说明这块是随 CHG: 心跳刷新的实时读数。
     const badge = screen.getByText(/电量 82%/).closest('div')
     expect(badge.getAttribute('title')).toContain('3.87 V')

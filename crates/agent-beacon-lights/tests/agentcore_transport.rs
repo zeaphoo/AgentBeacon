@@ -123,7 +123,7 @@ fn handshakes_and_drains_reports_over_a_virtual_port() {
             _ => None,
         })
         .expect("应当读到电量心跳");
-    assert!(battery.charging);
+    assert!(battery.usb_online);
     assert_eq!(battery.millivolts, Some(311));
 
     // 队列取空后不应重复给出同一批行。

@@ -32,7 +32,7 @@ describe('resolveLights', () => {
           effect: 'calm',
           name: 'AgentCore-Halo-BLE',
           firmware: 'v0.5.12',
-          battery: { percent: 82, charging: true, millivolts: 387, updated_at_ms: 1 },
+          battery: { percent: 82, usb_online: true, millivolts: 387, updated_at_ms: 1 },
         },
       ],
       routing: [{ device: 'ble:24:26:4c:c3:fd:10', connected: true, effect: 'calm' }],

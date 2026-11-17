@@ -269,7 +269,9 @@ export const messages = {
 
     'device.battery': '电量 {n}%',
     'device.batteryUnknown': '电量未知',
-    'device.charging': '充电中',
+    'device.charging': 'USB 已接入 · 充电中',
+    'device.charged': 'USB 已接入 · 已充满',
+    'device.onBattery': '电池供电',
     'device.lowBattery': '电量偏低',
     'device.firmware': '固件 {version}',
     'device.batteryDetail': '电压 {volts} V · 充电电流 {current} mA',
@@ -593,7 +595,9 @@ export const messages = {
 
     'device.battery': 'Battery {n}%',
     'device.batteryUnknown': 'Battery unknown',
-    'device.charging': 'Charging',
+    'device.charging': 'USB connected · Charging',
+    'device.charged': 'USB connected · Fully charged',
+    'device.onBattery': 'On battery',
     'device.lowBattery': 'Low battery',
     'device.firmware': 'Firmware {version}',
     'device.batteryDetail': 'Voltage {volts} V · Charge current {current} mA',

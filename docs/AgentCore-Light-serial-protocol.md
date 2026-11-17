@@ -17,7 +17,9 @@
 > 一律先做 `HELLO` 握手确认，握手不通过就当普通串口忽略。也可用配置绑定
 > `devices[{ port: "COM5", profile: "agentcore-light" }]` 指定 Windows 上的蓝牙 COM 口。
 >
-> AgentBeacon 会把 `CHG:` 上报里的电量/充电状态/电压/电流显示在设备卡片上；AgentCore-Halo
+> AgentBeacon 会把 `CHG:` 上报里的电量/电压/电流显示在设备卡片上。注意 `CHG:1` 只表示“充电口有电/被检测到”，
+> 充满后依然为 1，厂商上位机也要结合电压变化才判断真正在充电；因此控制台按 `CHG` + 电量显示
+> 「电池供电 / USB 已接入·充电中 / USB 已接入·已充满」三种状态。AgentCore-Halo
 > 共用同一套协议，差异（名称前缀、`LC:` 自定义灯效、电量模型等）见
 > [`AgentCore-Halo-serial-protocol.md`](./AgentCore-Halo-serial-protocol.md)。
 >

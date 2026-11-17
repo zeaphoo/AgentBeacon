@@ -258,7 +258,9 @@ pub struct SleepReport {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BatteryReport {
-    pub charging: bool,
+    /// 固件的充电输入标志（`CHG`）。注意：它只代表“充电口有电/被检测到”，
+    /// 不等于是“正在充电”——厂商上位机也要结合电压变化才判断真正在充电。
+    pub usb_online: bool,
     /// 电池电压，单位 0.01 V。
     pub millivolts: Option<u32>,
     /// 电量计芯片给出的百分比。
@@ -376,7 +378,7 @@ pub fn parse_report(line: &str) -> Report {
         "CHG" => {
             let items = fields(rest);
             Report::Battery(BatteryReport {
-                charging: items
+                usb_online: items
                     .iter()
                     .find(|(name, _)| name.is_none())
                     .and_then(|(_, value)| parse_bool(value))
@@ -536,7 +538,7 @@ mod tests {
         let Report::Battery(battery) = parse_report("CHG:1,VBAT:311,PER:0,CUR:100") else {
             panic!("应为 CHG");
         };
-        assert!(battery.charging);
+        assert!(battery.usb_online);
         assert_eq!(battery.millivolts, Some(311));
         assert_eq!(battery.percent, Some(0));
         assert_eq!(battery.current_ma, Some(100));
