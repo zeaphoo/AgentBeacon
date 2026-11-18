@@ -72,6 +72,7 @@ describe('Control', () => {
     expect(
       within(screen.getByTestId('control-status')).getByText('无手动控制'),
     ).toBeInTheDocument()
+    expect(screen.getByText('灯效跟随聚合状态自动变化')).toBeInTheDocument()
 
     await user.click(screen.getByText('需要关注').closest('button'))
     const duration = screen.getByLabelText('持续时长（秒）')
@@ -87,18 +88,20 @@ describe('Control', () => {
       })
     })
 
-    // 应用后状态面板就地显示手动控制状态，不再额外展示自动灯效。
+    // 应用后状态面板就地显示手动控制状态，颜色跟随覆盖灯效。
     const status = screen.getByTestId('control-status')
+    expect(status.firstElementChild).toHaveClass('tone-amber')
     expect(within(status).getByText('需要关注')).toBeInTheDocument()
     expect(within(status).queryByText('无手动控制')).not.toBeInTheDocument()
     expect(within(status).getByText(/剩余 \d+ 秒后恢复自动/)).toBeInTheDocument()
-    const restore = within(status).getByRole('button', { name: '恢复自动' })
+    const restore = within(status).getByRole('button', { name: '结束手动控制' })
 
     await user.click(restore)
     await waitFor(() => {
       expect(api.cancelControl).toHaveBeenCalled()
     })
-    expect(screen.queryByRole('button', { name: '恢复自动' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '结束手动控制' })).not.toBeInTheDocument()
+    expect(within(screen.getByTestId('control-status')).getByText('无手动控制')).toBeInTheDocument()
   })
 
   it('saves the profile binding chosen in the device list', async () => {

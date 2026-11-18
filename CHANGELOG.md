@@ -29,7 +29,7 @@ English | [中文](CHANGELOG.zh-CN.md)
 
 ### Fixed
 
-- *Manual light control* is a single card now: the success banner and standalone *restore* button are gone. The status area reads *no manual control* when idle, or the effect, countdown, and restore button when one is active.
+- *Manual light control* is a single card now: the success banner and standalone *restore* button are gone. The status area is a panel tinted with the override effect: it reads *no manual control* plus an automatic hint when idle, or the effect, countdown, and an *end manual control* button when one is active.
 - The dashboard override notice now says *all/some devices manually controlled* depending on scope, and its colour follows the overridden effect.
 - AgentCore-Light device support (`agentcore-light` profile): text-line protocol with `HELLO` handshake, `IDLE`/`BUSY`/`SUCCESS`/`ERROR`/`WAIT_CONFIRM` states, `BRIGHTNESS_LEVEL` (percent ×3) and buzzer mapping, plus a background reader that drains the device's `STATUS`/`CHG` reports.
 - AgentCore-Light discovery now reads the devices **BlueZ already knows** before falling back to advertising scans (every 10 s, no BLE discovery triggered): a light that is already connected stops advertising, so scanning alone can never find it — and skipping discovery also avoids tearing down existing LE links.

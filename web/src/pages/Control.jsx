@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { BookOpen, Clock, Lightbulb, RefreshCw, RotateCcw, Usb } from 'lucide-react'
+import { BookOpen, Clock, Lightbulb, RefreshCw, Usb, X } from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
 import { usePreferencesStore } from '../store/preferences'
 import { useI18n } from '../i18n'
@@ -279,45 +279,51 @@ export default function Control() {
               </div>
             </div>
 
-            <div
-              data-testid="control-status"
-              className="space-y-3 border-t border-border/70 pt-4 text-sm lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0"
-            >
-              <div className="flex items-center gap-2 font-medium">
-                <Clock className="h-4 w-4" />
-                {t('control.currentStatus')}
-              </div>
-              {override ? (
-                <>
-                  <div className="flex items-center justify-between gap-3">
-                    <Badge
-                      className={cn('border', TONE_CLASSES[effectTone(override.effect)])}
-                    >
+            <div data-testid="control-status" className="space-y-2">
+              <div
+                className={cn(
+                  'space-y-3 rounded-xl border p-4',
+                  override
+                    ? TONE_CLASSES[effectTone(override.effect)]
+                    : 'bg-muted/30 text-muted-foreground',
+                )}
+              >
+                <div className="flex items-center gap-2 text-xs font-medium">
+                  <Clock className="h-3.5 w-3.5" />
+                  {t('control.currentStatus')}
+                </div>
+                {override ? (
+                  <>
+                    <div className="text-xl font-semibold">
                       {effectLabel(override.effect, t)}
-                    </Badge>
+                    </div>
+                    <div className="space-y-1 text-xs opacity-80">
+                      <div>{t('control.remaining', { n: remaining })}</div>
+                      <div>
+                        {override.device
+                          ? t('control.onlyDevice', { device: override.device })
+                          : t('control.allTargets')}
+                      </div>
+                    </div>
                     <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-muted-foreground"
-                      aria-label={t('control.restore')}
-                      title={t('control.restore')}
+                      variant="outline"
+                      size="sm"
+                      className="w-full bg-background/60"
                       onClick={handleCancel}
                     >
-                      <RotateCcw className="h-3.5 w-3.5" />
+                      <X className="h-3.5 w-3.5" />
+                      {t('control.stopOverride')}
                     </Button>
-                  </div>
-                  <div className="space-y-1 text-xs text-muted-foreground">
-                    <div>{t('control.remaining', { n: remaining })}</div>
-                    <div>
-                      {override.device
-                        ? t('control.onlyDevice', { device: override.device })
-                        : t('control.allTargets')}
+                  </>
+                ) : (
+                  <>
+                    <div className="text-xl font-semibold">
+                      {t('control.notEnabled')}
                     </div>
-                  </div>
-                </>
-              ) : (
-                <div className="text-muted-foreground">{t('control.notEnabled')}</div>
-              )}
+                    <p className="text-xs">{t('control.autoHint')}</p>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </CardContent>
