@@ -7,12 +7,40 @@
 
 [English](CHANGELOG.md) | 中文
 
-## [0.2.0-rc.1] - 2026-11-10
+## [0.2.0-rc.2] - 2026-11-18
 
 ### 新增
 
-- 控制台设备卡片、设备列表与「支持的型号」弹窗展示型号渲染图，方便一眼区分不同设备；非方形素材按原比例适配，未收录型号回落为通用图标。
+- 新增 AgentCore-Halo 型号（`agentcore-halo`），与 AgentCore-Light 共用文本行协议，按产品名自动区分；控制台展示设备自报名、固件版本与电量。
+- 控制台设备卡片、设备列表与「支持的型号」弹窗展示型号渲染图，非方形素材按原比例适配，未收录型号回落为通用图标。
 - 设置页新增「显示设备图片」开关（默认开启），关闭后设备卡片、列表与支持型号弹窗改用通用图标。
+- 活动会话卡片只展示最近 7 条，新增内存会话历史与「查看全部会话」详情弹窗。
+- 设置页服务卡片新增事件日志弹窗，可按 agent 与关键词过滤；事件日志展示 agent 事件名与原始上报载荷。
+- 新增 Google Antigravity 与 Grok Build 集成。Antigravity 在 `~/.gemini/config/hooks.json` 写受管的 `agent-beacon` 块（工具事件用 matcher 分组，其余事件直接放 handler）；Grok Build 使用独立的 `~/.grok/hooks/agent-beacon.json`，事件名与 Claude 式一致。
+- 补齐 CodeBuddy、WorkBuddy、GitHub Copilot、Hermes、ZCode 等集成的品牌 Logo。
+
+### 变更
+
+- 设备发现改为独立扫描 worker；运行时离线设备保留 3 分钟后自动移除，蓝牙设备连上后才显示。
+- 电量与充电状态变化时主动广播给控制台，避免界面读数滞后。
+- 数据目录统一到应用数据根，Bundle ID 改为 `net.quadhub.agent-beacon`。
+- 手动灯效的时长改为在控制台本地记住上次使用值，不再依赖全局配置（见「移除」）。
+
+### 修复
+
+- 充电状态改为看电压是否持续上升，不再信 `CHG` 引脚；电量优先按电压换算，`CHG` 只作为充电输入标志展示，不再直接显示成「USB 已接入」或「充电中」。
+- 事件日志与最近会话弹窗在内容过少时保持最小高度，避免弹窗抖动。
+- 「手动灯光控制」合并为单卡片，去掉成功横幅与独立「恢复自动」按钮；状态区改为与灯效同色系的面板：无覆盖时显示「无手动控制」与自动说明，有覆盖时显示灯效、倒计时和「结束手动控制」按钮。
+- 首页手动控制提示改为按作用范围显示「全部/部分设备被手动控制」，颜色跟随被覆盖的灯效。
+
+### 移除
+
+- 移除「手动覆盖默认时长」配置项（`manual_override_default_secs`）：控制台改为在本地记住上次使用的时长，后端在未传 `duration_secs` 时固定使用 60 秒；旧配置中的遗留字段会被忽略。
+- 移除 mock 设备概念：`mock` profile、`mock.enabled` 配置、mock 命令日志、控制台引用和无需硬件的 mock actor 全部删除。设备只来自真实发现。
+
+## [0.2.0-rc.1] - 2026-11-10
+
+### 新增
 
 - 控制台新增「Agent 集成」页面：列出所有检测到的 agent 及其安装状态，支持一键安装/升级/卸载，以及「自动安装」开关。
 - 首次启动提示：检测到已安装但未接入的 agent 时弹出，接入或跳过后写入 `integrations.onboarded`，不会重复打扰。
@@ -20,7 +48,6 @@
 - 新增配置项 `integrations.auto_install`，服务启动时自动安装检测到的 agent。
 - 新增 Claude Code、Codex CLI、Qoder CLI 以及 Gemini CLI 家族（Gemini / Qwen Code / iFlow）集成，可用 `agent-beacon integrate install <target>` 安装。
 - 新增 CodeBuddy、WorkBuddy、GitHub Copilot、ZCode、Hermes Agent 集成。前三个写 Claude 式 `settings.json` hooks（GitHub Copilot 用 camelCase 事件名），ZCode 写 `~/.zcode/cli/config.json` 里的 `{ "type": "process" }` 条目，Hermes Agent 则是 `~/.hermes/plugins/agent-beacon/` 下的受管插件目录（`plugin.yaml` + python 模块）。
-- 新增 Google Antigravity 与 Grok Build 集成。Antigravity 在 `~/.gemini/config/hooks.json` 写受管的 `agent-beacon` 块（工具事件用 matcher 分组，其余事件直接放 handler）；Grok Build 使用独立的 `~/.grok/hooks/agent-beacon.json`，事件名与 Claude 式一致。
 - 新增 `agent-beacon hook` 命令：从 stdin 或参数读取 agent 的 hook 载荷，按事件名推导状态并上报。它始终返回 0，服务未运行也不会阻塞 agent。
 - 集成安装器改为合并写入：`settings.json` 的 hooks 与 `config.toml` 的 `notify` 会带标记保留，升级时原地更新，卸载时只删除自己的条目，不影响用户已有配置。
 - 新增 hook 诊断日志：`agent-beacon hooks`、`GET/DELETE /api/v1/hooks`，并在服务日志中输出 `hook journal`。
@@ -38,14 +65,7 @@
 
 ### 修复
 
-- 「手动灯光控制」合并为单卡片，去掉成功横幅与独立「恢复自动」按钮；状态区改为与灯效同色系的面板：无覆盖时显示「无手动控制」与自动说明，有覆盖时显示灯效、倒计时和「结束手动控制」按钮。
-- 首页手动控制提示改为按作用范围显示「全部/部分设备被手动控制」，颜色跟随被覆盖的灯效。
 - Pi 集成在扩展热重载时不再于运行中误报 `idle`；上报会携带 Pi session id，并按顺序发送（latest-wins）。
-
-### 移除
-
-- 移除「手动覆盖默认时长」配置项：控制台改为在本地记住上次使用的时长，后端在未传 `duration_secs` 时固定使用 60 秒。
-- 移除 mock 设备概念：`mock` profile、`mock.enabled` 配置、mock 命令日志、控制台引用和无需硬件的 mock actor 全部删除。设备只来自真实发现。
 
 ## [0.1.0-rc.1] - 2026-11-04
 
@@ -86,5 +106,6 @@
 - 启用告警蜂鸣前增加响度与不适警告确认对话框。
 - 统一聚合状态与活动会话的状态颜色，并实现服务运行时长实时显示。
 
+[0.2.0-rc.2]: https://github.com/zeaphoo/AgentBeacon/releases/tag/v0.2.0-rc.2
 [0.2.0-rc.1]: https://github.com/zeaphoo/AgentBeacon/releases/tag/v0.2.0-rc.1
 [0.1.0-rc.1]: https://github.com/zeaphoo/AgentBeacon/releases/tag/v0.1.0-rc.1
