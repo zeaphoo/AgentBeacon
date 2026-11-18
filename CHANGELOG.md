@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## [0.2.0-rc.3] - 2026-11-18
+
+### Fixed
+
+- Each device actor now runs on its own OS thread with a current-thread runtime, so blocking serial/BLE work (open, write timeouts, disconnect cleanup) no longer occupies the main Tokio runtime; one flaky device can no longer slow down API/SSE responses.
+- Actor shutdown is cooperative: `abort` no longer blocks on driver I/O, and a panicking thread is still marked as finished.
+- Direct SPP (RFCOMM) now has a 1-second send timeout so a peer that stops reading cannot wedge the device thread forever.
+
 ## [0.2.0-rc.2] - 2026-11-18
 
 ### Added
@@ -105,6 +113,7 @@ English | [中文](CHANGELOG.zh-CN.md)
 - Buzzer enablement now requires a warning confirmation dialog about loud sound and discomfort.
 - Aggregate/session state color consistency and live service uptime rendering.
 
+[0.2.0-rc.3]: https://github.com/zeaphoo/AgentBeacon/releases/tag/v0.2.0-rc.3
 [0.2.0-rc.2]: https://github.com/zeaphoo/AgentBeacon/releases/tag/v0.2.0-rc.2
 [0.2.0-rc.1]: https://github.com/zeaphoo/AgentBeacon/releases/tag/v0.2.0-rc.1
 [0.1.0-rc.1]: https://github.com/zeaphoo/AgentBeacon/releases/tag/v0.1.0-rc.1

@@ -7,6 +7,14 @@
 
 [English](CHANGELOG.md) | 中文
 
+## [0.2.0-rc.3] - 2026-11-18
+
+### 修复
+
+- 设备 actor 改为每台设备独立 OS 线程 + current-thread runtime：串口/BLE 的打开、写超时、断链清理等同步阻塞不再占用主 tokio runtime，单台设备掉线不会拖慢 API/SSE。
+- actor 停止改为协作式，`abort` 不再阻塞等待驱动 I/O；线程 panic 也能正确标记为已结束。
+- 直连 SPP（RFCOMM）增加 1 秒发送超时，避免对端不读时设备线程永久卡住。
+
 ## [0.2.0-rc.2] - 2026-11-18
 
 ### 新增
@@ -106,6 +114,7 @@
 - 启用告警蜂鸣前增加响度与不适警告确认对话框。
 - 统一聚合状态与活动会话的状态颜色，并实现服务运行时长实时显示。
 
+[0.2.0-rc.3]: https://github.com/zeaphoo/AgentBeacon/releases/tag/v0.2.0-rc.3
 [0.2.0-rc.2]: https://github.com/zeaphoo/AgentBeacon/releases/tag/v0.2.0-rc.2
 [0.2.0-rc.1]: https://github.com/zeaphoo/AgentBeacon/releases/tag/v0.2.0-rc.1
 [0.1.0-rc.1]: https://github.com/zeaphoo/AgentBeacon/releases/tag/v0.1.0-rc.1

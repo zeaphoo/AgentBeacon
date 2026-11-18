@@ -23,7 +23,7 @@ Antigravity 的 `hooks.json` 以 hook 名为顶层键。AgentBeacon 使用固定
     "SessionStart": [
       {
         "type": "command",
-        "command": "'/usr/local/bin/agent-beacon' hook --agent antigravity --state idle --event SessionStart # agent-beacon-hook:antigravity:0.2.0-rc.2"
+        "command": "'/usr/local/bin/agent-beacon' hook --agent antigravity --state idle --event SessionStart # agent-beacon-hook:antigravity:0.2.0-rc.3"
       }
     ],
     "PreToolUse": [
@@ -32,7 +32,7 @@ Antigravity 的 `hooks.json` 以 hook 名为顶层键。AgentBeacon 使用固定
         "hooks": [
           {
             "type": "command",
-            "command": "'/usr/local/bin/agent-beacon' hook --agent antigravity --state working --event PreToolUse # agent-beacon-hook:antigravity:0.2.0-rc.2"
+            "command": "'/usr/local/bin/agent-beacon' hook --agent antigravity --state working --event PreToolUse # agent-beacon-hook:antigravity:0.2.0-rc.3"
           }
         ]
       }

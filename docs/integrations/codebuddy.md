@@ -19,7 +19,7 @@ agent-beacon integrate install codebuddy
         "hooks": [
           {
             "type": "command",
-            "command": "'/usr/local/bin/agent-beacon' hook --agent codebuddy --state working --event PreToolUse # agent-beacon-hook:codebuddy:0.2.0-rc.2"
+            "command": "'/usr/local/bin/agent-beacon' hook --agent codebuddy --state working --event PreToolUse # agent-beacon-hook:codebuddy:0.2.0-rc.3"
           }
         ]
       }
