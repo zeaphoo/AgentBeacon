@@ -103,6 +103,11 @@ mod linux {
         tv_sec: 0,
         tv_usec: 100_000,
     };
+    /// 写超时：对端不读时不能让设备线程永久卡在 `send()` 里。
+    const WRITE_TIMEOUT: libc::timeval = libc::timeval {
+        tv_sec: 1,
+        tv_usec: 0,
+    };
 
     /// 一条已建立的 RFCOMM 链路（`Read`/`Write` 直接对应字节流）。
     pub struct RfcommLink {
@@ -140,18 +145,23 @@ mod linux {
         // SAFETY: `raw` 刚由 socket() 返回，所有权转交 OwnedFd，后续不再单独 close。
         let fd = unsafe { OwnedFd::from_raw_fd(raw) };
 
-        // SAFETY: 设置本 socket 的读超时，参数指向本函数栈上的 timeval。
-        let applied = unsafe {
-            libc::setsockopt(
-                fd.as_raw_fd(),
-                libc::SOL_SOCKET,
-                libc::SO_RCVTIMEO,
-                &READ_TIMEOUT as *const libc::timeval as *const libc::c_void,
-                std::mem::size_of::<libc::timeval>() as libc::socklen_t,
-            )
-        };
-        if applied < 0 {
-            return Err(format!("failed to configure RFCOMM socket: {}", io_error()));
+        // SAFETY: 设置本 socket 的读/写超时，参数指向本函数栈上的 timeval。
+        for (option, timeout) in [
+            (libc::SO_RCVTIMEO, &READ_TIMEOUT),
+            (libc::SO_SNDTIMEO, &WRITE_TIMEOUT),
+        ] {
+            let applied = unsafe {
+                libc::setsockopt(
+                    fd.as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    option,
+                    timeout as *const libc::timeval as *const libc::c_void,
+                    std::mem::size_of::<libc::timeval>() as libc::socklen_t,
+                )
+            };
+            if applied < 0 {
+                return Err(format!("failed to configure RFCOMM socket: {}", io_error()));
+            }
         }
 
         let address = SockaddrRc {

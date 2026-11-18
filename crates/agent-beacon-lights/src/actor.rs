@@ -1,11 +1,11 @@
 //! 每设备一个 actor：latest-wins 执行命令计划，失败后退避重连并重放最后灯效。
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use agent_beacon_core::{DeviceProfile, Effect};
 use tokio::sync::watch;
-use tokio::task::JoinHandle;
 
 use crate::device::{mark_offline, mark_online, update, DeviceRegistry};
 use crate::transport::Transport;
@@ -35,11 +35,90 @@ pub struct ActorConfig {
     pub on_change: Option<OnlineHook>,
 }
 
-pub fn spawn(config: ActorConfig) -> JoinHandle<()> {
-    tokio::spawn(run(config))
+/// 设备 actor 句柄。
+///
+/// actor 跑在自己的 OS 线程和 current-thread runtime 上，串口/BLE 的同步阻塞
+/// （打开、握手、写超时、断链 join）不会占用主 tokio runtime 的 worker，
+/// 因此 API/SSE 不会被某台掉线设备拖慢。
+pub struct ActorHandle {
+    shutdown: watch::Sender<bool>,
+    finished: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
-async fn run(mut config: ActorConfig) {
+/// 线程退出（包括 panic）时把 `finished` 置位，避免管理循环永远等一个已死的 actor。
+struct FinishGuard(Arc<AtomicBool>);
+
+impl Drop for FinishGuard {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
+impl ActorHandle {
+    pub fn is_finished(&self) -> bool {
+        self.finished.load(Ordering::Relaxed)
+    }
+
+    /// 请求 actor 退出。
+    ///
+    /// 不 `join`：它可能正卡在驱动 I/O 里，强行等待会把调用方（管理循环）拖住。
+    /// 线程会在当前阻塞调用返回后看到停止信号并退出。
+    pub fn abort(&mut self) {
+        let _ = self.shutdown.send(true);
+        self.thread.take();
+    }
+}
+
+impl Drop for ActorHandle {
+    fn drop(&mut self) {
+        let _ = self.shutdown.send(true);
+        self.thread.take();
+    }
+}
+
+pub fn spawn(config: ActorConfig) -> ActorHandle {
+    let (shutdown, shutdown_rx) = watch::channel(false);
+    let finished = Arc::new(AtomicBool::new(false));
+    let thread_finished = finished.clone();
+    let id = config.id.clone();
+
+    let thread = std::thread::Builder::new()
+        .name(format!("device-{id}"))
+        .spawn(move || {
+            let _finish = FinishGuard(thread_finished);
+            let runtime = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    tracing::error!(device = %config.id, error = %error, "failed to start device actor runtime");
+                    return;
+                }
+            };
+            runtime.block_on(run(config, shutdown_rx));
+        });
+
+    match thread {
+        Ok(thread) => ActorHandle {
+            shutdown,
+            finished,
+            thread: Some(thread),
+        },
+        Err(error) => {
+            tracing::error!(device = %id, error = %error, "failed to spawn device actor thread");
+            finished.store(true, Ordering::Relaxed);
+            ActorHandle {
+                shutdown,
+                finished,
+                thread: None,
+            }
+        }
+    }
+}
+
+async fn run(mut config: ActorConfig, mut shutdown: watch::Receiver<bool>) {
     let mut transport: Option<Box<dyn Transport>> = None;
     // CHG 引脚不可靠，只有电压确实在上升才判定“正在充电”。
     let mut charge = crate::charge::ChargeTracker::default();
@@ -49,6 +128,9 @@ async fn run(mut config: ActorConfig) {
     let _ = &config.port;
 
     loop {
+        if *shutdown.borrow() {
+            return;
+        }
         if transport.is_none() {
             match (config.factory)() {
                 Ok(mut opened) => {
@@ -65,7 +147,10 @@ async fn run(mut config: ActorConfig) {
                     }
                     if let Some(error) = failed {
                         mark_error(&config.registry, &config.id, error);
-                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        tokio::select! {
+                            _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+                            _ = shutdown.changed() => return,
+                        }
                         continue;
                     }
                     if config.profile.has_brightness_command() {
@@ -80,7 +165,10 @@ async fn run(mut config: ActorConfig) {
                 Err(error) => {
                     mark_error(&config.registry, &config.id, error);
                     notify(&config);
-                    tokio::time::sleep(Duration::from_secs(backoff)).await;
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(backoff)) => {}
+                        _ = shutdown.changed() => return,
+                    }
                     backoff = (backoff * 2).min(config.max_backoff_secs.max(1));
                     continue;
                 }
@@ -111,6 +199,7 @@ async fn run(mut config: ActorConfig) {
                     }
                 }
                 _ = tokio::time::sleep(REPORT_POLL_INTERVAL) => {}
+                _ = shutdown.changed() => return,
             }
             // BLE 断链时设备侧不会主动写失败，靠链路自检发现，避免界面一直显示“已连接”。
             let down = transport
@@ -140,7 +229,10 @@ async fn run(mut config: ActorConfig) {
                 transport = None;
                 applied = None;
                 applied_brightness = None;
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+                    _ = shutdown.changed() => return,
+                }
                 continue;
             }
             applied_brightness = Some(target.brightness);
@@ -151,6 +243,9 @@ async fn run(mut config: ActorConfig) {
                 let replay_plan = replay_plan(config.profile, effect);
                 let mut replay_failed = false;
                 for command in replay_plan.commands {
+                    if *shutdown.borrow() {
+                        return;
+                    }
                     if command.delay_ms > 0 {
                         tokio::time::sleep(Duration::from_millis(command.delay_ms)).await;
                     }
@@ -168,7 +263,10 @@ async fn run(mut config: ActorConfig) {
                     }
                 }
                 if replay_failed {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+                        _ = shutdown.changed() => return,
+                    }
                 }
                 continue;
             }
@@ -185,6 +283,9 @@ async fn run(mut config: ActorConfig) {
 
         let mut interrupted = false;
         for command in plan.commands {
+            if *shutdown.borrow() {
+                return;
+            }
             if command.delay_ms > 0 {
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_millis(command.delay_ms)) => {}
@@ -192,6 +293,7 @@ async fn run(mut config: ActorConfig) {
                         interrupted = true;
                         break;
                     }
+                    _ = shutdown.changed() => return,
                 }
             }
             if interrupted {
@@ -215,7 +317,10 @@ async fn run(mut config: ActorConfig) {
                     applied = None;
                     applied_brightness = None;
                     interrupted = true;
-                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+                        _ = shutdown.changed() => return,
+                    }
                     break;
                 }
             }
@@ -476,7 +581,42 @@ mod tests {
         }
     }
 
-    #[tokio::test(start_paused = true)]
+    #[test]
+    fn spawn_does_not_wait_for_a_blocking_factory() {
+        let (gate_tx, gate_rx) = std::sync::mpsc::channel::<()>();
+        let gate_rx = std::sync::Mutex::new(gate_rx);
+        let (_desired_tx, desired_rx) = watch::channel(desired(Effect::Off, 50));
+        let started = std::time::Instant::now();
+        let mut actor = spawn(ActorConfig {
+            id: "slow:0".into(),
+            port: "slow:0".into(),
+            profile: DeviceProfile::AgentCore,
+            factory: Arc::new(move || {
+                // 模拟 BLE 连接/握手卡住：spawn 必须立即返回。
+                let _ = gate_rx.lock().unwrap().recv();
+                Err("released".into())
+            }),
+            desired: desired_rx,
+            registry: new_registry(),
+            max_backoff_secs: 30,
+            on_online: None,
+            on_change: None,
+        });
+
+        assert!(started.elapsed() < Duration::from_millis(100));
+        actor.abort();
+        gate_tx.send(()).unwrap();
+
+        for _ in 0..100 {
+            if actor.is_finished() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(actor.is_finished(), "abort 后 actor 线程应退出");
+    }
+
+    #[tokio::test]
     async fn online_hook_fires_on_each_successful_connect() {
         let registry = new_registry();
         let (desired_tx, desired_rx) = watch::channel(desired(Effect::Calm, 50));
@@ -525,7 +665,7 @@ mod tests {
         assert_eq!(display_percent(Some(42), None), Some(42));
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn battery_heartbeat_notifies_only_when_the_reading_changes() {
         let registry = new_registry();
         upsert(
@@ -572,7 +712,7 @@ mod tests {
         drop(desired_tx);
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn latest_wins_aborts_stale_plan() {
         let registry = new_registry();
         upsert(
@@ -583,7 +723,7 @@ mod tests {
         let factory_log = log.clone();
         let (desired_tx, desired_rx) = watch::channel(desired(Effect::Busy, 50));
 
-        let actor = spawn(ActorConfig {
+        let mut actor = spawn(ActorConfig {
             id: "ml:0".into(),
             port: "/dev/fake".into(),
             profile: DeviceProfile::Mlight3Led,
@@ -626,7 +766,7 @@ mod tests {
         actor.abort();
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn agentcore_sends_state_names_and_scaled_brightness() {
         let registry = new_registry();
         upsert(
@@ -637,7 +777,7 @@ mod tests {
         let factory_log = log.clone();
         let (desired_tx, desired_rx) = watch::channel(desired(Effect::Busy, 50));
 
-        let actor = spawn(ActorConfig {
+        let mut actor = spawn(ActorConfig {
             id: "ac:0".into(),
             port: "/dev/fake".into(),
             profile: DeviceProfile::AgentCore,
@@ -688,7 +828,7 @@ mod tests {
         actor.abort();
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn brightness_change_replays_current_state_without_off() {
         let registry = new_registry();
         upsert(
@@ -699,7 +839,7 @@ mod tests {
         let factory_log = log.clone();
         let (desired_tx, desired_rx) = watch::channel(desired(Effect::Busy, 100));
 
-        let actor = spawn(ActorConfig {
+        let mut actor = spawn(ActorConfig {
             id: "ml:0".into(),
             port: "/dev/fake".into(),
             profile: DeviceProfile::Mlight3Led,

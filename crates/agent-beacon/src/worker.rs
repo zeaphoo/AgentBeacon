@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use agent_beacon_core::DeviceProfile;
-use agent_beacon_lights::actor::{spawn, ActorConfig, TransportFactory};
+use agent_beacon_lights::actor::{spawn, ActorConfig, ActorHandle, TransportFactory};
 use agent_beacon_lights::ble::{known_links, BleTransport, KnownLink};
 use agent_beacon_lights::device::{mark_offline, offline_for_ms, snapshot as device_snapshot};
 use agent_beacon_lights::discovery::{detect, PortInfo, PortKind};
@@ -103,7 +103,7 @@ enum Discovery {
 struct ActorEntry {
     port: String,
     kind: LinkKind,
-    handle: JoinHandle<()>,
+    handle: ActorHandle,
     /// 上次尝试（重新）连接的时间，广播重踢用。
     last_attempt: Instant,
 }
@@ -387,7 +387,7 @@ impl Manager {
             if !retry {
                 return;
             }
-            if let Some(entry) = self.actors.remove(&candidate.id) {
+            if let Some(mut entry) = self.actors.remove(&candidate.id) {
                 entry.handle.abort();
             }
         }
@@ -435,7 +435,7 @@ impl Manager {
         }
 
         for id in finished {
-            if let Some(entry) = self.actors.remove(&id) {
+            if let Some(mut entry) = self.actors.remove(&id) {
                 entry.handle.abort();
             }
             state.unregister_device(&id);
@@ -449,7 +449,7 @@ impl Manager {
             );
             state.unregister_device(&id);
             if kind == LinkKind::Serial {
-                if let Some(entry) = self.actors.remove(&id) {
+                if let Some(mut entry) = self.actors.remove(&id) {
                     entry.handle.abort();
                 }
             }
@@ -466,7 +466,7 @@ impl Manager {
             .map(|(id, _)| id.clone())
             .collect();
         for id in bluetooth {
-            if let Some(entry) = self.actors.remove(&id) {
+            if let Some(mut entry) = self.actors.remove(&id) {
                 entry.handle.abort();
             }
             state.unregister_device(&id);
@@ -644,7 +644,7 @@ fn register_device(
     state.register_device(info);
 }
 
-fn spawn_actor(state: &Arc<BeaconState>, candidate: &Candidate) -> JoinHandle<()> {
+fn spawn_actor(state: &Arc<BeaconState>, candidate: &Candidate) -> ActorHandle {
     let id = candidate.id.as_str();
     let port = candidate.port.as_str();
     let profile = candidate.profile;
@@ -664,11 +664,10 @@ fn spawn_actor(state: &Arc<BeaconState>, candidate: &Candidate) -> JoinHandle<()
             })
         }
         profile if profile.is_agentcore() && port.starts_with("ble:") => {
-            // BLE 链路：连接/扫描都在它自己的后台线程里跑，这里只负责建连。
+            // BLE 链路：actor 运行在独立线程上，连接/扫描的阻塞只影响这台设备。
             let selector = port.trim_start_matches("ble:").to_string();
             Arc::new(move || {
-                let target = selector.clone();
-                in_blocking(move || BleTransport::open(&target))
+                BleTransport::open(&selector)
                     .map(|transport| Box::new(transport) as Box<dyn Transport>)
             })
         }
@@ -676,8 +675,7 @@ fn spawn_actor(state: &Arc<BeaconState>, candidate: &Candidate) -> JoinHandle<()
             // 免 root 的 SPP 直连：自己开 RFCOMM socket，不依赖 /dev/rfcomm* 节点。
             let target = port.trim_start_matches("spp:").to_string();
             Arc::new(move || {
-                let target = target.clone();
-                in_blocking(move || AgentCoreTransport::open_spp(&target))
+                AgentCoreTransport::open_spp(&target)
                     .map(|transport| Box::new(transport) as Box<dyn Transport>)
             })
         }
@@ -685,10 +683,8 @@ fn spawn_actor(state: &Arc<BeaconState>, candidate: &Candidate) -> JoinHandle<()
         _ => {
             let port = port.to_string();
             Arc::new(move || {
-                // 握手要等 1.5 s 的 CDC 就绪时间，放到阻塞线程池里等，
-                // 别把 API/SSE 所在的 tokio worker 卡住。
-                let target = port.clone();
-                in_blocking(move || AgentCoreTransport::open(&target))
+                // 握手要等 1.5 s 的 CDC 就绪时间；actor 在自己的线程里跑，不会卡住 API。
+                AgentCoreTransport::open(&port)
                     .map(|transport| Box::new(transport) as Box<dyn Transport>)
             })
         }
@@ -731,19 +727,6 @@ fn spawn_actor(state: &Arc<BeaconState>, candidate: &Candidate) -> JoinHandle<()
         on_online: Some(on_online),
         on_change: Some(on_change),
     })
-}
-
-/// 在阻塞线程池里跑一段会 sleep 的打开流程；当前线程运行时则直接执行。
-fn in_blocking<T, F>(work: F) -> T
-where
-    F: FnOnce() -> T,
-{
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
-            tokio::task::block_in_place(work)
-        }
-        _ => work(),
-    }
 }
 
 /// 蓝牙等“端口名不可靠”的候选设备：只在第一次遇到该端口时握手确认。
