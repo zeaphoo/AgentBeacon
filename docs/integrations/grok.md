@@ -21,7 +21,7 @@ agent-beacon integrate list
         "hooks": [
           {
             "type": "command",
-            "command": "'/usr/local/bin/agent-beacon' hook --agent grok --state idle --event SessionStart # agent-beacon-hook:grok:0.2.0-rc.3"
+            "command": "'/usr/local/bin/agent-beacon' hook --agent grok --state idle --event SessionStart # agent-beacon-hook:grok:0.2.0-rc.4"
           }
         ]
       }

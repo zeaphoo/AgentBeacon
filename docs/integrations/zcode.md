@@ -8,7 +8,7 @@ ZCode 的用户级 hook 配置在 `~/.zcode/cli/config.json`。它的 `hooks` �
     "PreToolUse": [
       {
         "type": "process",
-        "command": "'/usr/local/bin/agent-beacon' hook --agent zcode --state working --event PreToolUse --marker agent-beacon-hook:zcode:0.2.0-rc.3",
+        "command": "'/usr/local/bin/agent-beacon' hook --agent zcode --state working --event PreToolUse --marker agent-beacon-hook:zcode:0.2.0-rc.4",
         "enabled": true,
         "timeoutMs": 10000
       }

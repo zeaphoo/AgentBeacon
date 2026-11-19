@@ -7,6 +7,31 @@
 
 [English](CHANGELOG.md) | 中文
 
+## [0.2.0-rc.4] - 2026-11-19
+
+### 新增
+
+- 硬件购买页（`docs/hardware-purchase.md`）：维护者自购并验收过的型号，README 设备表与控制台补充设备配图。
+- 中英文 README 增加「How it works」示意图（SMIL 动画，`scripts/how-it-works-svg.py` 可重新生成）。
+- AgentCore-Halo 自定义灯效表：连接时逐条下发 6 条 `LC:`，`BUSY` 橙色呼吸（`#FF6A00`）、`WAIT_CONFIRM` 橙色常亮，替代固件偏黄的 `#FFD400`；`AGENT_BEACON_HALO_LC` 可覆盖灯表做真机试验。
+- 新增 `battery::BatteryModel`（crates/agent-beacon-lights）：静置基线 + 电压证据判定充电，电压中值滤波，并按容量/充电电流叠加电量模型（上限 99%）。
+
+### 变更
+
+- 充电状态不再信任 `CHG`：实测某些 AgentCore-Light 固件拔电后恒为 1、某些 Halo 固件恒为 0，因此只作为诊断信息放在悬停提示；充电改由“电压被拉低 / 小幅抬压持续 20 秒”判定，读数回到静置值 30 秒后撤销。
+- 电量百分比按厂商上位机规则：最近 5 个电压样本取中值，窗口不稳定时保持上一次的值，模型推算值显示 `≈`，100% 只来自实测电压。
+- 控制台当前灯效改用橙色 tone，灯效文案为橙色呼吸 / 橙色常亮。
+
+### 移除
+
+- 自造的 `ChargeTracker` / `PercentModel` 充电判定。
+- `docs/hardware-checklist.md` 及其引用（实测结论保留在协议文档中）。
+
+### 修复
+
+- 设备卡片的手动灯效徽章不再显示不会跳动的倒计时，剩余时间仍在手动控制页。
+- 顶部导航改为不透明背景，滚动时不再透出页面内容。
+
 ## [0.2.0-rc.3] - 2026-11-18
 
 ### 修复
