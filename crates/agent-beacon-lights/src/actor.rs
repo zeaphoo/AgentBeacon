@@ -120,8 +120,8 @@ pub fn spawn(config: ActorConfig) -> ActorHandle {
 
 async fn run(mut config: ActorConfig, mut shutdown: watch::Receiver<bool>) {
     let mut transport: Option<Box<dyn Transport>> = None;
-    // CHG 引脚不可靠，只有电压确实在上升才判定“正在充电”。
-    let mut charge = crate::charge::ChargeTracker::default();
+    // 电量/充电状态按厂商 AgentCoreHalo v2.5.2 的算法维护。
+    let mut battery = crate::battery::BatteryModel::default();
     let mut applied: Option<(Effect, bool)> = None;
     let mut applied_brightness: Option<u8> = None;
     let mut backoff = 1u64;
@@ -192,7 +192,7 @@ async fn run(mut config: ActorConfig, mut shutdown: watch::Receiver<bool>) {
 
         // 设备主动上报（`STATUS:`/`CHG:`）是异步到达的，每轮先读一次再决定要不要写。
         if let Some(writer) = transport.as_mut() {
-            if ingest_reports(writer, &mut charge, &config.registry, &config.id) {
+            if ingest_reports(writer, &mut battery, &config.registry, &config.id) {
                 notify(&config);
             }
         }
@@ -322,7 +322,7 @@ async fn run(mut config: ActorConfig, mut shutdown: watch::Receiver<bool>) {
 
             match writer.write(&command.bytes) {
                 Ok(()) => {
-                    if ingest_reports(writer, &mut charge, &config.registry, &config.id) {
+                    if ingest_reports(writer, &mut battery, &config.registry, &config.id) {
                         notify(&config);
                     }
                 }
@@ -391,7 +391,7 @@ fn replay_plan(profile: DeviceProfile, effect: Effect) -> crate::CommandPlan {
 /// `DeviceInfo`，控制台就能看到硬件信息。
 fn ingest_reports(
     writer: &mut Box<dyn Transport>,
-    charge: &mut crate::charge::ChargeTracker,
+    model: &mut crate::battery::BatteryModel,
     registry: &DeviceRegistry,
     id: &str,
 ) -> bool {
@@ -400,18 +400,27 @@ fn ingest_reports(
         match crate::agentcore::parse_report(&line) {
             crate::agentcore::Report::Battery(battery) => {
                 let now = agent_beacon_core::now_ms();
-                let charging = charge.observe(now, battery.usb_online, battery.millivolts);
+                // 厂商 AgentCoreHalo v2.5.2 的算法：CHG 去抖 + 电压证据 → 充电状态，
+                // 中值滤波 + 电流模型 → 展示电量（见 `battery.rs`）。
+                // `CHG` 不参与判定（实测两边都不可靠），只作为诊断信息带上。
+                let reading = model.observe(now, battery.millivolts, battery.current_ma);
                 let reading = crate::BatteryInfo {
-                    percent: display_percent(battery.percent, battery.millivolts),
-                    usb_online: battery.usb_online,
-                    charging,
-                    millivolts: battery.millivolts,
+                    percent: reading.percent,
+                    percent_estimated: reading.percent_estimated,
+                    gauge_percent: battery.percent,
+                    chg_flag: battery.usb_online,
+                    charging: reading.charge_active,
+                    millivolts: reading.voltage_centivolts,
+                    millivolts_raw: battery.millivolts,
                     current_ma: battery.current_ma,
                     updated_at_ms: now,
                 };
                 // 心跳每 5 秒一次，只有读数真的变了才广播，避免无谓地刷 UI。
                 changed |=
                     !current_battery(registry, id).is_some_and(|old| old.same_reading(&reading));
+                let log_percent = reading.percent;
+                let log_estimated = reading.percent_estimated;
+                let log_charging = reading.charging;
                 update(registry, id, |info| {
                     info.battery = Some(reading);
                     // 设备能上报电量说明链路是活的。
@@ -419,10 +428,12 @@ fn ingest_reports(
                 });
                 tracing::debug!(
                     device = id,
-                    usb_online = battery.usb_online,
-                    charging,
-                    millivolts = battery.millivolts,
-                    percent = battery.percent,
+                    chg = battery.usb_online,
+                    charging = log_charging,
+                    millivolts_raw = battery.millivolts,
+                    percent_raw = battery.percent,
+                    percent = log_percent,
+                    estimated = log_estimated,
                     "agentcore battery report"
                 );
             }
@@ -473,23 +484,6 @@ fn ingest_reports(
         }
     }
     changed
-}
-
-/// 界面上显示的电量：优先用电压换算。
-///
-/// 电量计芯片的百分比不一定校准过（协议文档里的实测样例就是 `VBAT:311,PER:0`），
-/// 厂商上位机也是按 2.80–4.02 V 线性换算：`(VBAT - 280) * 100 / (402 - 280)`。
-pub fn display_percent(reported: Option<u8>, millivolts: Option<u32>) -> Option<u8> {
-    const EMPTY_CENTIVOLTS: u32 = 280;
-    const FULL_CENTIVOLTS: u32 = 402;
-    match millivolts {
-        Some(voltage) => {
-            let span = FULL_CENTIVOLTS - EMPTY_CENTIVOLTS;
-            let offset = voltage.saturating_sub(EMPTY_CENTIVOLTS);
-            Some(((offset * 100 + span / 2) / span).min(100) as u8)
-        }
-        None => reported,
-    }
 }
 
 /// 读当前登记的电量读数（没有登记过则为 `None`）。
@@ -717,18 +711,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn displayed_percent_prefers_the_voltage_curve() {
-        // 未校准的电量计：PER 报到 0，但 3.11 V 实际约 25%。
-        assert_eq!(display_percent(Some(0), Some(311)), Some(25));
-        // 满电：4.07 V 超过 4.02 V 上限，钳到 100。
-        assert_eq!(display_percent(Some(100), Some(407)), Some(100));
-        // 空电。
-        assert_eq!(display_percent(Some(0), Some(280)), Some(0));
-        // 没有电压时才退回电量计读数。
-        assert_eq!(display_percent(Some(42), None), Some(42));
-    }
-
     #[tokio::test]
     async fn battery_heartbeat_notifies_only_when_the_reading_changes() {
         let registry = new_registry();
@@ -768,9 +750,10 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(3_500)).await;
         let devices = snapshot(&registry);
         let battery = devices[0].battery.clone().expect("电量应已登记");
-        // 3.90 V 按电量曲线换算约 90%。
-        assert_eq!(battery.percent, Some(90));
-        assert!(!battery.usb_online);
+        // 三次采样 387/387/390 → 中值 387 → 88%；`CHG` 只出现两轮候选，
+        // 没达到 3 条 + 20 秒证据，所以不算充电。
+        assert_eq!(battery.percent, Some(88));
+        assert!(!battery.charging, "静置电压不能判成充电");
         // 只有两次真正的变化会通知控制台刷新。
         assert_eq!(*hits.lock().unwrap(), 2);
         drop(desired_tx);

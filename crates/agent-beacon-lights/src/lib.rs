@@ -4,8 +4,8 @@
 
 pub mod actor;
 pub mod agentcore;
+pub mod battery;
 pub mod ble;
-pub mod charge;
 pub mod device;
 pub mod discovery;
 pub mod mlight;
@@ -104,17 +104,26 @@ impl DesiredState {
 /// 设备上报的电量遥测（AgentCore 系列通过 `CHG:` 每 5 秒上报一次）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BatteryInfo {
-    /// 电量百分比（设备电量计读数）。
+    /// 展示用电量百分比（厂商算法，见 [`battery`]）。
     #[serde(default)]
     pub percent: Option<u8>,
-    /// 是否检测到充电输入（`CHG:1`）。它不等于“正在充电”——充满后仍然为 true，
-    /// 检测脚悬空时还会误报，所以只作为诊断信息展示。
-    pub usb_online: bool,
-    /// 是否正在充电：由 [`charge::ChargeTracker`] 根据电压是否持续上升判定。
+    /// 百分比是否来自充电模型（界面显示 `≈`）。
+    #[serde(default)]
+    pub percent_estimated: bool,
+    /// 设备电量计给的原始读数（`PER:`），不参与展示，只用于排查。
+    #[serde(default)]
+    pub gauge_percent: Option<u8>,
+    /// 设备原始的 `CHG` 标志。**不参与判定**：实测 Light 拔电也是 1、Halo 可能一直是 0，
+    /// 只作为诊断信息放在悬停提示里。
+    pub chg_flag: bool,
+    /// 是否正在充电：由电压证据（见 [`battery`]）判定。
     pub charging: bool,
-    /// 电池电压，单位 0.01 V。
+    /// 展示用电压（滤波/基线值），单位 0.01 V。
     #[serde(default)]
     pub millivolts: Option<u32>,
+    /// 设备原始 `VBAT` 读数，单位 0.01 V。
+    #[serde(default)]
+    pub millivolts_raw: Option<u32>,
     /// 充电电流，单位 mA（固件配置的目标电流）。
     #[serde(default)]
     pub current_ma: Option<u32>,
@@ -125,9 +134,12 @@ impl BatteryInfo {
     /// 两次读数在界面上是否等价（忽略采样时间）。
     pub fn same_reading(&self, other: &Self) -> bool {
         self.percent == other.percent
-            && self.usb_online == other.usb_online
+            && self.percent_estimated == other.percent_estimated
+            && self.gauge_percent == other.gauge_percent
+            && self.chg_flag == other.chg_flag
             && self.charging == other.charging
             && self.millivolts == other.millivolts
+            && self.millivolts_raw == other.millivolts_raw
             && self.current_ma == other.current_ma
     }
 }

@@ -21,7 +21,6 @@
 - **连接** —— USB CDC，VID:PID `2E8A:0003` / `000A`，插入后自动发现，无需驱动。
 - **购买** —— [淘宝 · 鹿城笑笑生数码](https://item.taobao.com/item.htm?id=1086328824173&skuId=6321112478105)
 - **协议** —— 见 [MLight 串口协议](MLight-serial-protocol.md)。
-- **验收** —— 项目侧的真机验证项见 [硬件验收清单](hardware-checklist.md)。
 
 ## AgentCore-Light
 
@@ -32,7 +31,6 @@
   产品名、SPP 端口 + `HELLO` 握手，或带 NUS service 的 BLE 广播识别。
 - **购买** —— [淘宝 · BuildFPGA](https://item.taobao.com/item.htm?id=1059050729014&skuId=6102524545314)
 - **协议** —— 见 [AgentCore-Light 串口协议](AgentCore-Light-serial-protocol.md)。
-- **验收** —— 见 [硬件验收清单](hardware-checklist.md) 的 AgentCore-Light 一节。
 
 ## AgentCore-Halo
 
@@ -44,4 +42,3 @@
   识别，控制台显示固件版本与电量。
 - **购买** —— [淘宝 · BuildFPGA](https://item.taobao.com/item.htm?id=1095793862793&skuId=6317726979193)
 - **协议** —— 见 [AgentCore-Halo 串口协议](AgentCore-Halo-serial-protocol.md)。
-- **验收** —— 见 [硬件验收清单](hardware-checklist.md) 的 AgentCore-Halo 一节。

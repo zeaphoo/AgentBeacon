@@ -39,6 +39,19 @@ Runs fully local on `127.0.0.1:6980` — no account, no telemetry.
 - **Bilingual and themeable UI** — Chinese/English, light/dark themes, system-language initialization, and system-following theme mode.
 - **Local by default** — the service listens on `127.0.0.1:6980`; no cloud account or telemetry is required.
 
+## How it works
+
+![AgentBeacon in action: agent states aggregate into one signal that drives every status light](docs/assets/how-it-works-en.svg)
+
+Agents (Claude Code, Codex CLI, Pi, …) report session state to the local service. The service
+aggregates one global state and fans agents / sessions out to the lights with a multi-light strategy:
+unified, auto by Agent, manual by Agent, or auto by Session (sessions of one Agent spread across
+lights). Each light then renders the state it was actually assigned; strategy, assignments and effect
+mapping are all editable per device in the console.
+
+The animation is vector SVG (SMIL), so it stays sharp at any zoom and weighs ~150 KB; regenerate it with
+`python3 scripts/how-it-works-svg.py --lang en` after changing devices or strategies.
+
 ## Supported devices
 
 | Photo | Profile | Connection | Brightness | Buzzer | Pick | Buy | Notes |
@@ -151,7 +164,6 @@ The built-in integrations are shipped with the service and can be installed or u
 - [PromLight protocol (BLE HID)](docs/PromLight-ble-hid-protocol.md)
 - [AgentPulse protocol (USB CDC / BLE)](docs/AgentPulse-serial-protocol.md)
 - [Hardware purchase links](docs/hardware-purchase.md)
-- [Hardware checklist](docs/hardware-checklist.md)
 
 ## Project status
 

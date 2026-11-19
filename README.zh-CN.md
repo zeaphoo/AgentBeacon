@@ -39,6 +39,17 @@ AgentBeacon 把编码 agent 的状态变成桌面上的一束光。
 - **中英文与主题** — 中文/English、浅色/深色主题、按系统语言初始化、主题可跟随系统。
 - **本地优先** — 服务默认监听 `127.0.0.1:6980`，不需要云端账号，不上报遥测。
 
+## 工作原理
+
+![AgentBeacon 工作原理：多个 Agent 的状态聚合后驱动多台状态灯](docs/assets/how-it-works-zh.svg)
+
+多个 agent（Claude Code、Codex CLI、Pi…）把会话状态上报给本地服务。服务先聚合出一个全局状态，
+再按「多灯控制策略」把 agent / 会话分到每台灯 —— 统一显示、按 Agent 自动分配、按 Agent 手动
+分配、按 Session 自动分配（同一个 Agent 的多个会话分散到不同灯）。每台灯再根据自己的实际
+状态渲染灯效，策略、分配结果与灯效映射都能在控制台里按设备调整。
+
+动画是矢量 SVG（SMIL），放大不糊、体积只有 150 KB 左右；由 `python3 scripts/how-it-works-svg.py --lang zh` 生成，改策略或设备后重新跑一次即可。
+
 ## 支持的设备
 
 | 图片 | 型号 | 连接方式 | 亮度调节 | 蜂鸣器 | 推荐 | 购买 | 说明 |
@@ -151,7 +162,6 @@ AgentCore-Light 在 USB CDC 或蓝牙 SPP 上跑同一套文本行协议（`HELL
 - [PromLight 协议（BLE HID）](docs/PromLight-ble-hid-protocol.md)
 - [AgentPulse 协议（USB 串口 / BLE）](docs/AgentPulse-serial-protocol.md)
 - [硬件购买链接](docs/hardware-purchase.md)
-- [硬件验收清单](docs/hardware-checklist.md)
 
 ## 项目状态
 

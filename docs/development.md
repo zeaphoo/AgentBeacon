@@ -221,7 +221,6 @@ Look for a short-lived `idle` record between two `working` records when the ligh
 - [AgentCore-Light protocol (USB / Bluetooth SPP / BLE)](AgentCore-Light-serial-protocol.md)
 - [PromLight protocol (BLE HID)](PromLight-ble-hid-protocol.md)
 - [AgentPulse protocol (USB CDC / BLE)](AgentPulse-serial-protocol.md)
-- [Hardware acceptance checklist](hardware-checklist.md)
 
 Device discovery prefers USB serial numbers over port names, so bindings survive reconnects. Per-device profile overrides are available in Settings.
 
