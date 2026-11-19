@@ -7,8 +7,8 @@ AgentCore-Halo 与 AgentCore-Light 共用同一套 ASCII 文本行协议：`HELL
 不同的地方，以及 AgentBeacon 对 Halo 的接入方式。
 
 > 来源：对厂商上位机 **AgentCoreHalo v2.5.2（Linux）** 的反编译（`agentcore_light_app.py` 与
-> `PYZ.pyz` 中的 `service.agentcore_serial_service`）。厂商没有公开协议文档，`LC:` 一节尚未在
-> AgentBeacon 中实测。
+> `PYZ.pyz` 中的 `service.agentcore_serial_service`）。厂商没有公开协议文档，`LC:` 一节按
+> 反编译结果实现，AgentBeacon 连接时会整表下发一次（见 §3）。
 
 ## 1. 名称与识别
 
@@ -42,11 +42,15 @@ AgentBeacon 按 **广播名 / USB 产品名** 选择 profile：
 
 ## 3. 自定义灯效 `LC:`（Halo 上位机特性）
 
-一次把所有状态的灯效配置拼成一行，用 `;` 分隔、以 `;` 结尾：
+**一个状态一条命令**：
 
 ```
-LC:<state_index>,<effect>,<r>,<g>,<b>,<period_ms>,<on_ms>,<off_ms>;...
+LC:<state_index>,<effect>,<r>,<g>,<b>,<period_ms>,<on_ms>,<off_ms>
 ```
+
+> 反编译出来的厂商代码是把整表用 `;` 拼成一行发的，但**固件把 `;` 当成命令分隔符**：
+> 实机发 `LC:0,...;1,...;2,...;` 时只有第一段被当成 `LC:`，其余每段都回
+> `ERR UNKNOWN:<那一段>`，灯效自然不生效。所以必须一条 `LC:` 带一个状态。
 
 | 字段 | 取值 |
 | --- | --- |
@@ -59,8 +63,59 @@ LC:<state_index>,<effect>,<r>,<g>,<b>,<period_ms>,<on_ms>,<off_ms>;...
 默认颜色：`IDLE` / `SUCCESS` `#00FF00`，`BUSY` / `WAIT_CONFIRM` `#FFD400`，`ERROR` `#FF0000`，
 `OFF` `#000000`。
 
-AgentBeacon 只下发语义状态词（`IDLE` / `BUSY` / …），不下发 `LC:`，因此不会覆盖用户在厂商
-上位机里配置的灯效。
+### AgentBeacon 下发的灯效表
+
+`BUSY` / `WAIT_CONFIRM` 的默认色 `#FFD400` 偏黄，实机上两者颜色一样、也看不出“正在跑”，
+所以 AgentCore-Halo **连接建立后先下发 6 条 `LC:`**，把这两个状态都改成橙色，靠动画区分：
+
+```
+LC:0,0,0,255,0,0,0,0
+LC:1,3,255,106,0,2400,0,0
+LC:2,0,0,255,0,0,0,0
+LC:3,1,255,106,0,0,0,0
+LC:4,0,255,0,0,0,0,0
+LC:5,0,0,0,0,0,0,0
+```
+
+| state_index | 动画 | 颜色 |
+| --- | --- | --- |
+| 0 `IDLE` | `default` | `#00FF00` |
+| 1 `BUSY` | `breathe` 2400 ms | `#FF6A00`（橙色，厂商默认是 `#FFD400`） |
+| 2 `SUCCESS` | `default` | `#00FF00` |
+| 3 `WAIT_CONFIRM` | `solid` | `#FF6A00`（橙色常亮，厂商默认是 `#FFD400`） |
+| 4 `ERROR` | `default` | `#FF0000` |
+| 5 `OFF` | `default` | `#000000` |
+
+**`effect = 0 (default)` 会忽略 `r,g,b`**：固件直接用它自己的内置灯效（所以只改颜色、
+动画写 `default` 时，状态依旧是原来的黄）。想换颜色必须显式写一个动画（`breathe` /
+`solid` / `blink`）：这就是 `BUSY` 写 `3` + `2400`（呼吸）、`WAIT_CONFIRM` 写 `1`（常亮）
+的原因。
+
+这张表是**覆盖式**的：下发后厂商上位机里保存的自定义灯效会被替换。因此只在连接建立时发一次
+（每次重连都会重发），之后的运行过程仍然只下发语义状态词（`IDLE` / `BUSY` / …），不会因为
+状态切换反复覆写灯效表。AgentCore-Light 固件没有 `LC:` 命令，不受影响。
+
+### 实机调试
+
+改灯表不用重编译：`AGENT_BEACON_HALO_LC` 里按上面的格式写 6 段（`;` 分隔，带不带 `LC:`
+前缀都行），会整表替换内置灯表；不合法时忽略并记一条 warn。连上设备后日志里能看到实际
+下发的每一行：
+
+```bash
+AGENT_BEACON_HALO_LC='0,0,0,255,0,0,0,0;1,1,255,106,0,0,0,0;2,0,0,255,0,0,0,0;3,0,255,212,0,0,0,0;4,0,255,0,0,0,0,0;5,0,0,0,0,0,0,0' \
+  agent-beacon --port /dev/ttyACM0
+```
+
+想手工试一条，直接发单行（厂商后台服务要停掉，否则会抢读串口）：
+
+```bash
+python3 scripts/agentcore_probe.py -p /dev/ttyACM0 raw 'LC:3,1,255,106,0,0,0,0'   # 需要关注：橙色常亮
+python3 scripts/agentcore_probe.py -p /dev/ttyACM0 state BUSY                     # 触发重绘
+```
+
+单行试效果时按顺序试：`effect=3`（呼吸，2400）/ `1`（常亮）/ `2`（闪烁，`500,500`）；
+若颜色不对但动画生效，则是 RGB 通道顺序或取值区间与预期不同，把现象记到
+[`hardware-checklist.md`](./hardware-checklist.md)。
 
 ## 4. 电量遥测 `CHG:`
 

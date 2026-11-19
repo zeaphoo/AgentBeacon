@@ -53,6 +53,13 @@
 - [ ] 电量徽章随 `CHG:` 心跳更新（百分比 / 充电中 / 电压与电流 tooltip）
 - [ ] `agentcore-light` 同样显示电量与固件
 - [ ] `SET_BT_NAME:AgentCore-Halo-<1-15 字符>` 能被设备接受，`AgentCore-Halo`（无后缀）被拒绝
+- [ ] 连接后 `BUSY` 显橙色 `#FF6A00` 并呼吸（自动逐条下发 6 条 `LC:`，`breathe` 2400 ms），
+      `WAIT_CONFIRM` 同为橙色但常亮（`solid`），`IDLE` / `SUCCESS` 绿、`ERROR` 红不受影响
+- [ ] 日志里有 6 条 `sending halo custom light table (LC:)`，且**没有** `ERR UNKNOWN:`：
+      固件把 `;` 当命令分隔符，灯表必须一条 `LC:` 带一个状态（已踩过坑）
+- [ ] 若 `BUSY` 仍是黄色：用 `agentcore_probe.py raw 'LC:1,<effect>,255,106,0,<period>,0,0'`
+      逐项试 `effect=3/1/2`；动画生效但颜色不对 → 查 RGB 通道顺序与取值区间，把结论补回
+      `AgentCore-Halo-serial-protocol.md` §3
 
 ## 跨平台
 

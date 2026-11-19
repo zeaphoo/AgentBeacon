@@ -284,9 +284,9 @@ export const messages = {
     'effect.calm.label': '空闲',
     'effect.calm.description': '绿色常亮',
     'effect.busy.label': '运行中',
-    'effect.busy.description': '绿常亮 + 黄呼吸',
+    'effect.busy.description': '橙色呼吸',
     'effect.attention.label': '需要关注',
-    'effect.attention.description': '黄色闪烁',
+    'effect.attention.description': '橙色常亮',
     'effect.alert.label': '错误',
     'effect.alert.description': '红色闪烁',
 
@@ -610,9 +610,9 @@ export const messages = {
     'effect.calm.label': 'Idle',
     'effect.calm.description': 'Solid green',
     'effect.busy.label': 'Busy',
-    'effect.busy.description': 'Solid green + yellow breathing',
+    'effect.busy.description': 'Orange breathing',
     'effect.attention.label': 'Attention',
-    'effect.attention.description': 'Blinking yellow',
+    'effect.attention.description': 'Solid orange',
     'effect.alert.label': 'Error',
     'effect.alert.description': 'Blinking red',
 

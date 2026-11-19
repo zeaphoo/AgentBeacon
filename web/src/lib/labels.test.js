@@ -34,7 +34,7 @@ describe('labels', () => {
 
   it('uses the configured effect tone for session states', () => {
     expect(stateTone('idle', { idle: 'calm' })).toBe('green')
-    expect(stateTone('working', { working: 'busy' })).toBe('yellow')
+    expect(stateTone('working', { working: 'busy' })).toBe('orange')
     expect(stateTone('waiting', { waiting: 'attention' })).toBe('amber')
     expect(stateTone('error', { error: 'alert' })).toBe('red')
   })

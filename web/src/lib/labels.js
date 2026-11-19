@@ -1,7 +1,7 @@
 export const EFFECTS = [
   { value: 'off', labelKey: 'effect.off.label', descriptionKey: 'effect.off.description', tone: 'muted' },
   { value: 'calm', labelKey: 'effect.calm.label', descriptionKey: 'effect.calm.description', tone: 'green' },
-  { value: 'busy', labelKey: 'effect.busy.label', descriptionKey: 'effect.busy.description', tone: 'yellow' },
+  { value: 'busy', labelKey: 'effect.busy.label', descriptionKey: 'effect.busy.description', tone: 'orange' },
   {
     value: 'attention',
     labelKey: 'effect.attention.label',
@@ -62,13 +62,14 @@ export const TONE_CLASSES = {
   muted: 'tone-muted',
   green: 'tone-green',
   yellow: 'tone-yellow',
+  orange: 'tone-orange',
   amber: 'tone-amber',
   red: 'tone-red',
 }
 
 export const STATE_TONE = {
   idle: 'muted',
-  working: 'green',
+  working: 'orange',
   waiting: 'amber',
   error: 'red',
 }

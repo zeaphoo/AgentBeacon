@@ -41,13 +41,15 @@ AgentBeacon 把编码 agent 的状态变成桌面上的一束光。
 
 ## 支持的设备
 
-| 型号 | 连接方式 | 亮度调节 | 蜂鸣器 | 说明 |
-| --- | --- | :---: | :---: | --- |
-| `mlight-single` | USB CDC | ✅ | — | 单灯珠 RGB 状态灯 |
-| `mlight-3led` | USB CDC | ✅ | — | 三灯珠 RGB 状态灯 |
-| `yh50-rgy-j` | USB 串口 / libusb | — | ✅ | 三色 LED + 蜂鸣器 |
-| `agentcore-light` | USB CDC / 蓝牙 SPP / BLE(NUS) | ✅ | ✅ | 文本行协议状态灯；按 VID `4C4A:4155`、Espressif `303A` + 产品名、蓝牙 SPP 端口 + `HELLO` 握手、或带 NUS service 的 BLE 广播自动识别 |
-| `agentcore-halo` | USB CDC / 蓝牙 SPP / BLE(NUS) | ✅ | ✅ | Halo 桌面灯，协议与 Light 相同；按 `AgentCore-Halo` / `AgentCore-Halo-BLE` 名字识别，显示设备名、固件与电量（Light 同样显示电量） |
+| 图片 | 型号 | 连接方式 | 亮度调节 | 蜂鸣器 | 推荐 | 购买 | 说明 |
+| --- | --- | --- | :---: | :---: | :---: | --- | --- |
+| — | `mlight-single` | USB CDC | ✅ | — | — | — | 单灯珠 RGB 状态灯（仅技术 profile，无独立商品链接） |
+| <img src="docs/assets/mlight.png" height="48" alt="MLight" /> | `mlight-3led` | USB CDC | ✅ | — | ✅ | [淘宝](https://item.taobao.com/item.htm?id=1086328824173&skuId=6321112478105) | 三灯珠 RGB 状态灯 |
+| — | `yh50-rgy-j` | USB 串口 / libusb | — | ✅ | — | — | 三色 LED + 蜂鸣器 |
+| <img src="docs/assets/agentcore-light.png" height="48" alt="AgentCore-Light" /> | `agentcore-light` | USB CDC / 蓝牙 SPP / BLE(NUS) | ✅ | ✅ | — | [淘宝](https://item.taobao.com/item.htm?id=1059050729014&skuId=6102524545314) | 文本行协议状态灯；按 VID `4C4A:4155`、Espressif `303A` + 产品名、蓝牙 SPP 端口 + `HELLO` 握手、或带 NUS service 的 BLE 广播自动识别 |
+| <img src="docs/assets/agentcore-halo.png" height="48" alt="AgentCore-Halo" /> | `agentcore-halo` | USB CDC / 蓝牙 SPP / BLE(NUS) | ✅ | ✅ | ✅ | [淘宝](https://item.taobao.com/item.htm?id=1095793862793&skuId=6317726979193) | Halo 桌面灯，协议与 Light 相同；按 `AgentCore-Halo` / `AgentCore-Halo-BLE` 名字识别，显示设备名、固件与电量（Light 同样显示电量） |
+
+推荐列是维护者的选择：`mlight-3led`（三灯珠，状态最直观）与 `agentcore-halo`（USB / 蓝牙双接入、带电量）。其余购买链接与实拍图见 [硬件购买链接](docs/hardware-purchase.md)。
 
 Web 控制台会在每个已连接设备上显示对应的能力徽章。AgentCore 系列还会显示设备自报名（如 `AgentCore-Halo-BLE`）、固件版本，以及 `agentcore-light` / `agentcore-halo` 从 `CHG:` 上报里读到的电量。两个型号的协议差异见 [`docs/AgentCore-Halo-serial-protocol.md`](docs/AgentCore-Halo-serial-protocol.md)。
 
@@ -148,6 +150,7 @@ AgentCore-Light 在 USB CDC 或蓝牙 SPP 上跑同一套文本行协议（`HELL
 - [AgentCore-Light 协议](docs/AgentCore-Light-serial-protocol.md)
 - [PromLight 协议（BLE HID）](docs/PromLight-ble-hid-protocol.md)
 - [AgentPulse 协议（USB 串口 / BLE）](docs/AgentPulse-serial-protocol.md)
+- [硬件购买链接](docs/hardware-purchase.md)
 - [硬件验收清单](docs/hardware-checklist.md)
 
 ## 项目状态

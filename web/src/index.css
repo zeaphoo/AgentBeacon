@@ -56,6 +56,10 @@
   --warning-soft-bg: oklch(0.6 0.12 85 / 0.16);
   --warning-soft-border: oklch(0.65 0.12 85 / 0.32);
   --warning-soft-fg: oklch(0.93 0.08 85);
+  --working: oklch(0.74 0.17 55);
+  --working-soft-bg: oklch(0.58 0.15 52 / 0.18);
+  --working-soft-border: oklch(0.64 0.15 52 / 0.34);
+  --working-soft-fg: oklch(0.92 0.09 62);
   --danger: oklch(0.68 0.2 25);
   --danger-soft-bg: oklch(0.55 0.15 25 / 0.16);
   --danger-soft-border: oklch(0.6 0.15 25 / 0.32);
@@ -95,6 +99,10 @@
   --warning-soft-bg: oklch(0.96 0.05 85);
   --warning-soft-border: oklch(0.88 0.1 85);
   --warning-soft-fg: oklch(0.43 0.1 70);
+  --working: oklch(0.66 0.17 52);
+  --working-soft-bg: oklch(0.95 0.06 58);
+  --working-soft-border: oklch(0.86 0.11 55);
+  --working-soft-fg: oklch(0.45 0.13 45);
   --danger: oklch(0.56 0.2 25);
   --danger-soft-bg: oklch(0.96 0.035 25);
   --danger-soft-border: oklch(0.9 0.07 25);
@@ -144,6 +152,12 @@ body {
   background-color: var(--warning-soft-bg);
   color: var(--warning-soft-fg);
   border-color: var(--warning-soft-border);
+}
+
+.tone-orange {
+  background-color: var(--working-soft-bg);
+  color: var(--working-soft-fg);
+  border-color: var(--working-soft-border);
 }
 
 .tone-red {
@@ -212,7 +226,14 @@ body {
   --state-soft-fg: var(--success-soft-fg);
 }
 
-.aggregate-working,
+.aggregate-working {
+  --state-accent: var(--working);
+  --state-tint: color-mix(in oklch, var(--working) 9%, transparent);
+  --state-border: var(--working-soft-border);
+  --state-soft-bg: var(--working-soft-bg);
+  --state-soft-fg: var(--working-soft-fg);
+}
+
 .aggregate-waiting {
   --state-accent: var(--warning);
   --state-tint: color-mix(in oklch, var(--warning) 9%, transparent);

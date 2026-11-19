@@ -41,13 +41,15 @@ Runs fully local on `127.0.0.1:6980` — no account, no telemetry.
 
 ## Supported devices
 
-| Profile | Connection | Brightness | Buzzer | Notes |
-| --- | --- | :---: | :---: | --- |
-| `mlight-single` | USB CDC | ✅ | — | Single-LED RGB status light |
-| `mlight-3led` | USB CDC | ✅ | — | Three-LED RGB status light |
-| `yh50-rgy-j` | USB serial / libusb | — | ✅ | Tri-color LED with buzzer |
-| `agentcore-light` | USB CDC / Bluetooth SPP / BLE (NUS) | ✅ | ✅ | Text-line status light; auto-detected by VID `4C4A:4155`, Espressif `303A` + product name, Bluetooth SPP port + `HELLO` handshake, or a BLE advertisement with the NUS service |
-| `agentcore-halo` | USB CDC / Bluetooth SPP / BLE (NUS) | ✅ | ✅ | Halo desk light speaking the same text-line protocol; recognised from the `AgentCore-Halo` / `AgentCore-Halo-BLE` name, and shows its device name, firmware and battery (Light reports battery too) |
+| Photo | Profile | Connection | Brightness | Buzzer | Pick | Buy | Notes |
+| --- | --- | --- | :---: | :---: | :---: | --- | --- |
+| — | `mlight-single` | USB CDC | ✅ | — | — | — | Single-LED RGB status light (technical profile only, no separate listing) |
+| <img src="docs/assets/mlight.png" height="48" alt="MLight" /> | `mlight-3led` | USB CDC | ✅ | — | ✅ | [Taobao](https://item.taobao.com/item.htm?id=1086328824173&skuId=6321112478105) | Three-LED RGB status light |
+| — | `yh50-rgy-j` | USB serial / libusb | — | ✅ | — | — | Tri-color LED with buzzer |
+| <img src="docs/assets/agentcore-light.png" height="48" alt="AgentCore-Light" /> | `agentcore-light` | USB CDC / Bluetooth SPP / BLE (NUS) | ✅ | ✅ | — | [Taobao](https://item.taobao.com/item.htm?id=1059050729014&skuId=6102524545314) | Text-line status light; auto-detected by VID `4C4A:4155`, Espressif `303A` + product name, Bluetooth SPP port + `HELLO` handshake, or a BLE advertisement with the NUS service |
+| <img src="docs/assets/agentcore-halo.png" height="48" alt="AgentCore-Halo" /> | `agentcore-halo` | USB CDC / Bluetooth SPP / BLE (NUS) | ✅ | ✅ | ✅ | [Taobao](https://item.taobao.com/item.htm?id=1095793862793&skuId=6317726979193) | Halo desk light speaking the same text-line protocol; recognised from the `AgentCore-Halo` / `AgentCore-Halo-BLE` name, and shows its device name, firmware and battery (Light reports battery too) |
+
+The **Pick** column is the maintainers' recommendation: `mlight-3led` (three LEDs, clearest status) and `agentcore-halo` (USB + Bluetooth, battery telemetry). More purchase links and photos: [Hardware purchase links](docs/hardware-purchase.md).
 
 The web console displays the supported capabilities as feature badges on each connected device. AgentCore devices also show their self-reported name (`AgentCore-Halo-BLE`, …), firmware version and, for `agentcore-light` / `agentcore-halo`, the battery telemetry from the device's `CHG:` reports. Protocol differences between the two AgentCore models are documented in [`docs/AgentCore-Halo-serial-protocol.md`](docs/AgentCore-Halo-serial-protocol.md).
 
@@ -148,6 +150,7 @@ The built-in integrations are shipped with the service and can be installed or u
 - [AgentCore-Light protocol](docs/AgentCore-Light-serial-protocol.md)
 - [PromLight protocol (BLE HID)](docs/PromLight-ble-hid-protocol.md)
 - [AgentPulse protocol (USB CDC / BLE)](docs/AgentPulse-serial-protocol.md)
+- [Hardware purchase links](docs/hardware-purchase.md)
 - [Hardware checklist](docs/hardware-checklist.md)
 
 ## Project status

@@ -11,11 +11,13 @@ describe('DeviceImage', () => {
     expect(image.getAttribute('aria-hidden')).toBe('true')
   })
 
-  it('reuses the Halo image for mlight-3led', () => {
-    const halo = render(<DeviceImage profile="agentcore-halo" />).container.querySelector('img')
-    const mlight = render(<DeviceImage profile="mlight-3led" />).container.querySelector('img')
-    expect(mlight.getAttribute('src')).toBe(halo.getAttribute('src'))
-    expect(deviceImageScale('mlight-3led')).toBe(deviceImageScale('agentcore-halo'))
+  it('uses the MLight photo for mlight-3led only', () => {
+    const three = render(<DeviceImage profile="mlight-3led" />).container.querySelector('img')
+    expect(three.getAttribute('src')).toContain('mlight')
+
+    const single = render(<DeviceImage profile="mlight-single" />).container
+    expect(single.querySelector('img')).toBeNull()
+    expect(single.querySelector('[data-device-image="fallback"]')).toBeTruthy()
   })
 
   it('scales non-square assets to balance their visual size', () => {

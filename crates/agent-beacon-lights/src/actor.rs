@@ -139,7 +139,22 @@ async fn run(mut config: ActorConfig, mut shutdown: watch::Receiver<bool>) {
                     let desired = config.desired.borrow().clone();
                     let target = desired.for_device(&config.id);
                     let mut failed = None;
-                    if config.profile.has_brightness_command() {
+                    // Halo 固件把 `BUSY` 默认画成偏黄的 `#FFD400`，连接时先下发灯效表
+                    //（每个状态一条 `LC:`，`BUSY` = 橙色）；其余型号没有这条命令。
+                    for bytes in initial_light_config(config.profile) {
+                        if failed.is_some() {
+                            break;
+                        }
+                        tracing::info!(
+                            device = %config.id,
+                            command = %String::from_utf8_lossy(&bytes).trim_end(),
+                            "sending halo custom light table (LC:)"
+                        );
+                        if let Err(error) = opened.write(&bytes) {
+                            failed = Some(error);
+                        }
+                    }
+                    if failed.is_none() && config.profile.has_brightness_command() {
                         let bytes = brightness_bytes(config.profile, target.brightness);
                         if let Err(error) = opened.write(&bytes) {
                             failed = Some(error);
@@ -337,6 +352,18 @@ async fn run(mut config: ActorConfig, mut shutdown: watch::Receiver<bool>) {
             info.last_error = None;
             info.last_seen_ms = Some(agent_beacon_core::now_ms());
         });
+    }
+}
+
+/// 连接时先写的“初始化”命令：Halo 需要逐条下发 `LC:` 灯效表（`BUSY` 橙色），
+/// Light 与其他型号没有这条命令，直接跳过。
+///
+/// 固件把 `;` 当命令分隔符，一条 `LC:` 只能带一个状态，所以要发 6 条。
+fn initial_light_config(profile: DeviceProfile) -> Vec<Vec<u8>> {
+    if profile.is_agentcore_halo() {
+        crate::agentcore::custom_light_commands()
+    } else {
+        Vec::new()
     }
 }
 
@@ -651,6 +678,43 @@ mod tests {
         assert_eq!(devices.len(), 1);
         assert!(devices[0].connected);
         drop(desired_tx);
+    }
+
+    #[tokio::test]
+    async fn halo_writes_custom_light_config_before_brightness() {
+        let log = RecordingLog::default();
+        let recorder = log.clone();
+        let registry = new_registry();
+        let (_desired_tx, desired_rx) = watch::channel(desired(Effect::Busy, 60));
+
+        let _actor = spawn(ActorConfig {
+            id: "halo:0".into(),
+            port: "halo:0".into(),
+            profile: DeviceProfile::AgentCoreHalo,
+            factory: Arc::new(move || Ok(Box::new(RecordingTransport::new(recorder.clone())))),
+            desired: desired_rx,
+            registry,
+            max_backoff_secs: 30,
+            on_online: None,
+            on_change: None,
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let entries = log.entries();
+        // 灯效表拆成 6 条（`;` 在固件里是命令分隔符），逐条跟在亮度命令之前。
+        let expected: Vec<String> = crate::agentcore::default_custom_light_rows()
+            .iter()
+            .map(|row| crate::hex(format!("LC:{row}\n").as_bytes()))
+            .collect();
+        assert_eq!(
+            entries.get(..expected.len()),
+            Some(expected.as_slice()),
+            "连接后先逐条下发灯效表（BUSY 橙色）：{entries:?}"
+        );
+        assert!(
+            entries.len() >= expected.len() + 2,
+            "亮度命令与状态命令应跟在灯效表之后：{entries:?}"
+        );
     }
 
     #[test]

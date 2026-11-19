@@ -45,6 +45,10 @@ pub fn state_command(effect: Effect) -> &'static str {
 /// 主机侧白名单：只允许协议文档列出的命令。
 pub fn validate_command(command: &str) -> bool {
     let head = command.split(':').next().unwrap_or_default();
+    // `LC:` 是唯一带 `,` / `;` 的多字段命令，单独校验。
+    if head == "LC" {
+        return valid_custom_light(command);
+    }
     match head {
         "HELLO" | "STATUS" | "GET_SETTINGS" | "GET_BT_NAME" => return !command.contains(':'),
         "OFF" | "IDLE" | "BUSY" | "SUCCESS" | "ERROR" | "WAIT_CONFIRM" | "CONFIRM" | "WAITING"
@@ -106,6 +110,197 @@ pub fn valid_bluetooth_name(name: &str) -> bool {
         && suffix
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+}
+
+/// 自定义灯效 `LC:` 的状态索引（AgentCore-Halo 特性，见协议文档 §3）。
+pub const LC_STATE_IDLE: u8 = 0;
+pub const LC_STATE_BUSY: u8 = 1;
+pub const LC_STATE_SUCCESS: u8 = 2;
+pub const LC_STATE_ATTENTION: u8 = 3;
+pub const LC_STATE_ERROR: u8 = 4;
+pub const LC_STATE_OFF: u8 = 5;
+
+/// `LC:` 的动画类型：`0` default、`1` solid、`2` blink、`3` breathe、`4` off。
+///
+/// 注意：`default` 在固件里是“用内置灯效”，**颜色会被忽略**（还是要黄色），
+/// 所以想改颜色必须显式指定动画。
+pub const LC_EFFECT_DEFAULT: u8 = 0;
+pub const LC_EFFECT_SOLID: u8 = 1;
+pub const LC_EFFECT_BLINK: u8 = 2;
+pub const LC_EFFECT_BREATHE: u8 = 3;
+pub const LC_EFFECT_OFF: u8 = 4;
+
+/// `运行中` 与 `需要关注` 共用的橙色：固件默认 `#FFD400` 偏黄，实机上两者互相分不开，
+/// 也看不出“正在跑”，所以统一改成橙色 `#FF6A00`，用动画（呼吸 / 常亮）区分状态。
+pub const ORANGE_RGB: (u8, u8, u8) = (0xFF, 0x6A, 0x00);
+/// `BUSY`（运行中）的动画：呼吸；周期用厂商的“中速” 2400 ms。
+pub const BUSY_EFFECT: u8 = LC_EFFECT_BREATHE;
+pub const BUSY_PERIOD_MS: u16 = 2400;
+/// `WAIT_CONFIRM`（需要关注）的动画：常亮。
+pub const ATTENTION_EFFECT: u8 = LC_EFFECT_SOLID;
+
+/// 固件默认灯色：`IDLE` / `SUCCESS` 绿、`ERROR` 红、`OFF` 黑；
+/// `BUSY` / `WAIT_CONFIRM` 换成橙色（见 [`ORANGE_RGB`]）。
+const IDLE_RGB: (u8, u8, u8) = (0x00, 0xFF, 0x00);
+const SUCCESS_RGB: (u8, u8, u8) = (0x00, 0xFF, 0x00);
+const ERROR_RGB: (u8, u8, u8) = (0xFF, 0x00, 0x00);
+const OFF_RGB: (u8, u8, u8) = (0x00, 0x00, 0x00);
+
+/// 实机调试用：`AGENT_BEACON_HALO_LC` 里的整条 `LC:` 行会覆盖内置灯效表，
+/// 改完不用重编译（不合法的值会被忽略并记一条 warn）。
+pub const LC_OVERRIDE_ENV: &str = "AGENT_BEACON_HALO_LC";
+
+/// `LC:` 的一个状态行。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CustomLight {
+    pub state: u8,
+    pub effect: u8,
+    pub rgb: (u8, u8, u8),
+    pub period_ms: u16,
+    pub on_ms: u16,
+    pub off_ms: u16,
+}
+
+impl CustomLight {
+    /// 用固件默认动画（颜色会被固件忽略）。
+    pub const fn with_default_effect(state: u8, rgb: (u8, u8, u8)) -> Self {
+        Self {
+            state,
+            effect: LC_EFFECT_DEFAULT,
+            rgb,
+            period_ms: 0,
+            on_ms: 0,
+            off_ms: 0,
+        }
+    }
+
+    /// 显式动画 + 颜色（呼吸用 `period_ms`，闪烁用 `on_ms` / `off_ms`）。
+    pub const fn with_effect(
+        state: u8,
+        effect: u8,
+        rgb: (u8, u8, u8),
+        period_ms: u16,
+        on_ms: u16,
+        off_ms: u16,
+    ) -> Self {
+        Self {
+            state,
+            effect,
+            rgb,
+            period_ms,
+            on_ms,
+            off_ms,
+        }
+    }
+
+    fn fields(&self) -> String {
+        format!(
+            "{},{},{},{},{},{},{},{}",
+            self.state,
+            self.effect,
+            self.rgb.0,
+            self.rgb.1,
+            self.rgb.2,
+            self.period_ms,
+            self.on_ms,
+            self.off_ms
+        )
+    }
+}
+
+/// Halo 的整表灯效（`LC:` 的 6 行）。
+///
+/// 与固件默认值的差别在 `BUSY` 与 `WAIT_CONFIRM`：两者都改成橙色，并且必须显式写动画
+/// ——`default` 动画会让固件用自己的内置颜色（`#FFD400`），改不出橙色。为了还能分辨，
+/// `BUSY` 用呼吸、`WAIT_CONFIRM` 用常亮。
+pub fn halo_custom_lights() -> [CustomLight; 6] {
+    [
+        CustomLight::with_default_effect(LC_STATE_IDLE, IDLE_RGB),
+        CustomLight::with_effect(LC_STATE_BUSY, BUSY_EFFECT, ORANGE_RGB, BUSY_PERIOD_MS, 0, 0),
+        CustomLight::with_default_effect(LC_STATE_SUCCESS, SUCCESS_RGB),
+        CustomLight::with_effect(LC_STATE_ATTENTION, ATTENTION_EFFECT, ORANGE_RGB, 0, 0, 0),
+        CustomLight::with_default_effect(LC_STATE_ERROR, ERROR_RGB),
+        CustomLight::with_default_effect(LC_STATE_OFF, OFF_RGB),
+    ]
+}
+
+/// 内置的状态灯效行（不读环境变量，便于测试）。
+///
+/// 每个元素是 `LC:` 后面那串字段：`state,effect,r,g,b,period,on,off`。
+pub fn default_custom_light_rows() -> Vec<String> {
+    halo_custom_lights()
+        .iter()
+        .map(|light| light.fields())
+        .collect()
+}
+
+/// 每个状态一条 `LC:` 命令（`LF` 结尾）。
+///
+/// 固件的行读取器把 `;` 也当成命令结束符：一条 `LC:a;b;c;` 里除第一段之外的
+/// 每一段都会被当成独立命令回报 `ERR UNKNOWN:<...>`（实机日志确认），所以灯表
+/// 必须拆成 6 条命令逐条下发。
+///
+/// 注意：Halo 固件收到 `LC:` 会覆盖厂商上位机里保存的该状态灯效，所以只在连接
+/// 建立后下发一次（每次重连都重发）。
+pub fn custom_light_commands() -> Vec<Vec<u8>> {
+    custom_light_rows()
+        .iter()
+        .filter_map(|row| encode(&format!("LC:{row}")))
+        .collect()
+}
+
+/// 灯表的 6 行字段：默认取内置表，`AGENT_BEACON_HALO_LC` 有值时整表替换。
+fn custom_light_rows() -> Vec<String> {
+    let Ok(value) = std::env::var(LC_OVERRIDE_ENV) else {
+        return default_custom_light_rows();
+    };
+    let rows: Vec<String> = value
+        .trim()
+        .split(';')
+        .map(str::trim)
+        .filter(|row| !row.is_empty())
+        .map(|row| {
+            let row = row.strip_prefix("LC:").unwrap_or(row);
+            row.to_string()
+        })
+        .collect();
+    let complete = rows.len() == 6 && rows.iter().all(|row| valid_custom_light_row(row));
+    if !complete {
+        tracing::warn!(
+            value = value.trim(),
+            "ignoring {LC_OVERRIDE_ENV}: expected 6 `LC:` rows of 8 fields"
+        );
+        return default_custom_light_rows();
+    }
+    rows
+}
+
+/// `LC:` 字段个数：`state,effect,r,g,b,period,on,off`。
+const CUSTOM_LIGHT_FIELDS: usize = 8;
+
+/// `LC:<state>,<effect>,<r>,<g>,<b>,<period>,<on>,<off>` 的单行校验。
+fn valid_custom_light(command: &str) -> bool {
+    command
+        .strip_prefix("LC:")
+        .is_some_and(valid_custom_light_row)
+}
+
+fn valid_custom_light_row(row: &str) -> bool {
+    let fields: Vec<&str> = row.split(',').collect();
+    if fields.len() != CUSTOM_LIGHT_FIELDS {
+        return false;
+    }
+    let values: Option<Vec<u32>> = fields
+        .iter()
+        .map(|field| field.parse::<u32>().ok())
+        .collect();
+    let Some(values) = values else {
+        return false;
+    };
+    values[0] <= u32::from(LC_STATE_OFF)
+        && values[1] <= u32::from(LC_EFFECT_OFF)
+        && values[2..5].iter().all(|value| *value <= 255)
+        && values[5..].iter().all(|value| *value <= 60_000)
 }
 
 /// 固件内置音效名（文档 §5.4）。
@@ -487,6 +682,62 @@ mod tests {
         ] {
             assert!(!validate_command(invalid), "{invalid} 不应通过");
             assert!(encode(invalid).is_none());
+        }
+    }
+
+    #[test]
+    fn halo_busy_and_attention_are_orange() {
+        // BUSY=橙色呼吸、WAIT_CONFIRM=橙色常亮，其余仍是固件默认动画与颜色。
+        let rows = default_custom_light_rows();
+        assert_eq!(rows.len(), 6);
+        assert_eq!(rows[LC_STATE_IDLE as usize], "0,0,0,255,0,0,0,0");
+        assert_eq!(rows[LC_STATE_BUSY as usize], "1,3,255,106,0,2400,0,0");
+        assert_eq!(rows[LC_STATE_ATTENTION as usize], "3,1,255,106,0,0,0,0");
+
+        let busy = halo_custom_lights()[LC_STATE_BUSY as usize];
+        assert_eq!(busy.rgb, ORANGE_RGB);
+        assert_eq!(busy.effect, LC_EFFECT_BREATHE);
+        assert_eq!(busy.period_ms, 2400);
+
+        let attention = halo_custom_lights()[LC_STATE_ATTENTION as usize];
+        assert_eq!(attention.rgb, ORANGE_RGB, "需要关注也用橙色");
+        assert_eq!(attention.effect, LC_EFFECT_SOLID, "需要关注要常亮");
+        assert_eq!(attention.period_ms, 0);
+
+        // 固件把 `;` 当命令分隔符（实机回 `ERR UNKNOWN:`），所以必须一条一个状态。
+        let commands = custom_light_commands();
+        assert_eq!(commands.len(), 6);
+        assert_eq!(
+            commands[LC_STATE_BUSY as usize],
+            b"LC:1,3,255,106,0,2400,0,0\n".to_vec()
+        );
+        assert_eq!(
+            commands[LC_STATE_ATTENTION as usize],
+            b"LC:3,1,255,106,0,0,0,0\n".to_vec()
+        );
+        for command in &commands {
+            let line = String::from_utf8_lossy(command);
+            assert!(line.starts_with("LC:"), "{line} 应带 LC: 前缀");
+            assert!(!line.contains(';'), "{line} 不能带 `;`：固件会拆成多条命令");
+            assert!(validate_command(line.trim_end()), "{line} 应通过白名单");
+        }
+
+        for invalid in [
+            "LC:",
+            // 字段不全
+            "LC:1,3,255,106,0,2400",
+            // 多一个字段
+            "LC:1,3,255,106,0,2400,0,0,0",
+            // 多个状态塞进一条（旧的错误写法）
+            "LC:0,0,0,255,0,0,0,0;1,3,255,106,0,2400,0,0;",
+            // state 越界
+            "LC:6,0,0,255,0,0,0,0",
+            // 颜色越界
+            "LC:1,3,256,106,0,2400,0,0",
+            // 动画类型越界
+            "LC:1,9,255,106,0,2400,0,0",
+        ] {
+            assert!(!validate_command(invalid), "{invalid} 不应通过");
         }
     }
 
