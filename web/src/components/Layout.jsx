@@ -66,7 +66,7 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-40 border-b border-border/70 bg-background/80 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-border/70 bg-background">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-3">
           <div className="flex items-center gap-2.5">
             <BeaconLogo className="h-10 w-10 shrink-0" />
