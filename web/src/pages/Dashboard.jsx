@@ -6,6 +6,7 @@ import {
   ChevronRight,
   CircleSlash,
   Clock,
+  Hand,
   History,
   Lightbulb,
   Moon,
@@ -261,6 +262,7 @@ export default function Dashboard() {
   const [scanning, setScanning] = useState(false)
   const [now, setNow] = useState(Date.now())
   const { t, language } = useI18n()
+  const manualOverride = snapshot?.override ?? null
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000)
@@ -502,6 +504,11 @@ export default function Dashboard() {
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {lights.map((light) => {
                 const runtime = runtimeById.get(light.device)
+                // 手动覆盖只在这一台设备上生效时才算“本卡的手动灯效”。
+                const manualActive =
+                  light.overridden &&
+                  manualOverride &&
+                  (!manualOverride.device || manualOverride.device === light.device)
                 const state = AGGREGATE_ICONS[light.aggregate] ? light.aggregate : 'none'
                 const StateIcon = AGGREGATE_ICONS[state]
                 const effect = light.effect ?? runtime?.effect ?? 'off'
@@ -553,8 +560,15 @@ export default function Dashboard() {
                         <Lightbulb className="mr-1 h-3 w-3" />
                         {effectLabel(effect, t)}
                       </Badge>
-                      {light.overridden && (
-                        <Badge variant="outline">{t('dashboard.overridden')}</Badge>
+                      {manualActive && (
+                        <Badge
+                          variant="outline"
+                          className="gap-1"
+                          title={t('dashboard.manualHint')}
+                        >
+                          <Hand className="h-3 w-3" />
+                          {t('dashboard.manualBadge')}
+                        </Badge>
                       )}
                     </div>
 

@@ -242,6 +242,54 @@ describe('Dashboard', () => {
     expect(screen.getByText('部分设备被手动控制：错误')).toBeInTheDocument()
   })
 
+  it('labels a card manual effect without a countdown', () => {
+    const expires = Date.now() + 30 * 60_000
+    const route = (overrides) => ({
+      device: 'serial:A',
+      label: '左灯',
+      assignment: 'auto',
+      agents: [],
+      sessions: [],
+      aggregate: 'none',
+      auto_effect: 'off',
+      effect: 'busy',
+      overridden: false,
+      connected: true,
+      last_seen_ms: null,
+      ...overrides,
+    })
+    useBeaconStore.setState({
+      snapshot: {
+        ...snapshot,
+        sessions: [],
+        override: { effect: 'busy', expires_at_ms: expires, device: 'serial:A' },
+        routing: [
+          route({ overridden: true }),
+          route({ device: 'serial:B', label: '右灯', effect: 'calm' }),
+        ],
+        devices: [
+          { ...snapshot.devices[0], id: 'serial:A', port: '/dev/A', label: '左灯' },
+          { ...snapshot.devices[0], id: 'serial:B', port: '/dev/B', label: '右灯' },
+        ],
+      },
+      loading: false,
+    })
+    render(
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>,
+    )
+
+    // 卡片上只写“这是手动设的灯效”，倒计时留给手动控制页。
+    const left = screen.getByTestId('device-serial:A')
+    const badge = screen.getByText('手动灯效')
+    expect(left.contains(badge)).toBe(true)
+    expect(badge.getAttribute('title')).toContain('优先于自动状态')
+    expect(screen.queryByText(/手动灯效 ·/)).not.toBeInTheDocument()
+    // 未被手动覆盖的灯不显示该徽章。
+    expect(screen.getAllByText(/手动灯效/)).toHaveLength(1)
+  })
+
   it('hides device images when the console setting is off', () => {
     useBeaconStore.setState({
       snapshot: {
