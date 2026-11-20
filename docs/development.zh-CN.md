@@ -126,8 +126,8 @@ pnpm --dir web test
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
 | `GET` | `/api/v1/health` | 服务健康检查 |
-| `GET` | `/api/v1/state` | 完整状态快照 |
-| `GET` | `/api/v1/stream` | SSE 快照与更新 |
+| `GET` | `/api/v1/state` | 完整状态快照；带 `If-None-Match: "<revision>"` 且内容未变时返回 **304**（控制台每秒这样轮询） |
+| `GET` | `/api/v1/stream` | SSE 快照与更新（脚本/调试用；控制台已改为轮询，避免占用浏览器连接槽位） |
 | `GET` | `/api/v1/agents` | Agent 列表 |
 | `GET` | `/api/v1/devices` | 设备列表 |
 | `POST` | `/api/v1/devices/scan` | 触发设备发现 |

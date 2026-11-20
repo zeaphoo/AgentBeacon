@@ -126,8 +126,8 @@ The default listen address is `127.0.0.1:6980`. Configuration can be updated thr
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/v1/health` | Service health |
-| `GET` | `/api/v1/state` | Full state snapshot |
-| `GET` | `/api/v1/stream` | SSE snapshots and updates |
+| `GET` | `/api/v1/state` | Full state snapshot; returns **304** when `If-None-Match: "<revision>"` still matches (the console polls this every second) |
+| `GET` | `/api/v1/stream` | SSE snapshots and updates (for scripts/debugging; the console now polls so it does not hold a browser connection slot) |
 | `GET` | `/api/v1/agents` | Known agents |
 | `GET` | `/api/v1/devices` | Devices |
 | `POST` | `/api/v1/devices/scan` | Trigger discovery |

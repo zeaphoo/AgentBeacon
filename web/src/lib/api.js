@@ -20,8 +20,27 @@ async function request(path, options = {}) {
   return data
 }
 
+/// 条件请求：带上上次的 ETag，内容没变时服务端回 304（空 body）。
+///
+/// 控制台每秒轮询就靠它，避免每次传输整份快照。
+async function getStateIfChanged(etag) {
+  const headers = {}
+  if (etag) headers['If-None-Match'] = etag
+  const response = await fetch('/api/v1/state', { headers })
+  if (response.status === 304) return { notModified: true, etag }
+  if (!response.ok) {
+    throw new Error(translateNow('api.httpError', { status: response.status }))
+  }
+  return {
+    notModified: false,
+    etag: response.headers.get('ETag'),
+    snapshot: await response.json(),
+  }
+}
+
 export const api = {
   getState: () => request('/api/v1/state'),
+  getStateIfChanged,
   getAgents: () => request('/api/v1/agents'),
   getSessions: (limit) =>
     request(`/api/v1/sessions${limit ? `?limit=${limit}` : ''}`),

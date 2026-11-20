@@ -152,8 +152,34 @@ async fn sessions(
     }))
 }
 
-async fn state_snapshot(State(state): State<Arc<BeaconState>>) -> Json<Snapshot> {
-    Json(state.snapshot())
+async fn state_snapshot(
+    State(state): State<Arc<BeaconState>>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    let snapshot = state.snapshot();
+    let etag = format!("\"{}\"", snapshot.revision);
+    let unchanged = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.split(',').any(|item| item.trim() == etag));
+    if unchanged {
+        return (
+            StatusCode::NOT_MODIFIED,
+            [
+                (header::ETAG, etag),
+                (header::CACHE_CONTROL, "no-cache".to_string()),
+            ],
+        )
+            .into_response();
+    }
+    (
+        [
+            (header::ETAG, etag),
+            (header::CACHE_CONTROL, "no-cache".to_string()),
+        ],
+        Json(snapshot),
+    )
+        .into_response()
 }
 
 #[derive(Debug, Deserialize)]
@@ -748,6 +774,55 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = body_json(response).await;
         assert!(body["routing"].is_array());
+    }
+
+    #[tokio::test]
+    async fn state_supports_conditional_requests() {
+        use axum::http::header;
+
+        let state = test_state();
+        let app = router(state.clone());
+
+        let response = app.clone().oneshot(get("/api/v1/state")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        // 第一条必须带上 ETag，前端据此发 If-None-Match。
+        let etag = response
+            .headers()
+            .get(header::ETAG)
+            .expect("必须返回 ETag")
+            .to_str()
+            .unwrap()
+            .to_string();
+        let body = body_json(response).await;
+        assert!(body["revision"].is_u64(), "{body}");
+
+        // 内容没变：返回 304 且没有 body。
+        let request = Request::builder()
+            .uri("/api/v1/state")
+            .header(header::IF_NONE_MATCH, &etag)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+
+        // 状态变化后版本号递增，同一个 ETag 不再命中。
+        state
+            .apply_event(agent_beacon_core::Event {
+                agent: "claude".into(),
+                state: agent_beacon_core::AgentState::Working,
+                session: None,
+                message: None,
+                event: None,
+                ttl_secs: None,
+            })
+            .unwrap();
+        let request = Request::builder()
+            .uri("/api/v1/state")
+            .header(header::IF_NONE_MATCH, &etag)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]

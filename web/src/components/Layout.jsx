@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { useBeaconStore } from '../store/beacon'
 import { usePreferencesStore } from '../store/preferences'
-import { useBeaconStream } from '../hooks/useBeaconStream'
+import { useBeaconPolling } from '../hooks/useBeaconPolling'
 import { useI18n } from '../i18n'
 import { cn } from '../lib/utils'
 import { Badge } from '../components/ui/badge'
@@ -43,7 +43,7 @@ export default function Layout() {
   const setLanguage = usePreferencesStore((state) => state.setLanguage)
   const { t, language } = useI18n()
 
-  useBeaconStream()
+  useBeaconPolling()
 
   useEffect(() => {
     if (!snapshot) load()

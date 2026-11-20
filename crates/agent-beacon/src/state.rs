@@ -54,6 +54,8 @@ pub struct Snapshot {
     pub manual_override: Option<OverrideView>,
     pub service: ServiceInfo,
     pub config: Config,
+    /// 内容版本号：只有快照真的变了才递增，前端据此用 `If-None-Match` 轮询拿 304。
+    pub revision: u64,
 }
 
 struct ManualOverride {
@@ -73,6 +75,8 @@ struct Inner {
     last_desired: DesiredState,
     /// 最近一次实际下发的聚合/灯效，用于诊断日志精确记录“变化前”。
     last_view: Transition,
+    /// 快照内容版本号（每次 `publish` 递增）。
+    revision: u64,
 }
 
 pub struct BeaconState {
@@ -110,6 +114,7 @@ impl BeaconState {
                 unassigned_agents: Vec::new(),
                 last_desired: initial,
                 last_view,
+                revision: 0,
             }),
             devices: new_registry(),
             desired_tx,
@@ -244,10 +249,16 @@ impl BeaconState {
                 uptime_secs: self.started.elapsed().as_secs(),
             },
             config: inner.config.clone(),
+            revision: inner.revision,
         }
     }
 
     pub fn publish(&self) {
+        // 先递增版本号再取快照：同一批变化只对应一个版本，客户端用 ETag 就能命中 304。
+        {
+            let mut inner = self.lock();
+            inner.revision = inner.revision.wrapping_add(1);
+        }
         let snapshot = self.snapshot();
         let _ = self.events.send(snapshot);
     }

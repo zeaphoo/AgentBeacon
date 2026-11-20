@@ -6,8 +6,8 @@ vi.mock('../lib/api', () => ({
   api: { getState: vi.fn().mockResolvedValue(null) },
 }))
 
-vi.mock('../hooks/useBeaconStream', () => ({
-  useBeaconStream: () => {},
+vi.mock('../hooks/useBeaconPolling', () => ({
+  useBeaconPolling: () => {},
 }))
 
 import Layout from './Layout'
