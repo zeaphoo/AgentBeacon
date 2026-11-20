@@ -210,7 +210,7 @@ Look for a short-lived `idle` record between two `working` records when the ligh
 
 - Agent states: `idle`, `working`, `waiting`, `error`
 - Session key: `(agent, session)`; when `session` is omitted it defaults to `{agent}:default`
-- Default TTL: 900 seconds; an event can override it with `ttl_secs` (30–86400)
+- Default TTL: 3600 seconds (1 hour, so a long-running bash/build does not let the light go out mid-task); an event can override it with `ttl_secs` (30–86400)
 - Aggregate priority: `error > waiting > working > idle`; no sessions = `none`
 - Default mapping: `none → off`, `idle → calm`, `working → busy`, `waiting → attention`, `error → alert`
 

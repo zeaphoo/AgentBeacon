@@ -210,7 +210,7 @@ curl -X DELETE http://127.0.0.1:6980/api/v1/hooks   # 不重启服务即可清�
 
 - Agent 状态：`idle`、`working`、`waiting`、`error`
 - 会话键：`(agent, session)`；省略 `session` 时为 `{agent}:default`
-- 默认 TTL：900 秒；事件可用 `ttl_secs`（30–86400）覆盖
+- 默认 TTL：3600 秒（1 小时；长时间 bash/构建期间没有 hook 也不会让灯提前熄灭）；事件可用 `ttl_secs`（30–86400）覆盖
 - 聚合优先级：`error > waiting > working > idle`；无会话为 `none`
 - 默认映射：`none → off`、`idle → calm`、`working → busy`、`waiting → attention`、`error → alert`
 

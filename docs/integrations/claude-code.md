@@ -107,7 +107,7 @@ curl -sS http://127.0.0.1:6980/api/v1/events \
     "session": "terminal-1",
     "state": "working",
     "message": "正在修改 crates/agent-beacon",
-    "ttl_secs": 900
+    "ttl_secs": 3600
   }'
 ```
 

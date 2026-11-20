@@ -27,7 +27,11 @@ pub const APP_IDENTIFIER: &str = "net.quadhub.agent-beacon";
 pub const DEFAULT_PORT: u16 = 6980;
 
 /// 默认会话存活时间（秒）。
-pub const DEFAULT_TTL_SECS: u64 = 900;
+///
+/// 1 小时：agent 跑一条长时间的 bash（构建、测试、装依赖）时，两次 hook 之间可能十几分钟
+/// 没有任何上报，TTL 太短会让灯在任务还没结束时熄灭。真正的退出信号仍然靠集成上报
+/// `idle`/`stop`；这个值只是“没消息就当作已结束”的兜底，集成也可以用 `ttl_secs` 覆盖。
+pub const DEFAULT_TTL_SECS: u64 = 3_600;
 
 /// 会话 TTL 允许范围（秒）。
 pub const MIN_TTL_SECS: u64 = 30;

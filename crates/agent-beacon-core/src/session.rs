@@ -394,8 +394,26 @@ mod tests {
     }
 
     #[test]
+    fn default_ttl_covers_long_running_tools() {
+        // 1 小时：长时间 bash/构建期间没有 hook，也不会让会话提前过期。
+        let mut registry = SessionRegistry::default();
+        assert_eq!(registry.default_ttl_secs(), 3_600);
+
+        registry
+            .apply(&event("claude", AgentState::Working), 1_000)
+            .unwrap();
+        // 59 分钟内仍然算“工作中”。
+        assert_eq!(
+            registry.aggregate_at(1_000 + 59 * 60_000),
+            Aggregate::Working
+        );
+        // 超过 1 小时才过期。
+        assert_eq!(registry.aggregate_at(1_000 + 3_601_000), Aggregate::None);
+    }
+
+    #[test]
     fn expired_sessions_are_dropped() {
-        let mut registry = SessionRegistry::with_default_ttl();
+        let mut registry = SessionRegistry::new(900);
         registry
             .apply(&event("claude", AgentState::Working), 0)
             .unwrap();
@@ -407,7 +425,7 @@ mod tests {
 
     #[test]
     fn repeated_events_refresh_ttl() {
-        let mut registry = SessionRegistry::with_default_ttl();
+        let mut registry = SessionRegistry::new(900);
         registry
             .apply(&event("claude", AgentState::Working), 0)
             .unwrap();
@@ -419,7 +437,7 @@ mod tests {
 
     #[test]
     fn expire_and_collect_returns_dropped_sessions() {
-        let mut registry = SessionRegistry::with_default_ttl();
+        let mut registry = SessionRegistry::new(900);
         registry
             .apply(&event("claude", AgentState::Working), 0)
             .unwrap();
@@ -459,7 +477,7 @@ mod tests {
 
     #[test]
     fn created_at_resets_after_expiry() {
-        let mut registry = SessionRegistry::with_default_ttl();
+        let mut registry = SessionRegistry::new(900);
         registry
             .apply(&event("claude", AgentState::Working), 1_000)
             .unwrap();
@@ -472,7 +490,7 @@ mod tests {
 
     #[test]
     fn history_keeps_expired_sessions() {
-        let mut registry = SessionRegistry::with_default_ttl();
+        let mut registry = SessionRegistry::new(900);
         registry
             .apply(&event("claude", AgentState::Working), 0)
             .unwrap();
