@@ -146,6 +146,8 @@ impl AssignmentEngine {
                 }
             }
         }
+        // 灯后来上线时把堆积的会话摊开（否则会一直“两条会话挤一台灯、其它两台空着”）。
+        rebalance_sessions(&mut self.sessions, sessions, &targets, &mut loads);
 
         let (by_device, assigned_agents) = group_sessions(sessions, |view| {
             self.sessions
@@ -190,6 +192,8 @@ impl AssignmentEngine {
                 self.agents.insert(agent, device_id);
             }
         }
+        // 灯后来上线时把堆积的 agent 摊开。
+        rebalance_agents(&mut self.agents, sessions, &targets, &mut loads);
         self.agents
             .retain(|agent, device| active_agents.contains(agent) && auto_ids.contains(device));
 
@@ -257,6 +261,99 @@ fn connected_auto_ids(devices: &[ResolvedDevice]) -> BTreeSet<String> {
         .filter(|device| device.assignment == DeviceAssignment::Auto && device.connected)
         .map(|device| device.id.clone())
         .collect()
+}
+
+/// 把负载最高的在线设备上的一条“单元”挪给最闲的在线设备，直到最大/最小负载差 < 2。
+///
+/// 归属本身是粘性的（不轻易搬家，避免灯闪），但只有一台灯在线时所有会话都会堆到它
+/// 身上；灯陆续上线后如果不重新平衡，就会一直是一台灯满、其它灯空着。
+///
+/// * 只在**当前已连接**的自动设备之间平衡；
+/// * 只有 `max - min >= 2` 才动手：差 1 已经是“再搬就会来回跳”的状态；
+/// * 每次搬 `priority` 最小（最不重要、最久没更新）的那个单元。
+fn rebalance_device_load<K>(
+    map: &mut HashMap<K, String>,
+    targets: &BTreeSet<String>,
+    loads: &mut HashMap<String, usize>,
+    units: usize,
+    priority: impl Fn(&K) -> (u8, u64),
+) where
+    K: std::hash::Hash + Eq + Clone,
+{
+    if targets.len() < 2 {
+        return;
+    }
+    for _ in 0..units {
+        let mut ranking: Vec<(&String, usize)> = targets
+            .iter()
+            .map(|id| (id, loads.get(id).copied().unwrap_or_default()))
+            .collect();
+        ranking.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)));
+        let (Some(&(least_ref, min)), Some(&(most_ref, max))) = (ranking.first(), ranking.last())
+        else {
+            return;
+        };
+        let (least, most) = (least_ref.clone(), most_ref.clone());
+        if most == least || max.saturating_sub(min) < 2 {
+            return;
+        }
+        let victim = map
+            .iter()
+            .filter(|(_, device)| **device == most)
+            .map(|(key, _)| (key.clone(), priority(key)))
+            .min_by_key(|(_, rank_and_updated)| *rank_and_updated)
+            .map(|(key, _)| key);
+        let Some(victim) = victim else {
+            return;
+        };
+        map.insert(victim, least.clone());
+        if let Some(load) = loads.get_mut(&most) {
+            *load = load.saturating_sub(1);
+        }
+        *loads.entry(least).or_default() += 1;
+    }
+}
+
+/// 会话层面的重新平衡：优先搬 `idle` 的会话，其次搬最久没更新的。
+fn rebalance_sessions(
+    map: &mut HashMap<(String, String), String>,
+    sessions: &[SessionView],
+    targets: &BTreeSet<String>,
+    loads: &mut HashMap<String, usize>,
+) {
+    let views: HashMap<(&str, &str), &SessionView> = sessions
+        .iter()
+        .map(|view| ((view.agent.as_str(), view.session.as_str()), view))
+        .collect();
+    rebalance_device_load(map, targets, loads, sessions.len(), |key| {
+        match views.get(&(key.0.as_str(), key.1.as_str())) {
+            Some(view) => (view.state.rank(), view.updated_at_ms),
+            // 理论上不会命中（map 里的 key 都来自活动会话）。
+            None => (0, 0),
+        }
+    });
+}
+
+/// Agent 层面的重新平衡：把整体状态最不重要的 agent 先搬走（全是 idle 的优先），
+/// 同等重要时搬最久没有更新的。
+fn rebalance_agents(
+    map: &mut HashMap<String, String>,
+    sessions: &[SessionView],
+    targets: &BTreeSet<String>,
+    loads: &mut HashMap<String, usize>,
+) {
+    let mut weights: HashMap<&str, (u8, u64)> = HashMap::new();
+    for view in sessions {
+        let entry = weights
+            .entry(view.agent.as_str())
+            .or_insert((view.state.rank(), view.updated_at_ms));
+        entry.0 = entry.0.max(view.state.rank());
+        entry.1 = entry.1.max(view.updated_at_ms);
+    }
+    let units = weights.len();
+    rebalance_device_load(map, targets, loads, units, |agent| {
+        weights.get(agent.as_str()).copied().unwrap_or((0, 0))
+    });
 }
 
 fn empty_loads(auto_ids: &BTreeSet<String>) -> HashMap<String, usize> {
@@ -604,6 +701,125 @@ mod tests {
         let result = engine.resolve(&sessions, &devices(), &config, 10);
         assert_eq!(result.by_device.get("A").unwrap().len(), 2);
         assert_eq!(result.unassigned_agents, vec!["pi"]);
+    }
+
+    #[test]
+    fn sessions_rebalance_when_more_lights_come_online() {
+        // A 在线、B/C 还没连上：两条会话只能都落在 A。
+        let mut engine = AssignmentEngine::default();
+        let config = config(RoutingStrategy::AutoSession);
+        let mut devices = vec![
+            device("A", true),
+            ResolvedDevice {
+                connected: false,
+                last_seen_ms: None,
+                ..device("B", true)
+            },
+            ResolvedDevice {
+                connected: false,
+                last_seen_ms: None,
+                ..device("C", true)
+            },
+        ];
+        let sessions = [
+            session("pi", "s1", 1, AgentState::Working),
+            session("pi", "s2", 2, AgentState::Idle),
+        ];
+        let result = engine.resolve(&sessions, &devices, &config, 10);
+        assert_eq!(result.by_device.get("A").unwrap().len(), 2);
+
+        // B/C 上线后要重新平衡：不应继续把两条会话都挤在 A 上。
+        devices[1] = device("B", true);
+        devices[2] = device("C", true);
+        let result = engine.resolve(&sessions, &devices, &config, 20);
+        assert_eq!(result.by_device.get("A").unwrap().len(), 1);
+        assert_eq!(result.by_device.get("B").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn agents_rebalance_when_more_lights_come_online() {
+        // A 在线、B/C 还没连上：两个 agent 都落到 A。
+        let mut engine = AssignmentEngine::default();
+        let config = config(RoutingStrategy::AutoAgent);
+        let mut devices = vec![
+            device("A", true),
+            ResolvedDevice {
+                connected: false,
+                last_seen_ms: None,
+                ..device("B", true)
+            },
+            ResolvedDevice {
+                connected: false,
+                last_seen_ms: None,
+                ..device("C", true)
+            },
+        ];
+        let sessions = [
+            session("claude", "s1", 1, AgentState::Working),
+            session("codex", "s2", 2, AgentState::Working),
+        ];
+        let result = engine.resolve(&sessions, &devices, &config, 10);
+        assert_eq!(result.by_device.get("A").unwrap().len(), 2);
+
+        // 灯上线后两个 agent 应分摊到两台灯上。
+        devices[1] = device("B", true);
+        devices[2] = device("C", true);
+        let result = engine.resolve(&sessions, &devices, &config, 20);
+        assert_eq!(result.by_device.get("A").unwrap().len(), 1);
+        assert_eq!(result.by_device.get("B").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn agents_rebalance_moves_the_idle_agent_first() {
+        let mut engine = AssignmentEngine::default();
+        let config = config(RoutingStrategy::AutoAgent);
+        let mut devices = vec![
+            device("A", true),
+            ResolvedDevice {
+                connected: false,
+                last_seen_ms: None,
+                ..device("B", true)
+            },
+        ];
+        let sessions = [
+            session("busy", "s1", 1, AgentState::Working),
+            session("idle", "s2", 2, AgentState::Idle),
+        ];
+        engine.resolve(&sessions, &devices, &config, 10);
+
+        devices[1] = device("B", true);
+        let result = engine.resolve(&sessions, &devices, &config, 20);
+        let moved = &result.by_device["B"];
+        assert_eq!(moved.len(), 1);
+        assert_eq!(moved[0].agent, "idle", "先搬 idle 的 agent");
+        assert_eq!(&result.by_device["A"][0].agent, "busy");
+    }
+
+    #[test]
+    fn rebalance_moves_the_idle_session_first() {
+        // A 上同时有 working 和 idle 两条，B 空闲：搬走 idle 的那条更不打扰用户。
+        let mut engine = AssignmentEngine::default();
+        let config = config(RoutingStrategy::AutoSession);
+        let mut devices = vec![
+            device("A", true),
+            ResolvedDevice {
+                connected: false,
+                last_seen_ms: None,
+                ..device("B", true)
+            },
+        ];
+        let sessions = [
+            session("pi", "busy", 1, AgentState::Working),
+            session("pi", "idle", 2, AgentState::Idle),
+        ];
+        engine.resolve(&sessions, &devices, &config, 10);
+
+        devices[1] = device("B", true);
+        let result = engine.resolve(&sessions, &devices, &config, 20);
+        let moved = &result.by_device["B"];
+        assert_eq!(moved.len(), 1);
+        assert_eq!(moved[0].session, "idle");
+        assert_eq!(&result.by_device["A"][0].session, "busy");
     }
 
     #[test]
