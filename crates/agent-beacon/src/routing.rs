@@ -11,7 +11,11 @@ use agent_beacon_lights::DeviceInfo;
 use serde::Serialize;
 
 /// 短暂断线保留归属的时间；超过后自动设备上的 session 才会迁移。
-pub const MISSING_GRACE_MS: u64 = 60_000;
+///
+/// 只用于**保留**已有归属：设备心跳是 5 秒一次、重连退避 1–8 秒，15 秒足够覆盖一次
+/// 瞬时掉线；更长的窗口会让“灯不亮却还占着会话”拖很久。**新的分配不会给未连接的设备**
+/// （见 [`connected_auto_ids`]）。
+pub const MISSING_GRACE_MS: u64 = 15_000;
 
 /// 配置绑定 + 运行时设备状态的合并视图。
 #[derive(Debug, Clone, PartialEq)]
@@ -123,6 +127,7 @@ impl AssignmentEngine {
                 .then_with(|| a.session.cmp(&b.session))
         });
 
+        let targets = connected_auto_ids(devices);
         let mut loads = empty_loads(&auto_ids);
         for ((agent, session), device_id) in &self.sessions {
             if auto_ids.contains(device_id) && active.contains(&(agent.clone(), session.clone())) {
@@ -131,7 +136,7 @@ impl AssignmentEngine {
         }
         for view in pending {
             let key = (view.agent.clone(), view.session.clone());
-            match least_loaded(&auto_ids, &loads) {
+            match least_loaded(&targets, &loads) {
                 Some(device_id) => {
                     *loads.entry(device_id.clone()).or_default() += 1;
                     self.sessions.insert(key, device_id);
@@ -172,6 +177,7 @@ impl AssignmentEngine {
             .collect();
         pending.sort();
 
+        let targets = connected_auto_ids(devices);
         let mut loads = empty_loads(&auto_ids);
         for (agent, device_id) in &self.agents {
             if active_agents.contains(agent) && auto_ids.contains(device_id) {
@@ -179,7 +185,7 @@ impl AssignmentEngine {
             }
         }
         for agent in pending {
-            if let Some(device_id) = least_loaded(&auto_ids, &loads) {
+            if let Some(device_id) = least_loaded(&targets, &loads) {
                 *loads.entry(device_id.clone()).or_default() += 1;
                 self.agents.insert(agent, device_id);
             }
@@ -237,6 +243,18 @@ fn auto_device_ids(devices: &[ResolvedDevice], now_ms: u64) -> BTreeSet<String> 
     devices
         .iter()
         .filter(|device| device.assignment == DeviceAssignment::Auto && device.available(now_ms))
+        .map(|device| device.id.clone())
+        .collect()
+}
+
+/// 能接新分配的自动设备：只有**当前已连接**的才算。
+///
+/// 掉线宽限期（[`MISSING_GRACE_MS`]）只用来保留已有归属，避免瞬时掉线就把会话搬走；
+/// 但把新会话分给一台连不上的灯，只会让灯不亮、用户以为分配没生效。
+fn connected_auto_ids(devices: &[ResolvedDevice]) -> BTreeSet<String> {
+    devices
+        .iter()
+        .filter(|device| device.assignment == DeviceAssignment::Auto && device.connected)
         .map(|device| device.id.clone())
         .collect()
 }
@@ -589,14 +607,15 @@ mod tests {
     }
 
     #[test]
-    fn long_offline_device_is_excluded_and_sessions_move() {
+    fn new_sessions_skip_a_light_that_is_only_in_the_grace_window() {
+        // B 刚掉线（还在 15 秒宽限内）：归属保留，但新会话只给真正连着的 A。
         let mut engine = AssignmentEngine::default();
         let config = config(RoutingStrategy::AutoSession);
-        let mut devices = vec![
+        let devices = vec![
             device("A", true),
             ResolvedDevice {
                 connected: false,
-                last_seen_ms: Some(0),
+                last_seen_ms: Some(10),
                 ..device("B", true)
             },
         ];
@@ -605,27 +624,41 @@ mod tests {
             session("claude", "s2", 2, AgentState::Working),
         ];
         let result = engine.resolve(&sessions, &devices, &config, 10);
-        assert_eq!(result.by_device.get("A").unwrap().len(), 1);
-        assert_eq!(result.by_device.get("B").unwrap().len(), 1);
-
-        devices[1].last_seen_ms = Some(0);
-        let result = engine.resolve(&sessions, &devices, &config, MISSING_GRACE_MS + 1);
         assert_eq!(result.by_device.get("A").unwrap().len(), 2);
         assert!(!result.by_device.contains_key("B"));
     }
 
     #[test]
-    fn auto_agent_moves_agents_off_an_offline_light() {
+    fn sessions_are_retained_during_grace_then_move_off_a_dead_light() {
+        let mut engine = AssignmentEngine::default();
+        let config = config(RoutingStrategy::AutoSession);
+        let mut devices = vec![device("A", true), device("B", true)];
+        let sessions = [
+            session("claude", "s1", 1, AgentState::Working),
+            session("claude", "s2", 2, AgentState::Working),
+        ];
+        // 两台都在线：各分一个。
+        let result = engine.resolve(&sessions, &devices, &config, 10);
+        assert_eq!(result.by_device.get("A").unwrap().len(), 1);
+        assert_eq!(result.by_device.get("B").unwrap().len(), 1);
+
+        // B 掉线但仍在宽限内：归属不搬（避免瞬时掉线就闪一下）。
+        devices[1].connected = false;
+        devices[1].last_seen_ms = Some(10);
+        let result = engine.resolve(&sessions, &devices, &config, MISSING_GRACE_MS - 1);
+        assert_eq!(result.by_device.get("B").unwrap().len(), 1);
+
+        // 超过宽限：B 的会话迁到 A。
+        let result = engine.resolve(&sessions, &devices, &config, MISSING_GRACE_MS + 11);
+        assert_eq!(result.by_device.get("A").unwrap().len(), 2);
+        assert!(!result.by_device.contains_key("B"));
+    }
+
+    #[test]
+    fn auto_agent_keeps_agents_during_grace_then_moves_them() {
         let mut engine = AssignmentEngine::default();
         let config = config(RoutingStrategy::AutoAgent);
-        let mut devices = vec![
-            device("A", true),
-            ResolvedDevice {
-                connected: false,
-                last_seen_ms: Some(0),
-                ..device("B", true)
-            },
-        ];
+        let mut devices = vec![device("A", true), device("B", true)];
         let sessions = [
             session("claude", "s1", 1, AgentState::Working),
             session("codex", "s2", 2, AgentState::Working),
@@ -634,9 +667,18 @@ mod tests {
         assert_eq!(result.by_device.get("A").unwrap().len(), 1);
         assert_eq!(result.by_device.get("B").unwrap().len(), 1);
 
-        devices[1].last_seen_ms = Some(0);
-        let result = engine.resolve(&sessions, &devices, &config, MISSING_GRACE_MS + 1);
+        // 宽限期内保留归属，但新 agent 不会再分给掉线的 B。
+        devices[1].connected = false;
+        devices[1].last_seen_ms = Some(10);
+        let mut more = sessions.to_vec();
+        more.push(session("pi", "p3", 3, AgentState::Working));
+        let result = engine.resolve(&more, &devices, &config, MISSING_GRACE_MS - 1);
+        assert_eq!(result.by_device.get("B").unwrap().len(), 1);
         assert_eq!(result.by_device.get("A").unwrap().len(), 2);
+
+        // 超过宽限：B 的 agent 迁到 A。
+        let result = engine.resolve(&more, &devices, &config, MISSING_GRACE_MS + 11);
+        assert_eq!(result.by_device.get("A").unwrap().len(), 3);
         assert!(!result.by_device.contains_key("B"));
     }
 

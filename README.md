@@ -46,8 +46,10 @@ Runs fully local on `127.0.0.1:6980` — no account, no telemetry.
 Agents (Claude Code, Codex CLI, Pi, …) report session state to the local service. The service
 aggregates one global state and fans agents / sessions out to the lights with a multi-light strategy:
 unified, auto by Agent, manual by Agent, or auto by Session (sessions of one Agent spread across
-lights). Each light then renders the state it was actually assigned; strategy, assignments and effect
-mapping are all editable per device in the console.
+lights). Each light then renders the state it was actually assigned. New sessions are only handed to lights
+that are currently connected; a light that drops keeps its existing assignments for a 15-second grace
+window and picks them up again when it reconnects, after which they move to the lights that are online.
+Strategy, assignments and effect mapping are all editable per device in the console.
 
 The animation is vector SVG (SMIL), so it stays sharp at any zoom and weighs ~150 KB; regenerate it with
 `python3 scripts/how-it-works-svg.py --lang en` after changing devices or strategies.
