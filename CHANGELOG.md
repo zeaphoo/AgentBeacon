@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## [0.2.0-rc.5] - 2026-11-19
+
+### Changed
+
+- Auto routing (by Agent / by session) no longer hands new sessions to a light that is currently disconnected; the 15-second grace window only keeps assignments that already exist, so a flapping light stops taking work and its sessions move to lights that are online.
+- The console polls `/api/v1/state` instead of holding an SSE connection: one request per second (five when the tab is hidden), `If-None-Match`/`304` when nothing changed, exponential backoff on failure. This frees the browser's per-origin connection slots, so several tabs/windows no longer block other requests.
+
+### Added
+
+- `Snapshot.revision` and ETag support on `GET /api/v1/state` (`304 Not Modified` when unchanged).
+- `/api/v1/stream` stays available for scripts and debugging, but the console no longer uses it.
+
 ## [0.2.0-rc.4] - 2026-11-19
 
 ### Added

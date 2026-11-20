@@ -252,8 +252,8 @@ Release 工作流由 `v*` tag 触发，构建：
 4. 创建并推送 annotated tag：
 
    ```bash
-   git tag -a v0.2.0-rc.4 -m "AgentBeacon v0.2.0-rc.4"
-   git push origin v0.2.0-rc.4
+   git tag -a v0.2.0-rc.5 -m "AgentBeacon v0.2.0-rc.5"
+   git push origin v0.2.0-rc.5
    ```
 
 Release 工作流会校验 tag 与清单版本一致，提取中英文 changelog 内容，然后发布 GitHub Release。macOS 签名/公证使用仓库 secrets（`MAC_CERT_P12_BASE64`、`MAC_CERT_PASSWORD`、`MAC_SIGN_IDENTITY`、`MAC_NOTARY_API_KEY_ID`、`MAC_NOTARY_API_ISSUER_ID`、`MAC_NOTARY_API_KEY_P8_BASE64`）。Windows MSI 即使在预发布版本也会使用数字 ProductVersion。
