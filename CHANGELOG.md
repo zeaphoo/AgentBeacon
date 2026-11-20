@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## [0.2.0-rc.6] - 2026-11-19
+
+### Changed
+
+- The default session TTL is now one hour instead of 15 minutes: agents running long bash steps (builds, test suites, installs) often report nothing for ten or more minutes, and the light used to go out mid-task. Events can still override it with `ttl_secs` (30–86400), and `stop`/`idle` reports end a session immediately.
+
 ## [0.2.0-rc.5] - 2026-11-19
 
 ### Changed
