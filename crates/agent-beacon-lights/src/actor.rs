@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use agent_beacon_core::{DeviceProfile, Effect};
 use tokio::sync::watch;
@@ -15,6 +15,11 @@ pub type TransportFactory = Arc<dyn Fn() -> Result<Box<dyn Transport>, String> +
 
 /// 空闲时多久醒一次去读设备上报。
 const REPORT_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+/// AgentCore 设备每 5 s 发一次 `CHG:` 心跳；超过这个窗口一条上报都没有，
+/// 就认为链路已经死了。断链不一定能触发读写错误（SPP/BLE 常见），
+/// 必须靠心跳判活，否则界面会一直显示“已连接”。
+const REPORT_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// 每次成功连上后调用一次；由上层决定要不要把设备放进可见列表。
 pub type OnlineHook = Arc<dyn Fn() + Send + Sync>;
@@ -124,6 +129,8 @@ async fn run(mut config: ActorConfig, mut shutdown: watch::Receiver<bool>) {
     let mut battery = crate::battery::BatteryModel::default();
     let mut applied: Option<(Effect, bool)> = None;
     let mut applied_brightness: Option<u8> = None;
+    // 最近一次收到设备上报（含 `CHG:` / `STATUS:` / 状态回显）的时间。
+    let mut last_rx = Instant::now();
     let mut backoff = 1u64;
     let _ = &config.port;
 
@@ -172,6 +179,8 @@ async fn run(mut config: ActorConfig, mut shutdown: watch::Receiver<bool>) {
                         applied_brightness = Some(target.brightness);
                     }
                     mark_online(&config.registry, &config.id, agent_beacon_core::now_ms());
+                    // 重新计时：刚连上时设备还没发心跳，不能立即判超时。
+                    last_rx = Instant::now();
                     if let Some(hook) = config.on_online.as_ref() {
                         hook();
                     }
@@ -192,7 +201,13 @@ async fn run(mut config: ActorConfig, mut shutdown: watch::Receiver<bool>) {
 
         // 设备主动上报（`STATUS:`/`CHG:`）是异步到达的，每轮先读一次再决定要不要写。
         if let Some(writer) = transport.as_mut() {
-            if ingest_reports(writer, &mut battery, &config.registry, &config.id) {
+            if ingest_reports(
+                writer,
+                &mut battery,
+                &config.registry,
+                &config.id,
+                &mut last_rx,
+            ) {
                 notify(&config);
             }
         }
@@ -216,16 +231,18 @@ async fn run(mut config: ActorConfig, mut shutdown: watch::Receiver<bool>) {
                 _ = tokio::time::sleep(REPORT_POLL_INTERVAL) => {}
                 _ = shutdown.changed() => return,
             }
-            // BLE 断链时设备侧不会主动写失败，靠链路自检发现，避免界面一直显示“已连接”。
-            let down = transport
+            // 断链有两种来源：传输层自检失败（读线程 EOF/写失败），或者
+            // AgentCore 心跳超时。只看 `is_connected()` 会漏掉“socket 还在但设备
+            // 已经走了”的 SPP/BLE 场景。
+            let link_ok = transport
                 .as_ref()
-                .is_some_and(|writer| !writer.is_connected());
-            if down {
+                .is_none_or(|writer| writer.is_connected());
+            if let Some(reason) = lost_link_reason(config.profile, link_ok, last_rx.elapsed()) {
                 mark_offline(
                     &config.registry,
                     &config.id,
                     agent_beacon_core::now_ms(),
-                    Some(format!("{} link is down", config.port)),
+                    Some(format!("{} {reason}", config.port)),
                 );
                 transport = None;
                 applied = None;
@@ -322,7 +339,13 @@ async fn run(mut config: ActorConfig, mut shutdown: watch::Receiver<bool>) {
 
             match writer.write(&command.bytes) {
                 Ok(()) => {
-                    if ingest_reports(writer, &mut battery, &config.registry, &config.id) {
+                    if ingest_reports(
+                        writer,
+                        &mut battery,
+                        &config.registry,
+                        &config.id,
+                        &mut last_rx,
+                    ) {
                         notify(&config);
                     }
                 }
@@ -385,6 +408,26 @@ fn replay_plan(profile: DeviceProfile, effect: Effect) -> crate::CommandPlan {
     }
 }
 
+/// 链路是否已经不可用：传输层自检失败，或 AgentCore 电量心跳超时。
+///
+/// MLight / YH50 是二进制协议，没有心跳；它们靠写失败与串口枚举（worker 负责）判断。
+fn lost_link_reason(
+    profile: DeviceProfile,
+    link_ok: bool,
+    since_last_report: Duration,
+) -> Option<String> {
+    if !link_ok {
+        return Some("link is down".to_string());
+    }
+    if profile.is_agentcore() && since_last_report > REPORT_TIMEOUT {
+        return Some(format!(
+            "sent no report for {} s; treating the link as down",
+            since_last_report.as_secs()
+        ));
+    }
+    None
+}
+
 /// 读走设备主动上报（AgentCore 的 `STATUS:` / `CHG:` 心跳）。
 ///
 /// 不读会把系统缓冲撑满，所以即使不展示也必须消费；电量与固件版本顺手写进
@@ -394,9 +437,15 @@ fn ingest_reports(
     model: &mut crate::battery::BatteryModel,
     registry: &DeviceRegistry,
     id: &str,
+    last_rx: &mut Instant,
 ) -> bool {
     let mut changed = false;
-    for line in writer.drain_lines() {
+    let lines = writer.drain_lines();
+    if !lines.is_empty() {
+        // 任何一行上报都说明链路是活的（不只是 `CHG:`），心跳判活用它。
+        *last_rx = Instant::now();
+    }
+    for line in lines {
         match crate::agentcore::parse_report(&line) {
             crate::agentcore::Report::Battery(battery) => {
                 let now = agent_beacon_core::now_ms();
@@ -518,6 +567,26 @@ mod tests {
     use crate::DeviceInfo;
     use std::sync::Mutex;
     use std::time::Duration;
+
+    #[test]
+    fn link_liveness_uses_transport_state_and_agentcore_heartbeat() {
+        let fresh = Duration::from_secs(1);
+        let stale = REPORT_TIMEOUT + Duration::from_secs(1);
+
+        // 传输层说断了：任何型号都应判掉线。
+        for profile in [
+            DeviceProfile::AgentCore,
+            DeviceProfile::Mlight3Led,
+            DeviceProfile::Yh50,
+        ] {
+            assert!(lost_link_reason(profile, false, fresh).is_some());
+        }
+        // 心跳只有 AgentCore 系列有；MLight/YH50 不能因为“没有上报”被误判。
+        assert!(lost_link_reason(DeviceProfile::AgentCore, true, fresh).is_none());
+        assert!(lost_link_reason(DeviceProfile::AgentCoreHalo, true, stale).is_some());
+        assert!(lost_link_reason(DeviceProfile::Mlight3Led, true, stale).is_none());
+        assert!(lost_link_reason(DeviceProfile::Yh50, true, stale).is_none());
+    }
 
     #[derive(Clone, Default)]
     struct RecordingLog {

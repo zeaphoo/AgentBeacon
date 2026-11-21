@@ -19,8 +19,9 @@ pub trait Transport: Send {
         Vec::new()
     }
 
-    /// 链路是否还连着。默认 `true`：串口/SPP 靠读写失败判断，
-    /// BLE 由后台连接线程维护状态位，断链没有写操作时也能被及时发现。
+    /// 链路是否还连着。默认 `true`（二进制协议设备靠写失败判断）。
+    /// AgentCore 文本链路与 BLE 覆写它：读线程/连接线程在断链时置位，
+    /// 没有写操作也能被及时发现。
     fn is_connected(&self) -> bool {
         true
     }
@@ -176,6 +177,8 @@ pub struct AgentCoreTransport<L: LineLink = SerialLink> {
     link: L,
     lines: Arc<Mutex<Vec<String>>>,
     stop: Arc<AtomicBool>,
+    /// 读线程发现 EOF / 读错误时置 `false`；没有写操作时也能发现断链。
+    connected: Arc<AtomicBool>,
     reader: Option<std::thread::JoinHandle<()>>,
     name: String,
 }
@@ -230,10 +233,12 @@ impl<L: LineLink> AgentCoreTransport<L> {
 
         let lines = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(AtomicBool::new(false));
+        let connected = Arc::new(AtomicBool::new(true));
         let reader = {
             let mut reader_link = link.try_clone_link()?;
             let lines = lines.clone();
             let stop = stop.clone();
+            let connected = connected.clone();
             std::thread::Builder::new()
                 .name("agentcore-reader".to_string())
                 .spawn(move || {
@@ -241,7 +246,12 @@ impl<L: LineLink> AgentCoreTransport<L> {
                     let mut chunk = [0u8; 512];
                     while !stop.load(Ordering::Relaxed) {
                         match reader_link.read(&mut chunk) {
-                            Ok(0) => std::thread::sleep(Duration::from_millis(50)),
+                            // 读端返回 0 就是 EOF：RFCOMM 对端断开、tty hangup 都走这里。
+                            // 不能当成“暂时没数据”，否则界面会一直显示已连接。
+                            Ok(0) => {
+                                connected.store(false, Ordering::Relaxed);
+                                break;
+                            }
                             Ok(count) => {
                                 let new_lines = split_lines(&mut buffer, &chunk[..count]);
                                 if new_lines.is_empty() {
@@ -261,7 +271,11 @@ impl<L: LineLink> AgentCoreTransport<L> {
                                     error.kind(),
                                     std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
                                 ) => {}
-                            Err(_) => break,
+                            Err(_) => {
+                                // 非超时类读错误（拔线、socket 断开）同样说明链路已死。
+                                connected.store(false, Ordering::Relaxed);
+                                break;
+                            }
                         }
                     }
                 })
@@ -272,6 +286,7 @@ impl<L: LineLink> AgentCoreTransport<L> {
             link,
             lines,
             stop,
+            connected,
             reader: Some(reader),
             name,
         })
@@ -314,6 +329,10 @@ impl<L: LineLink> Transport for AgentCoreTransport<L> {
             .lock()
             .map(|mut lines| std::mem::take(&mut *lines))
             .unwrap_or_default()
+    }
+
+    fn is_connected(&self) -> bool {
+        self.connected.load(Ordering::Relaxed)
     }
 }
 
@@ -494,4 +513,82 @@ fn find_bulk_out(device: &rusb::Device<rusb::Context>) -> Option<u8> {
             endpoint.transfer_type() == rusb::TransferType::Bulk && endpoint.address() & 0x80 == 0
         })
         .map(|endpoint| endpoint.address())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io;
+
+    /// 握手时回 `HELLO:OK`，之后立刻 EOF（模拟 RFCOMM/tty 对端断开）。
+    ///
+    /// `try_clone_link` 返回的句柄不带握手数据，读线程第一次读就是 EOF。
+    struct HandshakeThenEof {
+        handshake: Option<Vec<u8>>,
+        offset: usize,
+    }
+
+    impl HandshakeThenEof {
+        fn new() -> Self {
+            Self {
+                handshake: Some(b"HELLO:OK\n".to_vec()),
+                offset: 0,
+            }
+        }
+    }
+
+    impl Read for HandshakeThenEof {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            let Some(handshake) = self.handshake.as_ref() else {
+                return Ok(0);
+            };
+            if self.offset >= handshake.len() {
+                return Ok(0);
+            }
+            let count = (handshake.len() - self.offset).min(buffer.len());
+            buffer[..count].copy_from_slice(&handshake[self.offset..self.offset + count]);
+            self.offset += count;
+            Ok(count)
+        }
+    }
+
+    impl Write for HandshakeThenEof {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl LineLink for HandshakeThenEof {
+        fn try_clone_link(&self) -> Result<Self, String> {
+            Ok(Self {
+                handshake: None,
+                offset: 0,
+            })
+        }
+
+        fn label(&self) -> String {
+            "test:handshake-eof".to_string()
+        }
+    }
+
+    #[test]
+    fn read_eof_marks_the_agentcore_link_as_disconnected() {
+        let transport =
+            AgentCoreTransport::open_link(HandshakeThenEof::new(), "test").expect("握手应成功");
+        assert!(transport.is_connected(), "刚握手成功时应视为已连接");
+
+        // 读线程会在第一次读取时拿到 EOF 并置位。
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while transport.is_connected() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            !transport.is_connected(),
+            "读端 EOF 后必须报告链路已断开，否则界面会一直显示已连接"
+        );
+    }
 }
