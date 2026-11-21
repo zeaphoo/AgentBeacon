@@ -79,7 +79,14 @@
 1. 活动 session 按 `(created_at_ms, agent, session)` 排序；
 2. 已有有效归属的 session 保持不动；
 3. 新 session 选择当前 session 数最少的可用 `auto` 设备，平手按设备 id 升序；
-4. 同一个 Agent 的多个 session MAY 分散到不同灯；一台灯 MAY 混合多个 Agent。
+4. 同一个 Agent 的多个 session MAY 分散到不同灯；一台灯 MAY 混合多个 Agent；
+5. session 数摊平时 MUST 先让“在跑”的 session（非 `idle`）各占一盏灯，再按总数摊平。
+
+规则 5 的原因：只按总数摊平时，灯陆续上线会先把 `idle` 的 session 搬走，结果是「两条
+`working` 挤在同一盏灯、另外两盏灯拿着 `idle` 显示空闲」，用户看到的是“买了三盏灯只
+亮一盏”。具体做法：当某台在线灯背着 ≥2 条非 `idle` 的 session，而另一台在线灯一条
+活动 session 都没有时，把其中 `rank` 最低、最久没更新的那条搬过去；活动 session 数
+差 < 2 时不动，避免两台灯之间来回跳。
 
 #### Scenario: 三 session 三灯
 
@@ -90,6 +97,11 @@
 
 - **WHEN** 4 个活动 session，存在 3 台灯
 - **THEN** 三台灯分别分到 2、1、1 个 session
+
+#### Scenario: 两条 working + 三条 idle、三盏灯
+
+- **WHEN** 5 条 session 原本都在当时唯一在线的 A 上（2 条 `working`、3 条 `idle`），随后 B/C 上线
+- **THEN** 两条 `working` 分别落在两台灯上（另一台灯可以只拿着 `idle` 显示空闲），总数仍为 2、2、1
 
 #### Scenario: 新增 session 不移动已有
 
@@ -252,6 +264,11 @@
 ### Requirement: 不按状态动态重分配
 
 系统 MUST NOT 因为 session 状态变化（`idle`/`working`/`waiting`/`error`）而改变 Agent/session 与设备的归属。归属只能因 session/Agent 新增或过期、策略或手动映射变化、设备集合变化、显式重新分配而改变。
+
+唯一例外是 `auto_session` 下的「让在跑的 session 各占一盏灯」（见「按 Session 自动分配」
+规则 5）：把一条活动 session 从“背着多条活动 session 的灯”搬到“一条活动 session 都
+没有的灯”。它只在活动 session 数差 ≥ 2 时发生，搬完即停，不会因为状态在 `idle` /
+`working` 之间来回而反复搬动。
 
 #### Scenario: 错误状态不抢灯
 

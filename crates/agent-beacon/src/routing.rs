@@ -147,6 +147,11 @@ impl AssignmentEngine {
             }
         }
         // 灯后来上线时把堆积的会话摊开（否则会一直“两条会话挤一台灯、其它两台空着”）。
+        //
+        // 顺序很重要：先把“在跑”的会话摊到不同灯上，再按 session 数摊平。反过来的话
+        // 摊平会优先搬 `idle` 的会话，结果就是“两条 working 挤在同一盏灯、另外两盏灯
+        // 拿着 idle 显示空闲”，看上去就像有灯没被用上。
+        spread_active_sessions(&mut self.sessions, sessions, &targets, &mut loads);
         rebalance_sessions(&mut self.sessions, sessions, &targets, &mut loads);
 
         let (by_device, assigned_agents) = group_sessions(sessions, |view| {
@@ -311,6 +316,101 @@ fn rebalance_device_load<K>(
             *load = load.saturating_sub(1);
         }
         *loads.entry(least).or_default() += 1;
+    }
+}
+
+/// 让“在跑”的会话优先各占一盏灯（只用于 `auto_session`）。
+///
+/// 只要有一盏灯同时背着 ≥2 条非 `idle` 的会话，而另一盏在线灯一条活动会话都没有，
+/// 就把其中最不重要的一条（`rank` 最低、最久没更新）搬过去。
+///
+/// * 活动会话数差 < 2 时不动：1 对 1 已经摊平，再搬只会来回跳；
+/// * 只搬活动会话，`idle` 的照旧留在原灯上（它们不点亮灯，搬了也没变化）；
+/// * 目标灯优先选总 session 最少的，避免为了让灯亮起来而把数量搞得更不均。
+fn spread_active_sessions(
+    map: &mut HashMap<(String, String), String>,
+    sessions: &[SessionView],
+    targets: &BTreeSet<String>,
+    loads: &mut HashMap<String, usize>,
+) {
+    if targets.len() < 2 {
+        return;
+    }
+    let views: HashMap<(&str, &str), &SessionView> = sessions
+        .iter()
+        .map(|view| ((view.agent.as_str(), view.session.as_str()), view))
+        .collect();
+    let priority = |key: &(String, String)| {
+        views
+            .get(&(key.0.as_str(), key.1.as_str()))
+            .map(|view| (view.state.rank(), view.updated_at_ms))
+            .unwrap_or((0, 0))
+    };
+
+    // 每台在线灯上的活动会话；`idle` 的不参与统计，它们不会让灯亮起来。
+    let mut per_device: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    let mut active: HashMap<String, usize> = targets.iter().map(|id| (id.clone(), 0)).collect();
+    for (key, device) in map.iter() {
+        if !targets.contains(device) {
+            continue;
+        }
+        let Some(view) = views.get(&(key.0.as_str(), key.1.as_str())) else {
+            continue;
+        };
+        if view.state.rank() == 0 {
+            continue;
+        }
+        per_device.entry(device.clone()).or_default().push(key.clone());
+        *active.entry(device.clone()).or_default() += 1;
+    }
+
+    for _ in 0..sessions.len() {
+        let busiest = targets
+            .iter()
+            .map(|id| (id, active.get(id).copied().unwrap_or_default()))
+            .max_by(|a, b| {
+                a.1.cmp(&b.1).then_with(|| {
+                    let a_load = loads.get(a.0).copied().unwrap_or_default();
+                    let b_load = loads.get(b.0).copied().unwrap_or_default();
+                    a_load.cmp(&b_load).then_with(|| b.0.cmp(a.0))
+                })
+            });
+        let Some((busiest, busiest_active)) = busiest else {
+            return;
+        };
+        if busiest_active < 2 {
+            return;
+        }
+        let spare = targets
+            .iter()
+            .filter(|id| *id != busiest && active.get(*id).copied().unwrap_or_default() == 0)
+            .min_by_key(|id| (loads.get(*id).copied().unwrap_or_default(), (*id).clone()));
+        let Some(spare) = spare.cloned() else {
+            return;
+        };
+        let Some(list) = per_device.get_mut(busiest) else {
+            return;
+        };
+        let Some(index) = list
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, key)| priority(key))
+            .map(|(index, _)| index)
+        else {
+            return;
+        };
+        let victim = list.swap_remove(index);
+        map.insert(victim.clone(), spare.clone());
+        // 搬过去以后它还是“在跑”，目标灯从此也有活动会话了。
+        per_device.entry(spare.clone()).or_default().push(victim);
+        if let Some(count) = active.get_mut(busiest) {
+            *count = count.saturating_sub(1);
+        }
+        *active.entry(spare.clone()).or_default() += 1;
+        if let Some(load) = loads.get_mut(busiest) {
+            *load = load.saturating_sub(1);
+        }
+        *loads.entry(spare).or_default() += 1;
     }
 }
 
@@ -820,6 +920,82 @@ mod tests {
         assert_eq!(moved.len(), 1);
         assert_eq!(moved[0].session, "idle");
         assert_eq!(&result.by_device["A"][0].session, "busy");
+    }
+
+    #[test]
+    fn running_sessions_get_a_lamp_each_instead_of_piling_on_one() {
+        // 截图里的情况：5 条 session 全落在当时唯一在线的 A 上（2 条 working + 3 条 idle），
+        // B/C 上线后如果只按数量摊平，会把 idle 先搬走，两条 working 仍然挤在 A 上，
+        // B/C 只显示“空闲”——看上去就像两盏灯没被用上。
+        let mut engine = AssignmentEngine::default();
+        let config = config(RoutingStrategy::AutoSession);
+        let mut devices = vec![
+            device("A", true),
+            ResolvedDevice {
+                connected: false,
+                last_seen_ms: None,
+                ..device("B", true)
+            },
+            ResolvedDevice {
+                connected: false,
+                last_seen_ms: None,
+                ..device("C", true)
+            },
+        ];
+        let sessions = [
+            session("pi", "w1", 1, AgentState::Working),
+            session("pi", "w2", 2, AgentState::Working),
+            session("pi", "i1", 3, AgentState::Idle),
+            session("pi", "i2", 4, AgentState::Idle),
+            session("pi", "i3", 5, AgentState::Idle),
+        ];
+        let result = engine.resolve(&sessions, &devices, &config, 10);
+        assert_eq!(result.by_device["A"].len(), 5);
+
+        devices[1] = device("B", true);
+        devices[2] = device("C", true);
+        let result = engine.resolve(&sessions, &devices, &config, 20);
+
+        let lamps_with_work: Vec<&String> = result
+            .by_device
+            .iter()
+            .filter(|(_, views)| views.iter().any(|view| view.state != AgentState::Idle))
+            .map(|(device, _)| device)
+            .collect();
+        assert_eq!(lamps_with_work.len(), 2, "两条 working 应各占一盏灯");
+        assert_eq!(result.by_device.values().map(Vec::len).sum::<usize>(), 5);
+        let loads: Vec<usize> = ["A", "B", "C"]
+            .iter()
+            .map(|device| result.by_device[*device].len())
+            .collect();
+        assert_eq!(loads, vec![2, 2, 1], "数量仍然摊平");
+    }
+
+    #[test]
+    fn spreading_does_not_bounce_between_lamps() {
+        // 摊平后两盏灯各一条 working、剩下一盏拿着 idle：再来几轮也不应搬动。
+        let mut engine = AssignmentEngine::default();
+        let config = config(RoutingStrategy::AutoSession);
+        let mut devices = vec![
+            device("A", true),
+            ResolvedDevice {
+                connected: false,
+                last_seen_ms: None,
+                ..device("B", true)
+            },
+        ];
+        let sessions = [
+            session("pi", "w1", 1, AgentState::Working),
+            session("pi", "w2", 2, AgentState::Working),
+            session("pi", "i1", 3, AgentState::Idle),
+        ];
+        engine.resolve(&sessions, &devices, &config, 10);
+        devices[1] = device("B", true);
+        let once = engine.resolve(&sessions, &devices, &config, 20);
+        let twice = engine.resolve(&sessions, &devices, &config, 21);
+        let thrice = engine.resolve(&sessions, &devices, &config, 22);
+        assert_eq!(once.by_device, twice.by_device);
+        assert_eq!(twice.by_device, thrice.by_device);
     }
 
     #[test]
