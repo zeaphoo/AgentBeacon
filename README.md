@@ -169,7 +169,7 @@ The built-in integrations are shipped with the service and can be installed or u
 
 ## Project status
 
-This is a pre-release (`0.2.0-rc.6`). APIs, configuration fields, and packaging details may change before a stable release.
+This is a pre-release (`0.2.0-rc.7`). APIs, configuration fields, and packaging details may change before a stable release.
 
 ## License
 

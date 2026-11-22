@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## [0.2.0-rc.7] - 2026-11-21
+
+### Fixed
+
+- Auto routing rebalances when lights come online again: sessions that piled up on the single light that was connected are spread across the lights as soon as the others reconnect, instead of one light staying full while the others sit empty.
+- By-session routing now spreads *running* sessions across lights first and only then evens out the count. Balancing by count alone kept moving `idle` sessions away, so two `working` sessions stayed on the same light while the other lights showed idle — it looked as if they were not being used. A light with two or more active sessions hands its least important one (lowest rank, least recently updated) to a light that has no active sessions at all; nothing moves while the difference is under two, so lights do not bounce.
+- AgentCore lights are declared offline when they stop reporting: `20` s without a `STATUS:`/`CHG:` heartbeat marks the link dead, and a reader EOF/read error now flips `is_connected()` instead of leaving the console showing "connected" for a light that is already gone. MLight/YH50 keep using write failures and serial enumeration.
+
 ## [0.2.0-rc.6] - 2026-11-19
 
 ### Changed
