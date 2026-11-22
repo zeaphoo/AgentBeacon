@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## [0.2.0-rc.9] - 2026-11-21
+
+### Fixed
+
+- The desktop app now really raises its window and takes focus on Linux. `show`/`unminimize`/`set_focus` are asynchronous requests to the GTK main loop, and tao only sends the focus request when the window is already visible and not marked minimized — calling the three in one callback made `set_focus` see the old (hidden) state and drop the request. The window was mapped but never activated, so clicking “打开控制台” in the tray menu brought it back without focus (and sometimes behind other windows). Window presentation is now deferred by one main-loop turn, with one delayed retry on Linux because the WM reports the deiconified state asynchronously.
+- The splash window is re-presented when it already exists, instead of silently returning: with the service stopped, “打开控制台” now brings the splash to the front.
+- macOS and Windows are unaffected — their `show`/`set_focus` are synchronous native calls.
+
 ## [0.2.0-rc.8] - 2026-11-21
 
 ### Changed
