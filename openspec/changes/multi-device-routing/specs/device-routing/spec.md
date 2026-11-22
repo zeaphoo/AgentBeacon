@@ -53,9 +53,38 @@
 
 1. 活动 Agent 按名字排序；
 2. 已有有效归属的 Agent 保持不动；
-3. 新 Agent 选择当前 Agent 数最少的可用 `auto` 设备，平手按设备 id 升序；
+3. 新 Agent 选择**分级负载最小**的可用 `auto` 设备（见下「分级负载」），平手按设备 id 升序；
 4. 同一 Agent 的全部 session MUST 落在同一台灯；
-5. 一台灯 MAY 显示多个 Agent。
+5. 一台灯 MAY 显示多个 Agent；
+6. Agent 的整体状态（它所有 session 里等级最高的那个）用于分级负载与优先级摊开。
+
+#### 分级负载
+
+设备的负载是一个按字段顺序比较的向量：
+
+`(error 数, waiting 数, 活动单元数, 单元总数)`
+
+`error` 权重最高、`total` 最低：只要一台灯上没有 `error`，它就会比已经报错的灯更早接到新单元，
+即使它已经背了更多会话。`auto_agent` 的“单元”是 Agent，`auto_session` 的单元是 session。
+
+#### 优先级摊开
+
+灯陆续上线后，SHALL 按 `error` → `waiting` → `working` 的顺序，把同一等级挤在一起
+的单元摊到不同灯上：只要两盏在线灯在同一等级上的单元数差 ≥ 2，就把多的一盏上该等级里
+最久没更新的一个搬到少的一盏（目标灯再按分级负载取最空）。每次搬动都把差值缩小 2，
+搬完即停，不会在两盏灯之间来回跳。`idle` 不参与优先级摊开（它不会点亮灯）。
+
+优先级摊开之后，再按总数摊平（差 ≥ 2 才动，优先搬 `idle`、其次最久没更新的）。
+
+#### Scenario: 两个 error Agent 三盏灯
+
+- **WHEN** 三个 Agent（两个 `error`、一个 `working`）原本都在唯一在线的 A 上，随后 B/C 上线
+- **THEN** 两个 `error` Agent 各占一盏灯，`working` 落在第三盏
+
+#### Scenario: 新 Agent 不叠加到已报错的灯
+
+- **WHEN** A 上是 `error` 的 Agent，B 只是 `idle`，此时新增一个 `waiting` 的 Agent
+- **THEN** 新 Agent 进入 B（分级负载更小），不会被 A 的 `error` 盖住
 
 #### Scenario: 一个 Agent 多个 session
 
@@ -78,15 +107,13 @@
 
 1. 活动 session 按 `(created_at_ms, agent, session)` 排序；
 2. 已有有效归属的 session 保持不动；
-3. 新 session 选择当前 session 数最少的可用 `auto` 设备，平手按设备 id 升序；
+3. 新 session 选择**分级负载最小**的可用 `auto` 设备（见「按 Agent 自动分配」里的分级负载定义），平手按设备 id 升序；
 4. 同一个 Agent 的多个 session MAY 分散到不同灯；一台灯 MAY 混合多个 Agent；
-5. session 数摊平时 MUST 先让“在跑”的 session（非 `idle`）各占一盏灯，再按总数摊平。
+5. 灯上线后的重排 MUST 先按优先级等级摊（`error` → `waiting` → `working`），再按 session 总数摊平。
 
 规则 5 的原因：只按总数摊平时，灯陆续上线会先把 `idle` 的 session 搬走，结果是「两条
 `working` 挤在同一盏灯、另外两盏灯拿着 `idle` 显示空闲」，用户看到的是“买了三盏灯只
-亮一盏”。具体做法：当某台在线灯背着 ≥2 条非 `idle` 的 session，而另一台在线灯一条
-活动 session 都没有时，把其中 `rank` 最低、最久没更新的那条搬过去；活动 session 数
-差 < 2 时不动，避免两台灯之间来回跳。
+亮一盏”。规则见「按 Agent 自动分配」里的优先级摊开，两个策略共用同一套逻辑。
 
 #### Scenario: 三 session 三灯
 
@@ -102,6 +129,11 @@
 
 - **WHEN** 5 条 session 原本都在当时唯一在线的 A 上（2 条 `working`、3 条 `idle`），随后 B/C 上线
 - **THEN** 两条 `working` 分别落在两台灯上（另一台灯可以只拿着 `idle` 显示空闲），总数仍为 2、2、1
+
+#### Scenario: 两条 error 挤在一盏灯
+
+- **WHEN** 三条 session（两条 `error`、一条 `working`）原本都在唯一在线的 A 上，B/C 上线
+- **THEN** 两条 `error` 各占一盏灯（总数 1、1、1），而不是 `error` 并在一盏灯、另一盏显示 `working`
 
 #### Scenario: 新增 session 不移动已有
 
@@ -263,12 +295,12 @@
 
 ### Requirement: 不按状态动态重分配
 
-系统 MUST NOT 因为 session 状态变化（`idle`/`working`/`waiting`/`error`）而改变 Agent/session 与设备的归属。归属只能因 session/Agent 新增或过期、策略或手动映射变化、设备集合变化、显式重新分配而改变。
+系统 MUST NOT 因为 session 状态变化（`idle`/`working`/`waiting`/`error`）而单单为了“挪个位置”把
+Agent/session 搬到别的灯上。归属只能因 session/Agent 新增或过期、策略或手动映射变化、设备集合变化、显式重新分配而改变。
 
-唯一例外是 `auto_session` 下的「让在跑的 session 各占一盏灯」（见「按 Session 自动分配」
-规则 5）：把一条活动 session 从“背着多条活动 session 的灯”搬到“一条活动 session 都
-没有的灯”。它只在活动 session 数差 ≥ 2 时发生，搬完即停，不会因为状态在 `idle` /
-`working` 之间来回而反复搬动。
+唯一例外是 `auto_agent` / `auto_session` 下的「优先级摊开」（见「按 Agent 自动分配」）：
+它只在**同一等级在两盏在线灯上的单元数差 ≥ 2** 时发生，每次搬动把这个差缩小 2，搬完
+即停，所以不会因为状态在 `idle` / `working` / `waiting` / `error` 之间来回而反复搬动。
 
 #### Scenario: 错误状态不抢灯
 

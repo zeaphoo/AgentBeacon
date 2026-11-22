@@ -3,8 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use agent_beacon_core::{
-    Aggregate, Config, DeviceAssignment, DeviceBinding, DeviceProfile, Effect, RoutingStrategy,
-    SessionView,
+    AgentState, Aggregate, Config, DeviceAssignment, DeviceBinding, DeviceProfile, Effect,
+    RoutingStrategy, SessionView,
 };
 use agent_beacon_lights::device::{snapshot as device_snapshot, DeviceRegistry};
 use agent_beacon_lights::DeviceInfo;
@@ -128,17 +128,27 @@ impl AssignmentEngine {
         });
 
         let targets = connected_auto_ids(devices);
+        let views: HashMap<(&str, &str), &SessionView> = sessions
+            .iter()
+            .map(|view| ((view.agent.as_str(), view.session.as_str()), view))
+            .collect();
         let mut loads = empty_loads(&auto_ids);
-        for ((agent, session), device_id) in &self.sessions {
-            if auto_ids.contains(device_id) && active.contains(&(agent.clone(), session.clone())) {
-                *loads.entry(device_id.clone()).or_default() += 1;
+        for view in sessions {
+            let key = (view.agent.clone(), view.session.clone());
+            if let Some(device_id) = self.sessions.get(&key) {
+                if auto_ids.contains(device_id) {
+                    loads.entry(device_id.clone()).or_default().add(view.state);
+                }
             }
         }
         for view in pending {
             let key = (view.agent.clone(), view.session.clone());
             match least_loaded(&targets, &loads) {
                 Some(device_id) => {
-                    *loads.entry(device_id.clone()).or_default() += 1;
+                    loads
+                        .entry(device_id.clone())
+                        .or_default()
+                        .add(view.state);
                     self.sessions.insert(key, device_id);
                 }
                 None => {
@@ -148,11 +158,17 @@ impl AssignmentEngine {
         }
         // 灯后来上线时把堆积的会话摊开（否则会一直“两条会话挤一台灯、其它两台空着”）。
         //
-        // 顺序很重要：先把“在跑”的会话摊到不同灯上，再按 session 数摊平。反过来的话
-        // 摊平会优先搬 `idle` 的会话，结果就是“两条 working 挤在同一盏灯、另外两盏灯
-        // 拿着 idle 显示空闲”，看上去就像有灯没被用上。
-        spread_active_sessions(&mut self.sessions, sessions, &targets, &mut loads);
-        rebalance_sessions(&mut self.sessions, sessions, &targets, &mut loads);
+        // 顺序很重要：先按重要性等级摊（`error` → `waiting` → `working`），再按 session
+        // 数摊平。反过来的话摊平会优先搬 `idle` 的会话，结果就是“两条 working 挤在同一
+        // 盏灯、另外两盏灯拿着 idle 显示空闲”，看上去就像有灯没被用上。
+        spread_by_priority(
+            &mut self.sessions,
+            sessions.len(),
+            &targets,
+            &mut loads,
+            |key| session_priority(&views, key),
+        );
+        rebalance_sessions(&mut self.sessions, &views, &targets, &mut loads);
 
         let (by_device, assigned_agents) = group_sessions(sessions, |view| {
             self.sessions
@@ -185,20 +201,40 @@ impl AssignmentEngine {
         pending.sort();
 
         let targets = connected_auto_ids(devices);
+        let states = agent_states(sessions);
         let mut loads = empty_loads(&auto_ids);
         for (agent, device_id) in &self.agents {
-            if active_agents.contains(agent) && auto_ids.contains(device_id) {
-                *loads.entry(device_id.clone()).or_default() += 1;
+            if auto_ids.contains(device_id) {
+                if let Some(priority) = states.get(agent.as_str()) {
+                    loads.entry(device_id.clone()).or_default().add(priority.0);
+                }
             }
         }
         for agent in pending {
             if let Some(device_id) = least_loaded(&targets, &loads) {
-                *loads.entry(device_id.clone()).or_default() += 1;
+                let state = states
+                    .get(agent.as_str())
+                    .map(|priority| priority.0)
+                    .unwrap_or(AgentState::Idle);
+                loads.entry(device_id.clone()).or_default().add(state);
                 self.agents.insert(agent, device_id);
             }
         }
-        // 灯后来上线时把堆积的 agent 摊开。
-        rebalance_agents(&mut self.agents, sessions, &targets, &mut loads);
+        // 灯后来上线时，先把重要等级高的 agent（`error` → `waiting` → `working`）摊开，
+        // 再把 agent 数摊平。
+        spread_by_priority(
+            &mut self.agents,
+            states.len(),
+            &targets,
+            &mut loads,
+            |agent| {
+                states
+                    .get(agent.as_str())
+                    .copied()
+                    .unwrap_or((AgentState::Idle, 0))
+            },
+        );
+        rebalance_agents(&mut self.agents, &states, &targets, &mut loads);
         self.agents
             .retain(|agent, device| active_agents.contains(agent) && auto_ids.contains(device));
 
@@ -268,7 +304,60 @@ fn connected_auto_ids(devices: &[ResolvedDevice]) -> BTreeSet<String> {
         .collect()
 }
 
-/// 把负载最高的在线设备上的一条“单元”挪给最闲的在线设备，直到最大/最小负载差 < 2。
+/// 一台灯的“负载”：按重要性分级的计数，按字段顺序做字典序比较。
+///
+/// 字段顺序就是优先级顺序：`error` 最该分散，其次 `waiting`，然后才是活动会话数与
+/// 会话总数。前面的字段决定两台灯谁更“空”，后面的只在前面打平时才起作用。
+///
+/// 注意：派生出来的 `Ord` 是**先比靠前的字段**，所以 `(0 error, 6 total)` 比
+/// `(1 error, 1 total)` 更“空”——这正是想要的效果：已经报了错的灯不要再接新会话。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+struct Load {
+    error: usize,
+    waiting: usize,
+    active: usize,
+    total: usize,
+}
+
+impl Load {
+    fn add(&mut self, state: AgentState) {
+        self.total += 1;
+        if state.rank() > 0 {
+            self.active += 1;
+        }
+        match state {
+            AgentState::Error => self.error += 1,
+            AgentState::Waiting => self.waiting += 1,
+            AgentState::Idle | AgentState::Working => {}
+        }
+    }
+
+    fn remove(&mut self, state: AgentState) {
+        self.total = self.total.saturating_sub(1);
+        if state.rank() > 0 {
+            self.active = self.active.saturating_sub(1);
+        }
+        match state {
+            AgentState::Error => self.error = self.error.saturating_sub(1),
+            AgentState::Waiting => self.waiting = self.waiting.saturating_sub(1),
+            AgentState::Idle | AgentState::Working => {}
+        }
+    }
+
+    /// 该等级的单元数，用来判断“同一等级是否挤在一起”。
+    fn count(&self, state: AgentState) -> usize {
+        match state {
+            AgentState::Error => self.error,
+            AgentState::Waiting => self.waiting,
+            AgentState::Working => self.active.saturating_sub(self.error + self.waiting),
+            AgentState::Idle => self
+                .total
+                .saturating_sub(self.active),
+        }
+    }
+}
+
+/// 把负载最高的在线设备上的一条“单元”挪给最闲的在线设备，直到最大/最小会话数差 < 2。
 ///
 /// 归属本身是粘性的（不轻易搬家，避免灯闪），但只有一台灯在线时所有会话都会堆到它
 /// 身上；灯陆续上线后如果不重新平衡，就会一直是一台灯满、其它灯空着。
@@ -279,9 +368,9 @@ fn connected_auto_ids(devices: &[ResolvedDevice]) -> BTreeSet<String> {
 fn rebalance_device_load<K>(
     map: &mut HashMap<K, String>,
     targets: &BTreeSet<String>,
-    loads: &mut HashMap<String, usize>,
+    loads: &mut HashMap<String, Load>,
     units: usize,
-    priority: impl Fn(&K) -> (u8, u64),
+    priority: impl Fn(&K) -> (AgentState, u64),
 ) where
     K: std::hash::Hash + Eq + Clone,
 {
@@ -291,7 +380,7 @@ fn rebalance_device_load<K>(
     for _ in 0..units {
         let mut ranking: Vec<(&String, usize)> = targets
             .iter()
-            .map(|id| (id, loads.get(id).copied().unwrap_or_default()))
+            .map(|id| (id, loads.get(id).map(|load| load.total).unwrap_or_default()))
             .collect();
         ranking.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)));
         let (Some(&(least_ref, min)), Some(&(most_ref, max))) = (ranking.first(), ranking.last())
@@ -306,164 +395,174 @@ fn rebalance_device_load<K>(
             .iter()
             .filter(|(_, device)| **device == most)
             .map(|(key, _)| (key.clone(), priority(key)))
-            .min_by_key(|(_, rank_and_updated)| *rank_and_updated)
+            .min_by_key(|(_, (state, updated_at))| (state.rank(), *updated_at))
             .map(|(key, _)| key);
         let Some(victim) = victim else {
             return;
         };
+        let state = priority(&victim).0;
         map.insert(victim, least.clone());
         if let Some(load) = loads.get_mut(&most) {
-            *load = load.saturating_sub(1);
+            load.remove(state);
         }
-        *loads.entry(least).or_default() += 1;
+        loads.entry(least).or_default().add(state);
     }
 }
 
-/// 让“在跑”的会话优先各占一盏灯（只用于 `auto_session`）。
+/// 按重要性等级把“同一等级挤在一起”的单元摊到不同灯上。
 ///
-/// 只要有一盏灯同时背着 ≥2 条非 `idle` 的会话，而另一盏在线灯一条活动会话都没有，
-/// 就把其中最不重要的一条（`rank` 最低、最久没更新）搬过去。
+/// 按 `error` → `waiting` → `working` 的顺序处理：只要有两盏在线灯在同一等级上的单元数
+/// 差 ≥ 2，就把多的一盏上该等级里最久没更新的一个搬到少的一盏；每次搬动都会把这个差
+/// 缩小 2，所以搬完就停，不会在两盏灯之间来回跳。
 ///
-/// * 活动会话数差 < 2 时不动：1 对 1 已经摊平，再搬只会来回跳；
-/// * 只搬活动会话，`idle` 的照旧留在原灯上（它们不点亮灯，搬了也没变化）；
-/// * 目标灯优先选总 session 最少的，避免为了让灯亮起来而把数量搞得更不均。
-fn spread_active_sessions(
-    map: &mut HashMap<(String, String), String>,
-    sessions: &[SessionView],
+/// `loads` 必须已经统计过 `map` 里所有属于 `targets` 的单元。
+fn spread_by_priority<K>(
+    map: &mut HashMap<K, String>,
+    units: usize,
     targets: &BTreeSet<String>,
-    loads: &mut HashMap<String, usize>,
-) {
+    loads: &mut HashMap<String, Load>,
+    priority: impl Fn(&K) -> (AgentState, u64),
+) where
+    K: std::hash::Hash + Eq + Clone,
+{
     if targets.len() < 2 {
         return;
     }
-    let views: HashMap<(&str, &str), &SessionView> = sessions
+    // 每台在线灯上按等级分组的单元。
+    let mut groups: HashMap<String, [Vec<K>; 4]> = targets
         .iter()
-        .map(|view| ((view.agent.as_str(), view.session.as_str()), view))
+        .map(|id| (id.clone(), std::array::from_fn(|_| Vec::new())))
         .collect();
-    let priority = |key: &(String, String)| {
-        views
-            .get(&(key.0.as_str(), key.1.as_str()))
-            .map(|view| (view.state.rank(), view.updated_at_ms))
-            .unwrap_or((0, 0))
-    };
-
-    // 每台在线灯上的活动会话；`idle` 的不参与统计，它们不会让灯亮起来。
-    let mut per_device: HashMap<String, Vec<(String, String)>> = HashMap::new();
-    let mut active: HashMap<String, usize> = targets.iter().map(|id| (id.clone(), 0)).collect();
     for (key, device) in map.iter() {
-        if !targets.contains(device) {
-            continue;
-        }
-        let Some(view) = views.get(&(key.0.as_str(), key.1.as_str())) else {
+        let Some(group) = groups.get_mut(device) else {
             continue;
         };
-        if view.state.rank() == 0 {
-            continue;
-        }
-        per_device.entry(device.clone()).or_default().push(key.clone());
-        *active.entry(device.clone()).or_default() += 1;
+        group[priority(key).0.rank() as usize].push(key.clone());
     }
 
-    for _ in 0..sessions.len() {
-        let busiest = targets
-            .iter()
-            .map(|id| (id, active.get(id).copied().unwrap_or_default()))
-            .max_by(|a, b| {
-                a.1.cmp(&b.1).then_with(|| {
-                    let a_load = loads.get(a.0).copied().unwrap_or_default();
-                    let b_load = loads.get(b.0).copied().unwrap_or_default();
-                    a_load.cmp(&b_load).then_with(|| b.0.cmp(a.0))
+    let mut budget = units;
+    for state in [AgentState::Error, AgentState::Waiting, AgentState::Working] {
+        let rank = state.rank() as usize;
+        while budget > 0 {
+            let count_on = |id: &String| {
+                loads
+                    .get(id)
+                    .map(|load| load.count(state))
+                    .unwrap_or_default()
+            };
+            let most = targets
+                .iter()
+                .max_by(|a, b| {
+                    count_on(a)
+                        .cmp(&count_on(b))
+                        .then_with(|| loads.get(*a).cmp(&loads.get(*b)))
+                        .then_with(|| b.cmp(a))
                 })
-            });
-        let Some((busiest, busiest_active)) = busiest else {
-            return;
-        };
-        if busiest_active < 2 {
-            return;
+                .cloned();
+            let least = targets
+                .iter()
+                .min_by(|a, b| {
+                    count_on(a)
+                        .cmp(&count_on(b))
+                        .then_with(|| loads.get(*a).cmp(&loads.get(*b)))
+                        .then_with(|| a.cmp(b))
+                })
+                .cloned();
+            let (Some(most), Some(least)) = (most, least) else {
+                return;
+            };
+            if most == least || count_on(&most).saturating_sub(count_on(&least)) < 2 {
+                break;
+            }
+            let Some(group) = groups.get_mut(&most) else {
+                break;
+            };
+            let Some(index) = group[rank]
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, key)| priority(key).1)
+                .map(|(index, _)| index)
+            else {
+                break;
+            };
+            let victim = group[rank].swap_remove(index);
+            map.insert(victim.clone(), least.clone());
+            if let Some(load) = loads.get_mut(&most) {
+                load.remove(state);
+            }
+            loads.entry(least.clone()).or_default().add(state);
+            if let Some(group) = groups.get_mut(&least) {
+                group[rank].push(victim);
+            }
+            budget -= 1;
         }
-        let spare = targets
-            .iter()
-            .filter(|id| *id != busiest && active.get(*id).copied().unwrap_or_default() == 0)
-            .min_by_key(|id| (loads.get(*id).copied().unwrap_or_default(), (*id).clone()));
-        let Some(spare) = spare.cloned() else {
-            return;
-        };
-        let Some(list) = per_device.get_mut(busiest) else {
-            return;
-        };
-        let Some(index) = list
-            .iter()
-            .enumerate()
-            .min_by_key(|(_, key)| priority(key))
-            .map(|(index, _)| index)
-        else {
-            return;
-        };
-        let victim = list.swap_remove(index);
-        map.insert(victim.clone(), spare.clone());
-        // 搬过去以后它还是“在跑”，目标灯从此也有活动会话了。
-        per_device.entry(spare.clone()).or_default().push(victim);
-        if let Some(count) = active.get_mut(busiest) {
-            *count = count.saturating_sub(1);
-        }
-        *active.entry(spare.clone()).or_default() += 1;
-        if let Some(load) = loads.get_mut(busiest) {
-            *load = load.saturating_sub(1);
-        }
-        *loads.entry(spare).or_default() += 1;
     }
 }
 
-/// 会话层面的重新平衡：优先搬 `idle` 的会话，其次搬最久没更新的。
+/// 会话层面按数量重新平衡：优先搬 `idle` 的会话，其次搬最久没更新的。
 fn rebalance_sessions(
     map: &mut HashMap<(String, String), String>,
-    sessions: &[SessionView],
+    views: &HashMap<(&str, &str), &SessionView>,
     targets: &BTreeSet<String>,
-    loads: &mut HashMap<String, usize>,
+    loads: &mut HashMap<String, Load>,
 ) {
-    let views: HashMap<(&str, &str), &SessionView> = sessions
-        .iter()
-        .map(|view| ((view.agent.as_str(), view.session.as_str()), view))
-        .collect();
-    rebalance_device_load(map, targets, loads, sessions.len(), |key| {
-        match views.get(&(key.0.as_str(), key.1.as_str())) {
-            Some(view) => (view.state.rank(), view.updated_at_ms),
-            // 理论上不会命中（map 里的 key 都来自活动会话）。
-            None => (0, 0),
-        }
+    rebalance_device_load(map, targets, loads, views.len(), |key| {
+        session_priority(views, key)
     });
 }
 
-/// Agent 层面的重新平衡：把整体状态最不重要的 agent 先搬走（全是 idle 的优先），
+/// 某条会话的排序键：等级越低、越久没更新，越先被搬走。
+fn session_priority(
+    views: &HashMap<(&str, &str), &SessionView>,
+    key: &(String, String),
+) -> (AgentState, u64) {
+    views
+        .get(&(key.0.as_str(), key.1.as_str()))
+        .map(|view| (view.state, view.updated_at_ms))
+        // 理论上不会命中（map 里的 key 都来自活动会话）。
+        .unwrap_or((AgentState::Idle, 0))
+}
+
+/// 每个 agent 的整体状态（所有 session 里等级最高的）与最近更新时间。
+fn agent_states(sessions: &[SessionView]) -> HashMap<String, (AgentState, u64)> {
+    let mut states: HashMap<String, (AgentState, u64)> = HashMap::new();
+    for view in sessions {
+        let entry = states
+            .entry(view.agent.clone())
+            .or_insert((view.state, view.updated_at_ms));
+        if view.state.rank() > entry.0.rank() {
+            entry.0 = view.state;
+        }
+        entry.1 = entry.1.max(view.updated_at_ms);
+    }
+    states
+}
+
+/// Agent 层面按数量重新平衡：整体状态最不重要的先搬（全是 idle 的优先），
 /// 同等重要时搬最久没有更新的。
 fn rebalance_agents(
     map: &mut HashMap<String, String>,
-    sessions: &[SessionView],
+    states: &HashMap<String, (AgentState, u64)>,
     targets: &BTreeSet<String>,
-    loads: &mut HashMap<String, usize>,
+    loads: &mut HashMap<String, Load>,
 ) {
-    let mut weights: HashMap<&str, (u8, u64)> = HashMap::new();
-    for view in sessions {
-        let entry = weights
-            .entry(view.agent.as_str())
-            .or_insert((view.state.rank(), view.updated_at_ms));
-        entry.0 = entry.0.max(view.state.rank());
-        entry.1 = entry.1.max(view.updated_at_ms);
-    }
-    let units = weights.len();
-    rebalance_device_load(map, targets, loads, units, |agent| {
-        weights.get(agent.as_str()).copied().unwrap_or((0, 0))
+    rebalance_device_load(map, targets, loads, states.len(), |agent| {
+        states
+            .get(agent.as_str())
+            .copied()
+            .unwrap_or((AgentState::Idle, 0))
     });
 }
 
-fn empty_loads(auto_ids: &BTreeSet<String>) -> HashMap<String, usize> {
+fn empty_loads(auto_ids: &BTreeSet<String>) -> HashMap<String, Load> {
     auto_ids
         .iter()
-        .map(|device_id| (device_id.clone(), 0))
+        .map(|device_id| (device_id.clone(), Load::default()))
         .collect()
 }
 
-fn least_loaded(auto_ids: &BTreeSet<String>, loads: &HashMap<String, usize>) -> Option<String> {
+/// 选负载最小的灯：先比 `error`，再比 `waiting`、活动会话数、会话总数，最后按设备 id。
+fn least_loaded(auto_ids: &BTreeSet<String>, loads: &HashMap<String, Load>) -> Option<String> {
     auto_ids
         .iter()
         .min_by_key(|device_id| {
@@ -996,6 +1095,201 @@ mod tests {
         let thrice = engine.resolve(&sessions, &devices, &config, 22);
         assert_eq!(once.by_device, twice.by_device);
         assert_eq!(twice.by_device, thrice.by_device);
+    }
+
+    /// 某台灯上所有 session 里等级最高的那个（灯实际显示的状态）。
+    fn lamp_state(result: &AssignmentResult, device: &str) -> Option<AgentState> {
+        result
+            .by_device
+            .get(device)?
+            .iter()
+            .map(|view| view.state)
+            .max_by_key(|state| state.rank())
+    }
+
+    #[test]
+    fn errors_get_a_lamp_each_before_working_sessions_do() {
+        // 只按数量摊平时，两条 error 会分在同一盏灯（总数 2/1/1 就“平衡”了）。
+        // A 在线时三条 session 全落在 A，B/C 上线后：两条 error 应各占一盏灯。
+        let mut engine = AssignmentEngine::default();
+        let config = config(RoutingStrategy::AutoSession);
+        let mut devices = vec![
+            device("A", true),
+            ResolvedDevice {
+                connected: false,
+                last_seen_ms: None,
+                ..device("B", true)
+            },
+            ResolvedDevice {
+                connected: false,
+                last_seen_ms: None,
+                ..device("C", true)
+            },
+        ];
+        let sessions = [
+            session("pi", "e1", 1, AgentState::Error),
+            session("pi", "e2", 2, AgentState::Error),
+            session("pi", "w1", 3, AgentState::Working),
+        ];
+        engine.resolve(&sessions, &devices, &config, 10);
+
+        devices[1] = device("B", true);
+        devices[2] = device("C", true);
+        let result = engine.resolve(&sessions, &devices, &config, 20);
+
+        let error_lamps: Vec<&String> = result
+            .by_device
+            .iter()
+            .filter(|(_, views)| views.iter().any(|view| view.state == AgentState::Error))
+            .map(|(device, _)| device)
+            .collect();
+        assert_eq!(error_lamps.len(), 2, "两条 error 应各占一盏灯");
+        assert!(result
+            .by_device
+            .values()
+            .all(|views| views.len() == 1));
+    }
+
+    #[test]
+    fn waiting_keeps_its_lamp_and_working_moves_instead() {
+        // A 上有 waiting + working，B 上线：搬 working，waiting 留在已经点亮的灯上。
+        let mut engine = AssignmentEngine::default();
+        let config = config(RoutingStrategy::AutoSession);
+        let mut devices = vec![
+            device("A", true),
+            ResolvedDevice {
+                connected: false,
+                last_seen_ms: None,
+                ..device("B", true)
+            },
+        ];
+        let sessions = [
+            session("pi", "w1", 1, AgentState::Waiting),
+            session("pi", "w2", 2, AgentState::Working),
+        ];
+        engine.resolve(&sessions, &devices, &config, 10);
+
+        devices[1] = device("B", true);
+        let result = engine.resolve(&sessions, &devices, &config, 20);
+        assert_eq!(lamp_state(&result, "A"), Some(AgentState::Waiting));
+        assert_eq!(lamp_state(&result, "B"), Some(AgentState::Working));
+    }
+
+    #[test]
+    fn new_sessions_prefer_the_less_important_light() {
+        // A 已经报了错，B 只是 idle：新的 waiting 会话应该去 B，否则会被 A 的 error 盖住。
+        let mut engine = AssignmentEngine::default();
+        let config = config(RoutingStrategy::AutoSession);
+        let devices = vec![device("A", true), device("B", true)];
+        let sessions = [
+            session("pi", "e1", 1, AgentState::Error),
+            session("pi", "i1", 2, AgentState::Idle),
+            session("pi", "n1", 3, AgentState::Waiting),
+        ];
+        let result = engine.resolve(&sessions, &devices, &config, 10);
+        assert_eq!(lamp_state(&result, "A"), Some(AgentState::Error));
+        assert_eq!(lamp_state(&result, "B"), Some(AgentState::Waiting));
+    }
+
+    #[test]
+    fn auto_agent_also_spreads_errors_to_different_lamps() {
+        // 按 Agent 分配同样按等级优先摊：两个 error agent 各占一盏灯。
+        let mut engine = AssignmentEngine::default();
+        let config = config(RoutingStrategy::AutoAgent);
+        let mut devices = vec![
+            device("A", true),
+            ResolvedDevice {
+                connected: false,
+                last_seen_ms: None,
+                ..device("B", true)
+            },
+            ResolvedDevice {
+                connected: false,
+                last_seen_ms: None,
+                ..device("C", true)
+            },
+        ];
+        let sessions = [
+            session("a1", "s1", 1, AgentState::Error),
+            session("a2", "s2", 2, AgentState::Error),
+            session("a3", "s3", 3, AgentState::Working),
+        ];
+        engine.resolve(&sessions, &devices, &config, 10);
+
+        devices[1] = device("B", true);
+        devices[2] = device("C", true);
+        let result = engine.resolve(&sessions, &devices, &config, 20);
+
+        let error_lamps: Vec<&String> = result
+            .by_device
+            .iter()
+            .filter(|(_, views)| views.iter().any(|view| view.state == AgentState::Error))
+            .map(|(device, _)| device)
+            .collect();
+        assert_eq!(error_lamps.len(), 2, "两个 error agent 应各占一盏灯");
+    }
+
+    #[test]
+    fn priority_spreading_settles_after_one_round() {
+        // 按等级摊开之后不应该在后续 tick 又搬回去。
+        let mut engine = AssignmentEngine::default();
+        let config = config(RoutingStrategy::AutoSession);
+        let mut devices = vec![
+            device("A", true),
+            ResolvedDevice {
+                connected: false,
+                last_seen_ms: None,
+                ..device("B", true)
+            },
+            ResolvedDevice {
+                connected: false,
+                last_seen_ms: None,
+                ..device("C", true)
+            },
+        ];
+        let sessions = [
+            session("pi", "e1", 1, AgentState::Error),
+            session("pi", "e2", 2, AgentState::Error),
+            session("pi", "w1", 3, AgentState::Working),
+            session("pi", "i1", 4, AgentState::Idle),
+        ];
+        engine.resolve(&sessions, &devices, &config, 10);
+        devices[1] = device("B", true);
+        devices[2] = device("C", true);
+        let once = engine.resolve(&sessions, &devices, &config, 20);
+        let twice = engine.resolve(&sessions, &devices, &config, 21);
+        assert_eq!(once.by_device, twice.by_device);
+    }
+
+    #[test]
+    fn moving_sessions_never_changes_a_lamp_state_by_itself() {
+        // 等级优先的副作用：新单元先去“没有 error”的灯，总数摊平再把旧的匀回来。
+        // 这里守住不变量：这一来一回不会把任何一盏灯的聚合状态改掉（灯不会闪）。
+        let mut engine = AssignmentEngine::default();
+        let config = config(RoutingStrategy::AutoSession);
+        let devices = vec![device("A", true), device("B", true)];
+        let sessions = [
+            session("pi", "e1", 1, AgentState::Error),
+            session("pi", "i1", 2, AgentState::Idle),
+            session("pi", "i2", 3, AgentState::Idle),
+            session("pi", "i3", 4, AgentState::Idle),
+            session("pi", "i4", 5, AgentState::Idle),
+        ];
+        let before = engine.resolve(&sessions, &devices, &config, 10);
+        let before_states = (
+            lamp_state(&before, "A"),
+            lamp_state(&before, "B"),
+        );
+        assert_eq!(before_states, (Some(AgentState::Error), Some(AgentState::Idle)));
+
+        // 新来一条 idle：先落到没有 error 的灯上，再由总数摊平匀回来。
+        let mut sessions = sessions.to_vec();
+        sessions.push(session("pi", "i5", 6, AgentState::Idle));
+        let after = engine.resolve(&sessions, &devices, &config, 20);
+        assert_eq!(after.by_device["A"].len(), 3, "总数仍然摊平");
+        assert_eq!(after.by_device["B"].len(), 3, "总数仍然摊平");
+        assert_eq!(lamp_state(&after, "A"), before_states.0, "A 的灯效不应变化");
+        assert_eq!(lamp_state(&after, "B"), before_states.1, "B 的灯效不应变化");
     }
 
     #[test]
