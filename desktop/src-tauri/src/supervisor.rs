@@ -371,7 +371,8 @@ impl Supervisor {
     }
 
     fn ensure_splash(self: &Arc<Self>, app: &AppHandle) {
-        if app.get_webview_window(SPLASH).is_some() {
+        if let Some(window) = app.get_webview_window(SPLASH) {
+            present_window(app, &window);
             return;
         }
         let supervisor = Arc::clone(self);
@@ -386,6 +387,7 @@ impl Supervisor {
         if let Ok(window) = built {
             let _ = window.center();
             self.inject_to(&window);
+            present_window(app, &window);
         }
     }
 
@@ -466,11 +468,37 @@ fn failure_hint(kind: Option<&str>) -> String {
     }
 }
 
+/// 把窗口显示到前台并抢焦点。
+///
+/// Linux（GTK）上 `unminimize` / `show` / `set_focus` 都是投递到主循环的异步请求，而
+/// tao 的 `set_focus()` 只在“窗口当前已 visible 且未被标记为最小化”时才真正发出 Focus
+/// 请求（`tao/src/platform_impl/linux/window.rs`）。在同一个回调里连着调用，`set_focus`
+/// 看到的是**旧状态**，请求被直接丢掉——表现就是“点了「打开控制台」，窗口回来了，却没
+/// 有获得焦点，也不一定在最前面”。所以这里把抢焦点延后一轮：等 show/unminimize 落地，
+/// 再 `present_with_time` 一次；WM 回传 deiconify 状态同样是异步的，所以在 Linux 上再补
+/// 一次延迟重试。
+fn present_window(app: &AppHandle, window: &WebviewWindow) {
+    let _ = window.unminimize();
+    let _ = window.show();
+
+    let deferred = window.clone();
+    let _ = app.run_on_main_thread(move || {
+        let _ = deferred.set_focus();
+    });
+
+    #[cfg(target_os = "linux")]
+    {
+        let retry = window.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            let _ = retry.set_focus();
+        });
+    }
+}
+
 fn open_console_now(app: &AppHandle, addr: &str) {
     if let Some(window) = app.get_webview_window(MAIN) {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
+        present_window(app, &window);
         return;
     }
     let Ok(url) = format!("http://{addr}/").parse::<Url>() else {
@@ -494,8 +522,7 @@ fn open_console_now(app: &AppHandle, addr: &str) {
             if let Some(splash) = app.get_webview_window(SPLASH) {
                 let _ = splash.close();
             }
-            let _ = window.show();
-            let _ = window.set_focus();
+            present_window(app, &window);
         }
         Err(error) => {
             eprintln!("failed to open console: {error}");
