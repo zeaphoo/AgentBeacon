@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 English | [中文](CHANGELOG.zh-CN.md)
 
+## [0.2.0-rc.8] - 2026-11-21
+
+### Changed
+
+- Auto routing (by Agent and by session) now spreads by importance, not just by count. A light's load is the vector `(errors, waiting, active units, total units)`, compared field by field, so a light that has already reported an `error` stops taking new work even if it is otherwise empty. A new session or agent therefore lands on the light that shows the least important thing, instead of hiding a `waiting` behind an `error` that is already on screen.
+- When lights come online, routing first spreads units of the same class (`error` → `waiting` → `working`): while two connected lights differ by two or more units of that class, the least recently updated one moves from the busier light to the emptier one, then it stops. Two `error` sessions now get a light each instead of sharing one while the other lights only show `working`. Both strategies share this logic; `idle` units only take part in the later count balancing.
+
+### Fixed
+
+- Moving a unit never changes a light's aggregate state: the light a session leaves always keeps at least one unit of the same class, so no light drops or flickers while assignments are rebalanced.
+
 ## [0.2.0-rc.7] - 2026-11-21
 
 ### Fixed
